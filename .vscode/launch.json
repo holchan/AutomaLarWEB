@@ -1,0 +1,65 @@
+// .vscode/launch.json
+// Configures debugging profiles accessible from the VS Code 'Run and Debug' panel.
+{
+    "version": "0.2.0",
+    "configurations": [
+        // --- Next.js Debugging ---
+        {
+            "name": "Next.js: Debug Client-side",
+            "type": "chrome", // Use "msedge" for Microsoft Edge
+            "request": "launch",
+            "url": "http://localhost:3000",
+            "webRoot": "${workspaceFolder}" // Helps debugger map source files correctly
+        },
+        {
+            "name": "Next.js: Debug Server-side",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "yarn dev", // Assumes 'dev' script in package.json starts Next.js
+            "serverReadyAction": {
+                 "pattern": "started server.*localhost:([0-9]+)", // Generic ready pattern
+                 "killOnServerStop": true // Stop debugging when server stops
+             }
+        },
+        {
+            "name": "Next.js: Debug Full Stack",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "yarn dev",
+            "console": "integratedTerminal",
+            "serverReadyAction": {
+                // Waits for Next.js startup message and launches Chrome debugger
+                "pattern": "- Local:.+(http://localhost:3000)",
+                "uriFormat": "%s",
+                "action": "debugWithChrome" // Use "debugWithEdge" for Microsoft Edge
+            }
+        },
+        // --- Storybook Debugging (Example - Requires configuration) ---
+        // {
+        //     "name": "Storybook: Debug",
+        //     "type": "node-terminal",
+        //     "request": "launch",
+        //     "command": "yarn storybook", // May need flags like --debug-webpack
+        //     "serverReadyAction": {
+        //         "pattern": "Storybook.*started.*(http://localhost:6006)",
+        //         "uriFormat": "%s",
+        //         "action": "debugWithChrome"
+        //     }
+        // },
+        // --- Jest/Vitest Debugging (Example - Requires test runner & extension setup) ---
+        // {
+        //     "name": "Debug Tests",
+        //     "type": "node",
+        //     "request": "launch",
+        //     "runtimeArgs": [
+        //         "--inspect-brk",
+        //         "${workspaceFolder}/node_modules/.bin/jest", // Or vitest path
+        //         "--runInBand", // Run tests serially for debugger
+        //         "--watchAll=false"
+        //     ],
+        //     "console": "integratedTerminal",
+        //     "internalConsoleOptions": "neverOpen",
+        //     "port": 9229 // Default Node debug port
+        // }
+    ]
+}
