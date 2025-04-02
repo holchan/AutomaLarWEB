@@ -1,101 +1,60 @@
-# .devcontainer/docker-compose.yml
-# Defines the services needed for the LOCAL DEVELOPMENT environment.
-# This includes the application AND its direct dependencies like the database.
-version: '3.8'
-
 services:
-  # --- Your Next.js Application Service ---
   app:
     build:
-      context: . # Build using the Dockerfile in this (.devcontainer) directory
+      context: .
       dockerfile: Dockerfile
       args: {}
 
     volumes:
-      # Mount project root (one level up) into the standard workspace directory
-      # ':cached' improves performance on macOS/Windows Docker Desktop.
-      - ..:/workspaces/${localWorkspaceFolderBasename}:cached
-
-      # Named volumes for persisting caches/dependencies across container rebuilds
-      - node_modules_devcontainer:/workspaces/${localWorkspaceFolderBasename}/node_modules
-      - next_cache_devcontainer:/workspaces/${localWorkspaceFolderBasename}/.next
-      - storybook_cache_devcontainer:/workspaces/${localWorkspaceFolderBasename}/.storybook-cache # Storybook cache
-
-      # Persist Zsh history inside the container's home directory using a named volume
+      - ..:/workspace:cached
+      - node_modules_devcontainer:/workspace/node_modules
+      - next_cache_devcontainer:/workspace/.next
+      - storybook_cache_devcontainer:/workspace/.storybook-cache
       - zsh_history_devcontainer:/home/node/.zsh_history:z
-
-    # Keep container running indefinitely so VS Code can attach
     command: sleep infinity
-
-    # Forward ports needed for development: App, Storybook, Prisma Studio
     ports:
-      - "3000:3000" # Next.js
-      - "6006:6006" # Storybook
-      - "5555:5555" # Prisma Studio
-
-    # Define environment variables using a file located in the project root
-    # IMPORTANT: Add '.env.devcontainer' to your project's .gitignore file!
+      - "3000:3000"
+      - "6006:6006"
+      - "5555:5555"
     env_file:
       - ../.env.devcontainer
-
     environment:
-      # Set container timezone (adjust to your preference, e.g., 'America/New_York')
       - TZ=Etc/UTC
-
-    # *** Run the application process as the non-root 'node' user ***
-    # Ensures correct file permissions for mounted volumes and enhances security.
     user: node
-
-    # Ensure the 'db' service is started and healthy before the 'app' service starts.
     depends_on:
       db:
-        condition: service_healthy # Wait for PostgreSQL health check
-
-    # Connect this service to the shared development network
+        condition: service_healthy
     networks:
       - home_automation_dev_net
 
-  # --- PostgreSQL Database Service (for Development ONLY) ---
   db:
-    image: postgres:15 # Use a specific, stable PostgreSQL version
-    restart: unless-stopped # Restart the DB if it crashes unexpectedly
+    image: postgres:15
+    restart: unless-stopped
     volumes:
-      # Persist database data using a named volume
       - postgres_data_devcontainer:/var/lib/postgresql/data
     environment:
-      # Define DB credentials - MUST match the DATABASE_URL in .env.devcontainer
       - POSTGRES_USER=devuser
       - POSTGRES_PASSWORD=devpassword
       - POSTGRES_DB=devdb
-      # Set Postgres timezone (consistent with the app container)
       - TZ=Etc/UTC
       - PGTZ=Etc/UTC
     ports:
-      # Expose PostgreSQL port ONLY to the host machine (optional)
-      # Useful for connecting external DB tools (pgAdmin, DBeaver) directly during development.
-      # This does NOT expose the DB to the public internet.
       - "5432:5432"
     networks:
       - home_automation_dev_net
-    # Healthcheck ensures the DB is ready before the 'app' service starts (via depends_on)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-# --- Define Named Volumes ---
-# These volumes persist data locally on the developer's machine,
-# even if the containers are stopped and removed (`docker compose down`).
 volumes:
   node_modules_devcontainer:
   next_cache_devcontainer:
   storybook_cache_devcontainer:
-  postgres_data_devcontainer:   # Persists PostgreSQL data
-  zsh_history_devcontainer:     # Persists Zsh command history
+  postgres_data_devcontainer:
+  zsh_history_devcontainer:
 
-# --- Define Custom Development Network ---
-# Allows services ('app', 'db') to communicate using their service names as hostnames.
 networks:
   home_automation_dev_net:
     driver: bridge

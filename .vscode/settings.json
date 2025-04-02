@@ -1,0 +1,205 @@
+{
+  // --- Editor Formatting & Behavior ---
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[prisma]": {
+    "editor.defaultFormatter": "Prisma.prisma"
+  },
+  "[javascript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[javascriptreact]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[typescriptreact]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
+  "editor.rulers": [80, 120],
+  "editor.stickyScroll.enabled": true,
+  "editor.minimap.enabled": false,
+  "editor.linkedEditing": true,
+
+  // --- Files ---
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+
+  // --- Explorer ---
+  "explorer.compactFolders": false,
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.patterns": {
+    "package.json": ".env*, .eslint*, .prettier*, yarn.lock, tsconfig.json, next.config.*, postcss.config.*, tailwind.config.*, prisma/schema.prisma, .huskyrc*, lint-staged*",
+    "*.js": "$(capture).js.map, $(capture).d.ts, $(capture).test.js, $(capture).spec.js",
+    "*.jsx": "$(capture).js, $(capture).test.jsx, $(capture).spec.jsx",
+    "*.ts": "$(capture).js, $(capture).js.map, $(capture).d.ts, $(capture).test.ts, $(capture).spec.ts",
+    "*.tsx": "$(capture).ts, $(capture).test.tsx, $(capture).spec.tsx"
+  },
+
+  // --- Workbench ---
+  "workbench.iconTheme": "material-icon-theme",
+  "workbench.editor.tabSizing": "shrink",
+  "workbench.editor.highlightModifiedTabs": true,
+  "workbench.editor.decorations.colors": true,
+  "workbench.editor.decorations.badges": true,
+  "workbench.colorCustomizations": {
+    "[Peacock Test Group]": {}
+  },
+
+  // --- Terminal ---
+  "terminal.integrated.defaultProfile.linux": "zsh",
+  "terminal.integrated.profiles.linux": {
+    "bash": { "path": "/bin/bash" },
+    "zsh": { "path": "/usr/bin/zsh" }
+  },
+  "terminal.integrated.scrollback": 3000,
+  "terminal.integrated.copyOnSelection": true,
+
+  // --- Language/Tool Specific ---
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+  "eslint.workingDirectories": [{ "mode": "auto" }],
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "git.enableSmartCommit": true,
+  "git.autofetch": true,
+  "gitlens.hovers.currentLine.over": "line",
+
+  // --- Code Spell Checker ---
+  "cSpell.language": "en",
+  "cSpell.words": [
+    "autofetch",
+    "autoincrement",
+    "AutomaLarWEB",
+    "bookworm",
+    "bradlc",
+    "clsx",
+    "dbaeumer",
+    "devcontainer",
+    "devcontainers",
+    "devdb",
+    "devuser",
+    "devpassword",
+    "drei",
+    "eamodio",
+    "errorlens",
+    "esbenp",
+    "formulahendry",
+    "gltfjsx",
+    "Husky",
+    "huskyrc",
+    "johnpapa",
+    "kohler",
+    "lintstaged",
+    "mikestead",
+    "Nextjs",
+    "oderwat",
+    "orta",
+    "Peacock",
+    "PGTZ",
+    "pkief",
+    "pmndrs",
+    "Postgres",
+    "PostgreSQL",
+    "Prisma",
+    "rangav",
+    "rgba",
+    "scrollback",
+    "slevesque",
+    "tailwindcss",
+    "threejs",
+    "todohighlight",
+    "TRPC",
+    "uikit",
+    "usernamehw",
+    "wayou",
+    "Zsh",
+    "zustand"
+  ],
+  "cSpell.ignorePaths": [
+    "node_modules/**",
+    "package.json",
+    "yarn.lock",
+    ".git/**",
+    ".next/**",
+    "dist/**",
+    "build/**",
+    "*.log",
+    "*.svg",
+    "*.map",
+    ".env*",
+    "public/**",
+    "prisma/migrations/**",
+    ".storybook-cache/**",
+    "storybook-static/**"
+  ],
+
+  // --- Extension Settings ---
+  "errorLens.enabled": true,
+  "errorLens.gutterIconsEnabled": true,
+  "errorLens.fontStyle": "italic",
+  "todohighlight.isEnable": true,
+  "todohighlight.keywords": [
+    {
+      "text": "DEBUG:",
+      "color": "#d32f2f",
+      "backgroundColor": "rgba(211, 47, 47, 0.1)"
+    },
+    {
+      "text": "REVIEW:",
+      "color": "#f57c00",
+      "backgroundColor": "rgba(245, 124, 0, 0.1)"
+    },
+    {
+      "text": "NOTE:",
+      "color": "#0288d1",
+      "backgroundColor": "rgba(2, 136, 209, 0.1)"
+    },
+    {
+      "text": "HACK:",
+      "color": "#7b1fa2",
+      "backgroundColor": "rgba(123, 31, 162, 0.1)"
+    },
+    {
+      "text": "TODO:",
+      "color": "#388e3c",
+      "backgroundColor": "rgba(56, 142, 60, 0.1)",
+      "overviewRulerColor": "#388e3c"
+    },
+    {
+      "text": "FIXME:",
+      "color": "#d32f2f",
+      "backgroundColor": "rgba(211, 47, 47, 0.1)",
+      "overviewRulerColor": "#d32f2f"
+    }
+  ],
+  "peacock.favoriteColors": [
+    { "name": "Azure Blue", "value": "#007fff" },
+    { "name": "Node Green", "value": "#68a063" },
+    { "name": "React Blue", "value": "#61dafb" },
+    { "name": "Postgres Blue", "value": "#336791" },
+    { "name": "Orange Web", "value": "#e67e22" }
+  ],
+
+  // --- Excludes ---
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/*/**": true,
+    "**/.next/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/prisma/generated/**": true,
+    "**/.storybook-cache/**": true,
+    "**/storybook-static/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/dist": true,
+    "**/build/**": true,
+    "*.lock": true,
+    "**/prisma/generated/**": true,
+    "**/.storybook-cache/**": true,
+    "**/storybook-static/**": true
+  }
+}

@@ -1,208 +1,67 @@
-// .devcontainer/devcontainer.json
-// Configures the VS Code integration with the Docker Compose setup.
 {
-    "name": "AutomaLarWEB",
+  "name": "AutomaLarWEB",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
 
-    // Use Docker Compose to define and run the development environment services.
-    "dockerComposeFile": "docker-compose.yml",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": "true",
+      "configureZshAsDefaultShell": "true",
+      "upgradePackages": "true"
+    }
+  },
 
-    // The primary service within docker-compose.yml that VS Code will attach to.
-    "service": "app",
+  // --- Lifecycle Hooks ---
+  "initializeCommand": "echo 'Starting Dev Container setup...'",
+  // Runs ONCE after container is created. Ensures workspace owned by 'node'.
+  "postCreateCommand": "sudo chown -R node:node /workspace",
+  // Runs EVERY time container starts. Installs deps and generates Prisma client.
+  "postStartCommand": "cd /workspace && yarn install --frozen-lockfile && npx prisma generate",
+  // Runs EVERY time VS Code attaches. Just a friendly message and Git config.
+  "postAttachCommand": {
+    "server": "echo 'Attached to AutomaLarWEB Dev Container! 🔥' && git config --global --add safe.directory ${containerWorkspaceFolder}"
+  },
 
-    // The path inside the 'app' container where the project code is mounted.
-    // MUST match the target path of the main volume mount in docker-compose.yml.
-    "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  // --- Port Forwarding ---
+  "portsAttributes": {
+    "3000": { "label": "Next.js App", "onAutoForward": "openPreview" },
+    "6006": { "label": "Storybook", "onAutoForward": "notify" },
+    "5432": { "label": "PostgreSQL DB", "onAutoForward": "silent" },
+    "5555": { "label": "Prisma Studio", "onAutoForward": "openPreview" }
+  },
 
-    // --- Dev Container Features ---
-    // Add common CLIs and tools cleanly without cluttering the Dockerfile.
-    "features": {
-        // GitHub CLI for seamless GitHub integration from the terminal
-        "ghcr.io/devcontainers/features/github-cli:1": {},
-        // Common utilities (git, zsh, sudo, etc.) + Zsh as default shell
-        "ghcr.io/devcontainers/features/common-utils:2": {
-             "installZsh": "true",
-             "configureZshAsDefaultShell": "true",
-             "upgradePackages": "true"
-        }
-    },
-
-    // --- Lifecycle Hooks (Using Yarn) ---
-    // Define commands that run at different stages of the container lifecycle.
-    "initializeCommand": "echo 'Starting Dev Container setup...'", // First step
-    "onCreateCommand": "echo 'Container created. Installing dependencies & waiting for DB...' && sleep 2", // Runs ONCE after creation (sleep gives DB slight edge)
-    // Runs if devcontainer.json changes - reinstall deps and generate client
-    "updateContentCommand": "echo 'Dev Container definition updated. Re-running install/generate.' && yarn install --frozen-lockfile && yarn prisma generate",
-    // Runs once after container is created - install deps and generate client
-    // Uses --frozen-lockfile for speed/consistency, falls back if needed.
-    "postCreateCommand": "yarn install --frozen-lockfile || (echo 'Lockfile inconsistent/missing, running full install...' && yarn install) && yarn prisma generate",
-    // Runs every time container starts (after create/attach)
-    "postStartCommand": "echo 'Container started. DB should be ready. Use Tasks (Ctrl+Shift+P) or `yarn migrate:dev` for schema changes.'",
-    // Runs every time VS Code attaches to the running container
-    "postAttachCommand": {
-        "server": "echo 'Attached to R3F Dev Container! 🔥 Use Ctrl+Shift+P -> Tasks: Run Task for common actions.' && git config --global --add safe.directory ${containerWorkspaceFolder}"
-    },
-
-    // --- Port Forwarding ---
-    // Define ports from the containers to expose on the host machine.
-    "forwardPorts": [
-        3000, // Next.js App (from 'app' service)
-        6006, // Storybook (from 'app' service)
-        5432, // PostgreSQL DB (from 'db' service, for optional external tools)
-        5555  // Prisma Studio (from 'app' service)
-    ],
-    "portsAttributes": {
-        "3000": {"label": "Next.js App", "onAutoForward": "openPreview"},
-        "6006": {"label": "Storybook", "onAutoForward": "notify"},
-        "5432": {"label": "PostgreSQL DB", "onAutoForward": "silent"}, // Don't auto-open DB port
-        "5555": {"label": "Prisma Studio", "onAutoForward": "openPreview"}
-    },
-
-    // --- VS Code Customizations ---
-    // Configure extensions and settings specific to this development environment.
-    "customizations": {
-        "vscode": {
-            // --- Extensions ---
-            // Automatically installs these extensions inside the Dev Container.
-            "extensions": [
-                // Core Essentials
-                "dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "eamodio.gitlens",
-                "github.vscode-pull-request-github", "ms-azuretools.vscode-docker",
-                "ms-vscode.vscode-typescript-next",
-                // DX & Productivity
-                "streetsidesoftware.code-spell-checker", "usernamehw.errorlens",
-                "oderwat.indent-rainbow", "christian-kohler.path-intellisense",
-                "formulahendry.auto-rename-tag", "wayou.vscode-todo-highlight",
-                "mikestead.dotenv", "wix.vscode-import-cost", "pkief.material-icon-theme",
-                "ms-vsliveshare.vsliveshare", "rangav.vscode-thunder-client",
-                "johnpapa.vscode-peacock", // Workspace coloring
-                // Framework/Library Specific
-                "bradlc.vscode-tailwindcss", // If using Tailwind
-                "orta.vscode-jest",          // If using Jest/Vitest
-                "prisma.prisma",             // Prisma ORM tooling
-                "storybookjs.storybook-vscode", // Storybook integration
-                // AI Assistants (Commented - Install manually if desired)
-                // "github.copilot", "github.copilot-chat", "cline.cline",
-                // 3D/Graphics
-                "slevesque.shader" // GLSL Syntax Highlighting
-            ],
-
-            // --- Settings ---
-            // Applies these VS Code settings when working inside the Dev Container.
-            "settings": {
-                // Editor & Formatting
-                "editor.formatOnSave": true,
-                "editor.defaultFormatter": "esbenp.prettier-vscode",
-                "[prisma]": {"editor.defaultFormatter": "prisma.prisma"},
-                "[javascript]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
-                "[javascriptreact]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
-                "[typescript]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
-                "[typescriptreact]": {"editor.defaultFormatter": "esbenp.prettier-vscode"},
-                "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
-                "editor.rulers": [80, 120],
-                "editor.stickyScroll.enabled": true,
-                "editor.minimap.enabled": false,
-                "editor.linkedEditing": true,
-
-                // Files & Explorer
-                "files.eol": "\n",
-                "files.insertFinalNewline": true,
-                "files.trimTrailingWhitespace": true,
-                "explorer.compactFolders": false,
-                "explorer.fileNesting.enabled": true,
-                "explorer.fileNesting.patterns": {
-                    "package.json": ".env*, .eslint*, .prettier*, yarn.lock, tsconfig.json, next.config.*, postcss.config.*, tailwind.config.*, prisma/schema.prisma, .huskyrc*, lint-staged*",
-                    "*.js": "$(capture).js.map, $(capture).d.ts, $(capture).test.js, $(capture).spec.js",
-                    "*.jsx": "$(capture).js, $(capture).test.jsx, $(capture).spec.jsx",
-                    "*.ts": "$(capture).js, $(capture).js.map, $(capture).d.ts, $(capture).test.ts, $(capture).spec.ts",
-                    "*.tsx": "$(capture).ts, $(capture).test.tsx, $(capture).spec.tsx"
-                },
-                "workbench.iconTheme": "material-icon-theme",
-
-                // Terminal (Defaults to Zsh installed by common-utils feature)
-                "terminal.integrated.defaultProfile.linux": "zsh",
-                "terminal.integrated.profiles.linux": {"bash": {"path": "/bin/bash"}, "zsh": {"path": "/usr/bin/zsh"}},
-                "terminal.integrated.scrollback": 3000,
-                "terminal.integrated.copyOnSelection": true,
-
-                // Linting & Type Checking
-                "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
-                "eslint.workingDirectories": [{"mode": "auto"}],
-                "typescript.tsdk": "node_modules/typescript/lib",
-                "typescript.enablePromptUseWorkspaceTsdk": true,
-
-                // Git & GitLens
-                "git.enableSmartCommit": true,
-                "git.autofetch": true,
-                "gitlens.hovers.currentLine.over": "line",
-
-                // Spell Checker
-                "cSpell.language": "en",
-                "cSpell.words": [
-                    "threejs", "pmndrs", "drei", "gltfjsx", "uikit", "devcontainer", "bookworm",
-                    "Nextjs", "tailwindcss", "autofetch", "clsx", "zustand", "TRPC", "Postgres",
-                    "PostgreSQL", "Prisma", "devuser", "devdb", "sqlachemy", "storyook", "Zsh",
-                    "lintstaged", "Husky", "Peacock" /* Add company/project names */
-                ],
-                "cSpell.ignorePaths": [
-                    "node_modules/**", "package.json", "*.lock", ".git/**", ".next/**", "dist/**",
-                    "build/**", "*.log", "*.svg", "*.map", ".env*", "public/**", "prisma/migrations/**",
-                    ".storybook-cache/**", "storybook-static/**"
-                ],
-
-                // Error Lens
-                "errorLens.enabled": true, "errorLens.gutterIconsEnabled": true, "errorLens.fontStyle": "italic",
-
-                // TODO Highlight
-                "todohighlight.isEnable": true, "todohighlight.keywords": [ /* Keep keywords from previous response */ ],
-
-                // Workbench / Appearance (Peacock)
-                "workbench.colorCustomizations": { /* Keep Peacock colors from previous response */ },
-                 "peacock.favoriteColors": [ /* Keep favorite Peacock colors from previous response */ ],
-
-                // Tab Appearance
-                "workbench.editor.tabSizing": "shrink", "workbench.editor.highlightModifiedTabs": true,
-                "workbench.editor.decorations.colors": true, "workbench.editor.decorations.badges": true,
-
-                // Exclude Files from Watcher (Performance)
-                "files.watcherExclude": {
-                    "**/.git/objects/**": true, "**/.git/subtree-cache/**": true, "**/node_modules/*/**": true,
-                    "**/.next/**": true, "**/dist/**": true, "**/build/**": true, "**/prisma/generated/**": true,
-                    "**/.storybook-cache/**": true, "**/storybook-static/**": true
-                },
-                "search.exclude": {
-                    "**/node_modules": true, "**/.next": true, "**/dist": true, "**/build/**": true,
-                    "*.lock": true, "**/prisma/generated/**": true, "**/.storybook-cache/**": true,
-                    "**/storybook-static/**": true
-                }
-            }
-        }
-    },
-
-    // --- Security & Permissions ---
-    // Run VS Code server and terminal processes as the non-root 'node' user.
-    "remoteUser": "node",
-
-    // --- Git Credential Sharing ---
-    // VS Code automatically attempts to share credentials from your host OS.
-    // Ensure host Git is configured (SSH agent, credential helper).
-
-    // --- Resource Allocation (Optional) ---
-    // Hint to Docker about resource limits for the containers if needed.
-    // "runArgs": ["--memory=4g", "--cpus=2"],
-
-    // --- Shutdown ---
-    // Automatically stop the Docker Compose stack when the VS Code window is closed.
-    "shutdownAction": "stopCompose"
-
-    // --- Actionable Next Steps ---
-    // (These are manual actions needed after cloning/setting up)
-    // 1. Create '.env.devcontainer' in project root (add to .gitignore!) with `DATABASE_URL="postgresql://devuser:devpassword@db:5432/devdb?schema=public"`.
-    // 2. Add scripts to 'package.json' matching the labels in '.vscode/tasks.json'.
-    // 3. Run `yarn add --dev prisma` and `yarn add @prisma/client`.
-    // 4. Run `yarn prisma init --datasource-provider postgresql` MANUALLY ONCE inside the container terminal (or use the optional Task).
-    // 5. Set up Git Hooks: `yarn add --dev husky lint-staged` and configure in package.json / .huskyrc.js / lint-staged.config.js.
-    // 6. Configure '.vscode/launch.json' for debugging Next.js, Storybook, Tests.
-    // 7. Document project setup, environment variables, and common tasks in the main project README.md.
-    // 8. Define your database schema in 'prisma/schema.prisma'.
-    // 9. Run `yarn migrate:dev` (or use Task) to create/update the database schema.
+  // --- VS Code Customizations ---
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "eamodio.gitlens",
+        "github.vscode-pull-request-github",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.vscode-typescript-next",
+        "streetsidesoftware.code-spell-checker",
+        "usernamehw.errorlens",
+        "oderwat.indent-rainbow",
+        "christian-kohler.path-intellisense",
+        "formulahendry.auto-rename-tag",
+        "wayou.vscode-todo-highlight",
+        "mikestead.dotenv",
+        "wix.vscode-import-cost",
+        "pkief.material-icon-theme",
+        "ms-vsliveshare.vsliveshare",
+        "rangav.vscode-thunder-client",
+        "johnpapa.vscode-peacock",
+        "bradlc.vscode-tailwindcss",
+        "orta.vscode-jest",
+        "prisma.prisma",
+        "slevesque.shader",
+        "RooVeterinaryInc.roo-cline"
+      ]
+    }
+  },
+  "remoteUser": "node",
+  "shutdownAction": "stopCompose"
 }

@@ -1,14 +1,11 @@
-// .vscode/tasks.json
-// Defines reusable tasks accessible via the Command Palette (Ctrl+Shift+P -> Tasks: Run Task)
-// Ensure corresponding scripts exist in your root package.json!
 {
     "version": "2.0.0",
     "tasks": [
         // --- Development Servers ---
         {
             "label": "dev: Next.js",
-            "type": "yarn",
-            "script": "dev",
+            "type": "shell",
+            "command": "yarn dev",
             "isBackground": true,
             "problemMatcher": [],
             "group": { "kind": "build", "isDefault": true },
@@ -16,8 +13,8 @@
         },
         {
             "label": "dev: Storybook",
-            "type": "yarn",
-            "script": "storybook",
+            "type": "shell",
+            "command": "yarn storybook",
             "isBackground": true,
             "problemMatcher": [],
             "group": "build",
@@ -26,61 +23,77 @@
         // --- Prisma / Database ---
         {
             "label": "db: Migrate Dev",
-            "type": "yarn",
-            "script": "migrate:dev",
+            "type": "shell",
+            "command": "yarn migrate:dev",
             "problemMatcher": [],
             "group": "build",
             "detail": "Applies pending DB migrations for development (yarn migrate:dev)."
         },
         {
             "label": "db: Generate Client",
-            "type": "yarn",
-            "script": "db:generate",
+            "type": "shell",
+            "command": "yarn db:generate",
             "problemMatcher": [],
             "group": "build",
             "detail": "Generates the Prisma Client (yarn db:generate)."
         },
         {
             "label": "db: Studio",
-            "type": "yarn",
-            "script": "db:studio",
+            "type": "shell",
+            "command": "yarn db:studio",
             "problemMatcher": [],
             "group": "none",
             "detail": "Opens Prisma Studio GUI (yarn db:studio). Requires port 5555."
         },
         { // Optional task for convenience, but run manually first time.
             "label": "db: Init Prisma (Run Once!)",
-            "type": "yarn",
-            "script": "prisma:init", // Requires script like "prisma:init": "prisma init --datasource-provider postgresql"
+            "type": "shell",
+            "command": "yarn prisma:init",
             "problemMatcher": [],
             "group": "none",
             "detail": "Initializes Prisma in the project (yarn prisma:init). Use only if needed!"
         },
         // --- Linting & Formatting ---
         {
-            "label": "lint", "type": "yarn", "script": "lint",
-            "problemMatcher": ["$eslint-compact"], "group": "test",
+            "label": "lint",
+            "type": "shell",
+            "command": "yarn lint",
+            "problemMatcher": ["$eslint-compact"],
+            "group": "test",
             "detail": "Runs ESLint checks (yarn lint)."
         },
         {
-            "label": "format:check", "type": "yarn", "script": "format:check",
-            "problemMatcher": [], "group": "test",
+            "label": "format:check",
+            "type": "shell",
+            "command": "yarn format:check",
+            "problemMatcher": [],
+            "group": "test",
             "detail": "Checks formatting with Prettier (yarn format:check)."
         },
         {
-            "label": "format:write", "type": "yarn", "script": "format:write",
-            "problemMatcher": [], "group": "none",
+            "label": "format:write",
+            "type": "shell",
+            "command": "yarn format:write",
+            "problemMatcher": [],
+            "group": "none",
             "detail": "Formats code with Prettier (yarn format:write)."
         },
         // --- Testing ---
         {
-            "label": "test", "type": "yarn", "script": "test",
-            "problemMatcher": [], "group": { "kind": "test", "isDefault": true },
+            "label": "test",
+            "type": "shell",
+            "command": "yarn test",
+            "problemMatcher": [],
+            "group": { "kind": "test", "isDefault": true },
             "detail": "Runs automated tests (yarn test)."
         },
         {
-            "label": "test:watch", "type": "yarn", "script": "test:watch",
-            "isBackground": true, "problemMatcher": [], "group": "test",
+            "label": "test:watch",
+            "type": "shell",
+            "command": "yarn test:watch",
+            "isBackground": true,
+            "problemMatcher": [],
+            "group": "test",
             "detail": "Runs automated tests in watch mode (yarn test:watch)."
         }
     ]
