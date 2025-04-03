@@ -2,12 +2,7 @@
   "mcpServers": {
     "cognee": {
       "command": "uv",
-      "args": [
-        "--directory",
-        "/cognee-mcp",
-        "run",
-        "cognee"
-      ],
+      "args": ["--directory", "/cognee-mcp", "run", "cognee"],
       "env": {
         "ENV": "local",
         "TOKENIZERS_PARALLELISM": "false",
