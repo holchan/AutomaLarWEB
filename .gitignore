@@ -13,8 +13,11 @@ out/
 storybook-static/
 .storybook-cache/
 
+.roo/cognee/
+
 # Env files
 .env.devcontainer
+.venv/
 
 # OS generated files
 .DS_Store
