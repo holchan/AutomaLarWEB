@@ -16,12 +16,12 @@
   // --- Lifecycle Hooks ---
   "initializeCommand": "echo 'Starting Dev Container setup...'",
   // Runs ONCE after container is created. Ensures workspace owned by 'node'.
-  "postCreateCommand": "sudo chown -R node:node /workspace",
+  "postCreateCommand": "sudo chown -R node:node /workspace && ./.devcontainer/scripts/MCP/install_cognee.sh",
   // Runs EVERY time container starts. Installs deps and generates Prisma client.
-  "postStartCommand": "cd /workspace && yarn install --frozen-lockfile && npx prisma generate",
+  "postStartCommand": "cd /workspace && yarn install --frozen-lockfile || (yarn install && npx prisma generate)",
   // Runs EVERY time VS Code attaches. Just a friendly message and Git config.
   "postAttachCommand": {
-    "server": "echo 'Attached to AutomaLarWEB Dev Container! 🔥' && git config --global --add safe.directory ${containerWorkspaceFolder}"
+    "server": "echo 'Attached to AutomaLarWEB Dev Container! 🔥' && git config --global --add safe.directory ${containerWorkspaceFolder} && git config --global --add safe.directory /workspace/.roo/cognee"
   },
 
   // --- Port Forwarding ---

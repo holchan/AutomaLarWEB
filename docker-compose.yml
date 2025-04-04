@@ -1,0 +1,60 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: {}
+
+    volumes:
+      - ..:/workspace:cached
+      - node_modules_devcontainer:/workspace/node_modules
+      - next_cache_devcontainer:/workspace/.next
+      - storybook_cache_devcontainer:/workspace/.storybook-cache
+      - zsh_history_devcontainer:/home/node/.zsh_history:z
+    command: sleep infinity
+    ports:
+      - "3000:3000"
+      - "6006:6006"
+      - "5555:5555"
+    env_file:
+      - ../.env.devcontainer
+    environment:
+      - TZ=Etc/UTC
+    user: node
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - home_automation_dev_net
+
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    volumes:
+      - postgres_data_devcontainer:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=devuser
+      - POSTGRES_PASSWORD=devpassword
+      - POSTGRES_DB=devdb
+      - TZ=Etc/UTC
+      - PGTZ=Etc/UTC
+    ports:
+      - "5432:5432"
+    networks:
+      - home_automation_dev_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  node_modules_devcontainer:
+  next_cache_devcontainer:
+  storybook_cache_devcontainer:
+  postgres_data_devcontainer:
+  zsh_history_devcontainer:
+
+networks:
+  home_automation_dev_net:
+    driver: bridge

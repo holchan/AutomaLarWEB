@@ -48,22 +48,6 @@ services:
       timeout: 5s
       retries: 5
 
-  cognee-mcp:
-    image: cognee/cognee-mcp:main-de50b36
-    container_name: cognee-mcp
-    volumes:
-      - ../cognee-mcp:/cognee-mcp
-    environment:
-      - ENV=local
-      - TOKENIZERS_PARALLELISM=false
-      - LLM_API_KEY=sk-<your-key-here>
-      - EMBEDDING_PROVIDER=fastembed
-      - EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
-      - EMBEDDING_DIMENSIONS=384
-      - EMBEDDING_MAX_TOKENS=256
-    networks:
-      - home_automation_dev_net
-
 volumes:
   node_modules_devcontainer:
   next_cache_devcontainer:

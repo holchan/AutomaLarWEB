@@ -1,17 +1,26 @@
 {
   "mcpServers": {
     "cognee": {
-      "command": "uv",
-      "args": ["--directory", "/cognee-mcp", "run", "cognee"],
+      "command": "/usr/local/bin/uv",
+      "args": [
+        "--directory",
+        "/workspace/.roo/cognee_repo/cognee-mcp",
+        "run",
+        "cognee"
+      ],
       "env": {
         "ENV": "local",
         "TOKENIZERS_PARALLELISM": "false",
-        "LLM_API_KEY": "sk-<your-key-here>",
-        "EMBEDDING_PROVIDER": "fastembed",
-        "EMBEDDING_MODEL": "sentence-transformers/all-MiniLM-L6-v2",
-        "EMBEDDING_DIMENSIONS": "384",
-        "EMBEDDING_MAX_TOKENS": "256"
+        "LLM_API_KEY": "AIzaSyA3vU8EXiwgLhbJexdjDctz-Xm6OVJCMNY",
+        "EMBEDDING_PROVIDER": "gemini",
+        "EMBEDDING_MODEL": "gemini/text-embedding-004",
+        "EMBEDDING_DIMENSIONS": "768",
+        "EMBEDDING_MAX_TOKENS": "2048"
       }
     }
+  },
+  "filesystem": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
   }
 }
