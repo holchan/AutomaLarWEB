@@ -29,7 +29,8 @@
     "3000": { "label": "Next.js App", "onAutoForward": "openPreview" },
     "6006": { "label": "Storybook", "onAutoForward": "notify" },
     "5432": { "label": "PostgreSQL DB", "onAutoForward": "silent" },
-    "5555": { "label": "Prisma Studio", "onAutoForward": "openPreview" }
+    "5555": { "label": "Prisma Studio", "onAutoForward": "openPreview" },
+    "8000": { "label": "Cognee MCP", "onAutoForward": "silent" }
   },
 
   // --- VS Code Customizations ---

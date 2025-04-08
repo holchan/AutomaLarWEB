@@ -11,7 +11,7 @@ then
   # Add brew to PATH for the current script execution
   eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
   # Add brew to PATH for future shell sessions by adding to .zshrc
-  echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> /home/node/.zshrc
+  echo 'eval \"$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\"' >> /home/node/.zshrc
   echo "Homebrew installed and configured."
 else
   echo "Homebrew already installed."

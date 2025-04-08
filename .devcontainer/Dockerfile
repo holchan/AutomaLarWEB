@@ -1,4 +1,3 @@
-# Includes node, npm, yarn, git, common utilities, and a non-root 'node' user (UID 1000 typically).
 FROM mcr.microsoft.com/devcontainers/typescript-node:22-bookworm
 
 WORKDIR /workspaces/${localWorkspaceFolderBasename}
