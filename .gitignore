@@ -15,6 +15,7 @@ storybook-static/
 # Env files
 .env.devcontainer
 .venv/
+.roo/cognee/src/venv/
 
 # OS generated files
 .DS_Store

@@ -38,7 +38,7 @@ async def sse_client(url: str):
 async def main():
     # Assuming that the SSE server is exposed on the port defined in the devcontainer environment.
     # For example, if COGNEE_SSE_HOST is 0.0.0.0 and COGNEE_SSE_PORT is 8000, then from within Docker:
-    sse_url = f"http://{sse_host}:{sse_port}/"  # Adjust if your SSE endpoint path is different (e.g. http://localhost:8000/sse)
+    sse_url = f"http://cognee-mcp:{sse_port}/sse"  # Adjust if your SSE endpoint path is different (e.g. http://localhost:8000/sse)
     await sse_client(sse_url)
 
 if __name__ == "__main__":

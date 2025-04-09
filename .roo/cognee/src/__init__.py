@@ -1,4 +1,4 @@
-from .server import main as server_main
+from .server import run_sse_server as server_main
 
 def main():
     """Main entry point for the package."""
