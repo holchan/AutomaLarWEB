@@ -60,17 +60,18 @@ services:
           memory: 8GB
 
   cognee-mcp:
-    container_name:
-      - cognee-mcp
+    container_name: cognee-mcp
     networks:
-      - dev-net
+      - dev_net
     volumes:
       - cognee_data_devcontainer:/workspace/.roo/cognee
     env_file:
       - ../.env.devcontainer
     build:
-      context: ../.roo/cognee
-      dockerfile: Dockerfile
+      # Change context to project root (relative to .devcontainer/)
+      context: ..
+      # Specify Dockerfile path relative to the new context
+      dockerfile: ./.roo/cognee/Dockerfile
     environment:
       - ENVIRONMENT=${COGNEE_ENV-local}
       - TOKENIZERS_PARALLELISM=${COGNEE_TOKENIZERS_PARALLELISM-false}
@@ -101,7 +102,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - 8000:8000
+      - ${COGNEE_SSE_PORT-8000}:${COGNEE_SSE_PORT-8000}
 
 volumes:
   node_modules_devcontainer:
