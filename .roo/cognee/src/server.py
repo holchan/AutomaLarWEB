@@ -51,9 +51,7 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "repo_path": {
-                        "type": "string",
-                    },
+                    "repo_path": {"type": "string"},
                 },
                 "required": ["repo_path"],
             },
@@ -79,10 +77,7 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="prune",
             description="Prunes knowledge graph",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
+            inputSchema={"type": "object", "properties": {}},
         ),
     ]
 
@@ -102,40 +97,30 @@ async def call_tools(name: str, arguments: dict) -> list[types.TextContent]:
                         graph_model_name=arguments.get("graph_model_name"),
                     )
                 )
-
                 text = (
-                    f"Background process launched due to MCP timeout limitations.\n"
-                    f"Average completion time is around 4 minutes.\n"
+                    "Background process launched due to MCP timeout limitations.\n"
+                    "Average completion time is around 4 minutes.\n"
                     f"For current cognify status you can check the log file at: {log_file}"
                 )
+                return [types.TextContent(type="text", text=text)]
 
-                return [
-                    types.TextContent(
-                        type="text",
-                        text=text,
-                    )
-                ]
             if name == "codify":
                 asyncio.create_task(codify(arguments.get("repo_path")))
-
                 text = (
-                    f"Background process launched due to MCP timeout limitations.\n"
-                    f"Average completion time is around 4 minutes.\n"
+                    "Background process launched due to MCP timeout limitations.\n"
+                    "Average completion time is around 4 minutes.\n"
                     f"For current codify status you can check the log file at: {log_file}"
                 )
+                return [types.TextContent(type="text", text=text)]
 
-                return [
-                    types.TextContent(
-                        type="text",
-                        text=text,
-                    )
-                ]
             elif name == "search":
                 search_results = await search(arguments["search_query"], arguments["search_type"])
                 return [types.TextContent(type="text", text=search_results)]
+
             elif name == "prune":
                 await prune()
                 return [types.TextContent(type="text", text="Pruned")]
+
     except Exception as e:
         logger.error(f"Error calling tool '{name}': {str(e)}")
         return [types.TextContent(type="text", text=f"Error calling tool '{name}': {str(e)}")]
@@ -180,7 +165,6 @@ async def search(search_query: str, search_type: str) -> str:
         search_results = await cognee.search(
             query_type=SearchType[search_type.upper()], query_text=search_query
         )
-
         if search_type.upper() == "CODE":
             return json.dumps(search_results, cls=JSONEncoder)
         elif search_type.upper() in ("GRAPH_COMPLETION", "RAG_COMPLETION"):
@@ -194,39 +178,6 @@ async def prune():
     """Reset the knowledge graph."""
     await cognee.prune.prune_data()
     await cognee.prune.prune_system(metadata=True)
-
-
-async def main():
-    try:
-        # Instead of the stdio-based transport, we now import and use the SSE transport.
-        from mcp.server.sse import sse_server
-
-        # Read host and port from environment variables (with defaults)
-        host = os.getenv("COGNEE_SSE_HOST", "0.0.0.0")
-        port = int(os.getenv("COGNEE_SSE_PORT", "8000"))
-
-        logger.info(f"Cognee MCP SSE server starting on {host}:{port}...")
-
-        # Using the SSE transport as a context manager.
-        async with sse_server(host, port) as (read_stream, write_stream):
-            await mcp.run(
-                read_stream=read_stream,
-                write_stream=write_stream,
-                initialization_options=InitializationOptions(
-                    server_name="cognee",
-                    server_version="0.1.0",
-                    capabilities=mcp.get_capabilities(
-                        notification_options=NotificationOptions(),
-                        experimental_capabilities={},
-                    ),
-                ),
-                raise_exceptions=True,
-            )
-            logger.info("Cognee MCP SSE server closed.")
-
-    except Exception as e:
-        logger.error(f"Server failed to start: {str(e)}", exc_info=True)
-        raise
 
 
 def node_to_string(node):
@@ -251,9 +202,57 @@ def load_class(model_file, model_name):
     spec = importlib.util.spec_from_file_location("graph_model", model_file)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    model_class = getattr(module, model_name)
-    return model_class
+    return getattr(module, model_name)
+
+
+# --- Revised SSE Setup ---
+def run_sse_server():
+    from mcp.server.sse import SseServerTransport
+    from starlette.applications import Starlette
+    from starlette.routing import Route, Mount
+    import uvicorn
+
+    # Create an instance of SseServerTransport.
+    # (The argument is the URL path where message posts will be handled.)
+    sse = SseServerTransport("/messages/")
+
+    async def handle_sse(request):
+        # The connect_sse() method returns a tuple
+        # (read_stream, write_stream) that are passed to the MCP server.
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send  # type: ignore
+        ) as streams:
+            await mcp.run(
+                read_stream=streams[0],
+                write_stream=streams[1],
+                initialization_options=InitializationOptions(
+                    server_name="cognee",
+                    server_version="0.1.0",
+                    capabilities=mcp.get_capabilities(
+                        notification_options=NotificationOptions(),
+                        experimental_capabilities={},
+                    ),
+                ),
+                raise_exceptions=True,
+            )
+
+    # Build a Starlette app that exposes two endpoints:
+    #  - One for initiating the SSE connection
+    #  - One for handling POST messages
+    starlette_app = Starlette(
+        debug=True,
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ],
+    )
+
+    host = os.getenv("COGNEE_SSE_HOST", "0.0.0.0")
+    port = int(os.getenv("COGNEE_SSE_PORT", "8000"))
+    logger.info(f"Cognee MCP SSE server starting on {host}:{port}...")
+    uvicorn.run(starlette_app, host=host, port=port)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Run the SSE server instead of calling a non-existent sse_server context manager.
+    run_sse_server()
