@@ -19,7 +19,6 @@ COPY .roo/cognee/pyproject.toml .roo/cognee/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-install-project --no-dev --no-editable
 
 # Try copying the specific env file instead of using a wildcard
-COPY .env.devcontainer /app/
 COPY .roo/cognee /app
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-editable
 

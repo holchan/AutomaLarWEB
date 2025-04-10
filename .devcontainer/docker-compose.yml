@@ -16,7 +16,7 @@ services:
       - "${STORYBOOK_PORT-6006}:${STORYBOOK_PORT-6006}"
       - "${PRSIMA_PORT-5555}:${PRISMA_PORT-5555}"
     env_file:
-      - ../.env.devcontainer
+      - .env.devcontainer
     environment:
       - TZ=Etc/UTC
     user: node
@@ -37,7 +37,7 @@ services:
     volumes:
       - postgres_data_devcontainer:/var/lib/postgresql/data
     env_file:
-      - ../.env.devcontainer
+      - .env.devcontainer
     environment:
       - POSTGRES_USER=${POSTGRES_USER-devuser}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD-devpassword}
@@ -66,11 +66,9 @@ services:
     volumes:
       - cognee_data_devcontainer:/workspace/.roo/cognee
     env_file:
-      - ../.env.devcontainer
+      - .env.devcontainer
     build:
-      # Change context to project root (relative to .devcontainer/)
       context: ..
-      # Specify Dockerfile path relative to the new context
       dockerfile: ./.roo/cognee/Dockerfile
     environment:
       - ENVIRONMENT=${COGNEE_ENV-local}
