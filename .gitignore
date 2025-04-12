@@ -12,6 +12,12 @@ out/
 storybook-static/
 .storybook-cache/
 
+# Python Cache / Generated
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
 # Env files
 .env.devcontainer
 .venv/

@@ -64,7 +64,8 @@ services:
     networks:
       - dev_net
     volumes:
-      - cognee_data_devcontainer:/workspace/.roo/cognee
+      - ..:/workspace:cached
+      - cognee_data_devcontainer:/workspace/.roo/cognee/data
     env_file:
       - .env.devcontainer
     build:
@@ -73,14 +74,14 @@ services:
     environment:
       - ENVIRONMENT=${COGNEE_ENV-local}
       - TOKENIZERS_PARALLELISM=${COGNEE_TOKENIZERS_PARALLELISM-false}
-      - LLM_API_KEY=${COGNEE_LLM_API_KEY}
+      - LLM_API_KEY=${COGNEE_LLM_API_KEY-}
       - LLM_MODEL=${COGNEE_LLM_MODEL-gemini/gemini-2.0-flash}
       - LLM_PROVIDER=${COGNEE_LLM_PROVIDER-gemini}
       - LLM_ENDPOINT=${COGNEE_LLM_ENDPOINT-}
       - LLM_API_VERSION=${COGNEE_LLM_API_VERSION-}
       - LLM_MAX_TOKENS=${COGNEE_LLM_MAX_TOKENS-16384}
       - EMBEDDING_PROVIDER=${COGNEE_EMBEDDING_PROVIDER-gemini}
-      - EMBEDDING_API_KEY=${COGNEE_EMBEDDING_API_KEY}
+      - EMBEDDING_API_KEY=${COGNEE_EMBEDDING_API_KEY-}
       - EMBEDDING_MODEL=${COGNEE_EMBEDDING_MODEL-gemini/text-embedding-004}
       - EMBEDDING_ENDPOINT=${COGNEE_EMBEDDING_ENDPOINT-}
       - EMBEDDING_API_VERSION=${COGNEE_EMBEDDING_API_VERSION-}

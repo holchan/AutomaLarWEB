@@ -2,6 +2,10 @@ import asyncio
 import json
 import os
 import sys
+import re
+import subprocess
+import tempfile
+from urllib.parse import urlparse
 import cognee
 from cognee.shared.logging_utils import get_logger, get_log_file_location
 import importlib.util
@@ -15,7 +19,6 @@ from cognee.modules.search.types import SearchType
 from cognee.shared.data_models import KnowledgeGraph
 from cognee.modules.storage.utils import JSONEncoder
 
-# Set up the MCP server instance
 mcp = Server("cognee")
 logger = get_logger()
 
@@ -51,7 +54,10 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "repo_path": {"type": "string"},
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Path to repository - can be a GitHub URL (https://github.com/username/repo) or a local path (/workspace/...). Local paths will be accessed with the same path structure as in the devcontainer.",
+                    },
                 },
                 "required": ["repo_path"],
             },
@@ -81,14 +87,11 @@ async def list_tools() -> list[types.Tool]:
         ),
     ]
 
-
 @mcp.call_tool()
 async def call_tools(name: str, arguments: dict) -> list[types.TextContent]:
     try:
-        # Redirect stdout to stderr so that MCP communication stays clean.
         with redirect_stdout(sys.stderr):
             log_file = get_log_file_location()
-
             if name == "cognify":
                 asyncio.create_task(
                     cognify(
@@ -103,7 +106,6 @@ async def call_tools(name: str, arguments: dict) -> list[types.TextContent]:
                     f"For current cognify status you can check the log file at: {log_file}"
                 )
                 return [types.TextContent(type="text", text=text)]
-
             if name == "codify":
                 asyncio.create_task(codify(arguments.get("repo_path")))
                 text = (
@@ -112,15 +114,12 @@ async def call_tools(name: str, arguments: dict) -> list[types.TextContent]:
                     f"For current codify status you can check the log file at: {log_file}"
                 )
                 return [types.TextContent(type="text", text=text)]
-
             elif name == "search":
                 search_results = await search(arguments["search_query"], arguments["search_type"])
                 return [types.TextContent(type="text", text=search_results)]
-
             elif name == "prune":
                 await prune()
                 return [types.TextContent(type="text", text="Pruned")]
-
     except Exception as e:
         logger.error(f"Error calling tool '{name}': {str(e)}")
         return [types.TextContent(type="text", text=f"Error calling tool '{name}': {str(e)}")]
@@ -134,9 +133,7 @@ async def cognify(text: str, graph_model_file: str = None, graph_model_name: str
             graph_model = load_class(graph_model_file, graph_model_name)
         else:
             graph_model = KnowledgeGraph
-
         await cognee.add(text)
-
         try:
             await cognee.cognify(graph_model=graph_model)
             logger.info("Cognify process finished.")
@@ -146,17 +143,68 @@ async def cognify(text: str, graph_model_file: str = None, graph_model_name: str
 
 
 async def codify(repo_path: str):
-    """Transform the codebase into a knowledge graph."""
+    """Transform the codebase into a knowledge graph.
+    Args:
+        repo_path: Can be either:
+            - A GitHub URL (https://github.com/username/repo)
+            - A local path in the workspace (/workspace/...)
+    """
     with redirect_stdout(sys.stderr):
-        logger.info("Codify process starting.")
-        results = []
-        async for result in run_code_graph_pipeline(repo_path, False):
-            results.append(result)
-            logger.info(result)
-        if all(results):
-            logger.info("Codify process finished successfully.")
-        else:
-            logger.info("Codify process failed.")
+        logger.info(f"Codify process starting for: {repo_path}")
+        is_github_url = False
+        local_repo_path = repo_path
+        temp_dir = None
+        github_pattern = r'^https?://github\.com/[^/]+/[^/]+(/)?$'
+        if re.match(github_pattern, repo_path):
+            is_github_url = True
+            logger.info(f"Detected GitHub repository URL: {repo_path}")
+            temp_dir = tempfile.mkdtemp(prefix="cognee_repo_")
+            try:
+                parsed_url = urlparse(repo_path)
+                path_parts = parsed_url.path.strip('/').split('/')
+                if len(path_parts) >= 2:
+                    owner, repo_name = path_parts[0], path_parts[1]
+                    logger.info(f"Cloning repository {owner}/{repo_name} to {temp_dir}")
+                clone_cmd = ["git", "clone", repo_path, temp_dir]
+                logger.info(f"Running: {' '.join(clone_cmd)}")
+                process = subprocess.run(
+                    clone_cmd,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                logger.info(f"Clone output: {process.stdout}")
+                local_repo_path = temp_dir
+                logger.info(f"Successfully cloned repository to {local_repo_path}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Git clone failed: {e.stderr}")
+                raise ValueError(f"Failed to clone repository: {e.stderr}")
+            except Exception as e:
+                logger.error(f"Error during repository cloning: {str(e)}")
+                if temp_dir and os.path.exists(temp_dir):
+                    import shutil
+                    shutil.rmtree(temp_dir)
+                raise ValueError(f"Failed to process repository: {str(e)}")
+        elif not os.path.exists(local_repo_path):
+            logger.error(f"Repository path does not exist: {local_repo_path}")
+            raise FileNotFoundError(f"Repository path {local_repo_path} does not exist. "
+                                    f"Please provide a valid local path or GitHub URL.")
+        try:
+            logger.info(f"Processing repository at: {local_repo_path}")
+            results = []
+            async for result in run_code_graph_pipeline(local_repo_path, False):
+                results.append(result)
+                logger.info(result)
+            if all(results):
+                logger.info("Codify process finished successfully.")
+            else:
+                logger.info("Codify process failed.")
+        finally:
+            if is_github_url and temp_dir and os.path.exists(temp_dir):
+                import shutil
+                logger.info(f"Cleaning up temporary directory: {temp_dir}")
+                shutil.rmtree(temp_dir)
 
 
 async def search(search_query: str, search_type: str) -> str:
@@ -204,23 +252,15 @@ def load_class(model_file, model_name):
     spec.loader.exec_module(module)
     return getattr(module, model_name)
 
-
-# --- Revised SSE Setup ---
 def run_sse_server():
     from mcp.server.sse import SseServerTransport
     from starlette.applications import Starlette
     from starlette.routing import Route, Mount
     import uvicorn
-
-    # Create an instance of SseServerTransport.
-    # (The argument is the URL path where message posts will be handled.)
     sse = SseServerTransport("/messages/")
-
     async def handle_sse(request):
-        # The connect_sse() method returns a tuple
-        # (read_stream, write_stream) that are passed to the MCP server.
         async with sse.connect_sse(
-            request.scope, request.receive, request._send  # type: ignore
+            request.scope, request.receive, request._send
         ) as streams:
             await mcp.run(
                 read_stream=streams[0],
@@ -235,10 +275,6 @@ def run_sse_server():
                 ),
                 raise_exceptions=True,
             )
-
-    # Build a Starlette app that exposes two endpoints:
-    #  - One for initiating the SSE connection
-    #  - One for handling POST messages
     starlette_app = Starlette(
         debug=True,
         routes=[
@@ -246,7 +282,6 @@ def run_sse_server():
             Mount("/messages/", app=sse.handle_post_message),
         ],
     )
-
     host = os.getenv("COGNEE_SSE_HOST", "0.0.0.0")
     port = int(os.getenv("COGNEE_SSE_PORT", "8000"))
     logger.info(f"Cognee MCP SSE server starting on {host}:{port}...")
@@ -254,5 +289,4 @@ def run_sse_server():
 
 
 if __name__ == "__main__":
-    # Run the SSE server instead of calling a non-existent sse_server context manager.
     run_sse_server()
