@@ -20,8 +20,7 @@ __pycache__/
 
 # Env files
 .env.devcontainer
-.venv/
-.roo/cognee/src/venv/
+.env
 
 # OS generated files
 .DS_Store
