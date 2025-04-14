@@ -1,15 +1,32 @@
 ---
-title: "Interior Depth Mapping ('3D Printing') Technique"
-date: "YYYY-MM-DD"
-lastmod: "YYYY-MM-DD"
-status: "draft"
+title: "Technical Implementation: Interior Depth Mapping" # Adjusted title
+date: "2025-04-14"
+lastmod: "2025-04-14"
+status: "wip" # Marked as WIP as it contains code
+path: "docs/05_TECHNICAL_IMPLEMENTATION/06_3D_IMPLEMENTATION/05_INTERIOR_DEPTH_MAPPING.mdx"
+tags:
+  - "file-type:implementation"
+  - "project-area:3d"
+  - "project-area:frontend"
+  - "topic:interior-depth-mapping"
+  - "topic:rendering"
+  - "topic:shaders"
+  - "topic:performance"
+  - "topic:ray-marching"
+  - "feature:hero-animation"
+  - "tech:threejs"
+  - "tech:r3f"
+  - "tech:glsl"
+  - "tech:react"
 ---
 
-# Interior Depth Mapping ('3D Printing') Technique
+# Technical Implementation: Interior Depth Mapping ('3D Printing')
 
 ## Overview
 
-This document details the rendering technique used to create the illusion of 3D interior spaces with parallax effects, notably for the website's hero section. Inspired by techniques seen in "The Matrix Awakens: An Unreal Engine 5 Experience", this method uses a combination of environment maps and orthographically captured depth/color information to simulate depth without rendering full 3D geometry for the interior contents.
+This document details the rendering technique used to create the illusion of 3D interior spaces with parallax effects, notably for the website's hero section. This technique is formally defined in [Concept: Interior Depth Mapping](../../../concepts/00_INTERIOR_DEPTH_MAPPING.mdx).
+
+Inspired by techniques seen in "The Matrix Awakens: An Unreal Engine 5 Experience", this method uses a combination of environment maps and orthographically captured depth/color information to simulate depth without rendering full 3D geometry for the interior contents.
 
 **Goal:** To create a visually convincing, performant 3D interior effect for elements like the hero section's living room, allowing camera orbits around a central object (e.g., the logo) while perceiving depth within the room.
 

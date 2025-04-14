@@ -1,37 +1,79 @@
 ---
-title: "Hero Scene Screenplay"
-date: 'YYYY-MM-DD'
-lastmod: 'YYYY-MM-DD'
-status: 'draft'
+title: "Hero Scene Asset Requirements"
+date: "2025-04-14"
+lastmod: "2025-04-14"
+status: "draft"
+path: "docs/04_ART_WORKSHOP/00_HERO_SCENE_SCREENPLAY.mdx"
+tags:
+  - "file-type:art-requirements
+  - "project-area:3d"
+  - "project-area:art"
+  - "topic:hero-section"
+  - "topic:assets"
+  - "topic:interior-depth-mapping"
+  - "topic:textures"
+  - "feature:hero-animation"
 ---
 
-# Hero Scene Screenplay
+# Hero Scene Asset Requirements
 
 ## Living Room Scene - Asset Requirements
 
-To support the Interior Depth Mapping ('3D Printing') technique for the hero section's living room scene, the following assets are required from the 3D artist:
+To support the **Interior Depth Mapping** ('3D Printing') technique (see main [Concept: Interior Depth Mapping](../../concepts/00_INTERIOR_DEPTH_MAPPING.mdx) definition) for the hero section's living room scene, the following assets are required from the 3D artist:
 
-1.  **Environment Cubemap (for Room Structure):**
-    *   **Format:** Standard 6x1 layout image (e.g., JPG, PNG).
-    *   **Resolution:** 1024px per face (6144x1024 total) or higher.
-    *   **Content:** Renders of the empty room walls, floor, ceiling.
-    *   **Type:** LDR (SDR).
+1. **Environment Cubemap (for Room Structure):**
+   * **Format:** Standard 6x1 layout image.
+   * **Resolution:** 1024px per face (6144x1024 total) or higher.
+   * **Type:** Color image (e.g., `.png`).
+   * **Content:** Renders of the empty room walls, floor, ceiling.
 
-2.  **Interior Object Maps (Orthographic):**
-    *   **Front Color Map:**
-        *   **Type:** HDR (e.g., `.exr`) orthographic render from the front view, containing color and lighting information of the interior objects *only* (room structure should be masked out).
-        *   **Resolution:** 2048x2048 or 4096x4096.
-    *   **Back Color Map:**
-        *   **Type:** HDR (e.g., `.exr`) orthographic render from the back view (looking forward into the room).
-        *   **Resolution:** Same as front color map.
-    *   **Front Depth Map:**
-        *   **Type:** 16-bit Grayscale PNG orthographic render from the front view. White = closest to camera (front surface), Black = furthest.
-        *   **Resolution:** Same as color maps.
-        *   **Normalization:** Depth values should be mapped linearly to the 0-1 range corresponding to the defined `depthScale` (e.g., 500cm).
-    *   **Back Depth Map:**
-        *   **Type:** 16-bit Grayscale PNG orthographic render from the back view. White = closest to camera (back surface), Black = furthest.
-        *   **Resolution:** Same as color maps.
-        *   **Normalization:** Same as front depth map.
-    *   **Optional Normal Map:**
-        *   **Type:** Standard Normal Map (tangent space) rendered orthographically from the front view. Can enhance lighting on interior objects.
-        *   **Resolution:** Same as color maps.
+2. **Interior Object Maps (for Objects 3D rendering):**
+   * **Format:** Orthographic-90º FOV.
+   * **Resolution:** 1024x1024 or 2048x2048.
+   * **Type:** Color image (e.g., `.png`) orthographic render from one of the bounding view of one of the sides of the cube towards the center, containing color and lighting information of the interior objects *only* (room structure should be masked out).
+   * **Front Color Map:** Orthographic render from the center of the room looking forward (+Z direction).
+   * **Back Color Map:** Orthographic render from the center of the room looking backward (-Z direction).
+   * **Left Color Map:** Orthographic render from the center of the room looking left (-X direction).
+   * **Right Color Map:** Orthographic render from the center of the room looking right (+X direction).
+   * **Top Color Map:** Orthographic render from the center of the room looking up (+Y direction).
+   * **Bottom Color Map:** Orthographic render from the center of the room looking down (-Y direction).
+
+3. **Depth Maps (Orthographic-90º FOV):**
+   * **Resolution:** Same as color maps (1024x1024 or 2048x2048).
+   * **Format:** 16-bit grayscale PNG or EXR.
+   * **Content:** Z-depth information normalized to 0-1 range, where 0 (black) represents surfaces closest to the camera and 1 (white) represents the farthest surfaces.
+   * **Front Depth Map:** Depth information from the center looking forward.
+   * **Back Depth Map:** Depth information from the center looking backward.
+   * **Left Depth Map:** Depth information from the center looking left.
+   * **Right Depth Map:** Depth information from the center looking right.
+   * **Top Depth Map:** Depth information from the center looking up.
+   * **Bottom Depth Map:** Depth information from the center looking down.
+
+4. **Camera Position Reference:**
+   * A reference file indicating the exact position in the 3D scene where the camera should be placed (center of the room).
+   * This ensures that the web implementation matches the rendered perspective.
+
+5. **Lighting Information:**
+   * **Format:** Text document or scene file.
+   * **Content:** Description of key light sources, colors, and intensities to ensure the 3D logo is lit consistently with the environment.
+
+## Technical Requirements
+
+1. **Rendering Settings:**
+   * **Color Space:** Linear sRGB (not gamma-corrected in the source files).
+   * **Bit Depth:** 16-bit per channel minimum for HDR content.
+   * **Tone Mapping:** None (raw linear values).
+
+2. **Depth Map Generation:**
+   * Depth maps should be rendered with a Z-depth pass.
+   * Values should be normalized to the 0-1 range.
+   * No post-processing filters should be applied to the depth maps.
+
+3. **File Naming Convention:**
+   * `livingroom_[direction]_color.exr` (e.g., `livingroom_front_color.exr`)
+   * `livingroom_[direction]_depth.png` (e.g., `livingroom_front_depth.png`)
+   * Where `[direction]` is one of: `front`, `back`, `left`, `right`, `top`, `bottom`
+
+## Delivery Format
+
+All assets should be delivered in a structured folder hierarchy:

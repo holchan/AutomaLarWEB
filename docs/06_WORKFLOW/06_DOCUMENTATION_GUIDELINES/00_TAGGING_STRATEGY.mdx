@@ -1,0 +1,78 @@
+---
+title: "Documentation Tagging Strategy"
+date: "2025-04-14"
+lastmod: "2025-04-14"
+status: "final"
+path: "docs/06_WORKFLOW/06_DOCUMENTATION_GUIDELINES/00_TAGGING_STRATEGY.mdx"
+tags:
+  - "file-type:guideline"
+  - "topic:documentation"
+  - "topic:metadata"
+  - "project-area:workflow"
+  - "project-area:doc-guidelines"
+---
+
+# Documentation Tagging Strategy
+
+This document outlines the strategy for applying tags to `.mdx` files within the project documentation. Consistent tagging helps with organization, discoverability, and potential AI-driven analysis or navigation.
+
+## Naming Convention
+
+*   **Lowercase:** All tags should be in lowercase.
+*   **Hyphens:** Use hyphens (`-`) to separate words within a tag (e.g., `project-area:frontend`).
+*   **Prefixes:** Use specific prefixes followed by a colon (`:`) to categorize tags clearly.
+
+## Tag Categories & Prefixes
+
+The following prefixes are used to categorize tags:
+
+1.  **`concept:<concept-name>`**: Identifies files that primarily define a core concept. Used for files within the `docs/concepts/` directory.
+    *   *Example:* `concept:interior-depth-mapping` (for `docs/concepts/00_INTERIOR_DEPTH_MAPPING.mdx`)
+
+2.  **`topic:<topic-name>`**: For general subject matter tagging on any file related to the topic. A file can have multiple topic tags.
+    *   *Examples:* `topic:rendering`, `topic:authentication`, `topic:state-management`, `topic:interior-depth-mapping` (on files *related* to the concept)
+
+3.  **`project-area:<area>`**: High-level area the document belongs to.
+    *   *Examples:* `project-area:frontend`, `project-area:backend`, `project-area:database`, `project-area:3d`, `project-area:ui-design`, `project-area:architecture`, `project-area:devops`, `project-area:ai`, `project-area:workflow`
+
+4.  **`feature:<feature-name>`**: Links documents to specific user-facing features.
+    *   *Examples:* `feature:hero-animation`, `feature:chat-widget`, `feature:user-dashboard`, `feature:product-configurator`
+
+5.  **`tech:<technology-name>`**: Explicitly tags key technologies discussed or used.
+    *   *Examples:* `tech:react`, `tech:nextjs`, `tech:zustand`, `tech:prisma`, `tech:threejs`, `tech:r3f`, `tech:react-spring`, `tech:cognee`, `tech:docker`, `tech:github-actions`
+
+6.  **`file-type:<type>`**: Categorizes the purpose or nature of the document.
+    *   *Examples:* `file-type:specification`, `file-type:strategy`, `file-type:implementation`, `file-type:guideline`, `file-type:concept-definition`, `file-type:workflow`, `file-type:api-design`, `file-type:schema`, `file-type:introduction`, `file-type:glossary`
+
+## Tagging Process
+
+1.  **Identify Core Purpose:** Determine the main `file-type` and `project-area`.
+2.  **Assign Concept/Topics:** If it's a concept definition, use `concept:`. Add relevant `topic:` tags for all related subjects.
+3.  **Link Features/Tech:** If the document discusses specific `feature:`s or `tech:`, add those tags.
+4.  **Review & Refine:** Ensure tags are relevant and consistent with this guideline.
+
+## Example Tagging (`docs/05_TECHNICAL_IMPLEMENTATION/06_3D_IMPLEMENTATION/05_INTERIOR_DEPTH_MAPPING.mdx`)
+
+```yaml
+---
+title: "Technical Implementation: Interior Depth Mapping"
+date: "2025-04-10"
+lastmod: "2025-04-14"
+status: "wip"
+path: "docs/05_TECHNICAL_IMPLEMENTATION/06_3D_IMPLEMENTATION/05_INTERIOR_DEPTH_MAPPING.mdx"
+tags:
+  - "file-type:implementation"
+  - "project-area:3d"
+  - "project-area:frontend"
+  - "topic:interior-depth-mapping"
+  - "topic:rendering"
+  - "topic:shaders"
+  - "topic:performance"
+  - "feature:hero-animation"
+  - "tech:threejs"
+  - "tech:glsl"
+  - "project-area:tech-specs"
+---
+```
+
+This structured approach ensures that metadata is rich and usable for various documentation management tasks.

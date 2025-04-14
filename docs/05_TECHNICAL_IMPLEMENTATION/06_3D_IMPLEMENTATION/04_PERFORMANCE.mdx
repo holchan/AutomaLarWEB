@@ -1,0 +1,47 @@
+---
+title: "3D Performance Optimizations"
+date: "2025-04-14"
+lastmod: "2025-04-14"
+status: "draft"
+path: "docs/05_TECHNICAL_IMPLEMENTATION/06_3D_IMPLEMENTATION/04_PERFORMANCE.mdx"
+tags:
+  - "file-type:implementation"
+  - "project-area:3d"
+  - "project-area:frontend"
+  - "topic:performance"
+  - "topic:optimization"
+  - "topic:3d"
+  - "topic:interior-depth-mapping" # Added topic tag
+  - "tech:threejs"
+  - "tech:r3f"
+---
+
+# 3D Performance Optimizations
+
+This document outlines strategies and considerations for optimizing the performance of 3D elements within the AutomaLar website, particularly focusing on techniques like Interior Depth Mapping.
+
+## General Principles
+
+*   **Minimize Draw Calls:** Combine geometries where possible.
+*   **Optimize Textures:** Use appropriate formats (e.g., KTX2/Basis) and resolutions. Employ mipmapping.
+*   **Level of Detail (LOD):** Implement LODs for complex models if necessary.
+*   **Instancing:** Use instanced rendering for repeated geometries.
+*   **Shader Optimization:** Keep shaders efficient. Avoid unnecessary calculations. Profile shader performance.
+
+## Interior Depth Mapping Performance
+
+The [Concept: Interior Depth Mapping](../../../concepts/00_INTERIOR_DEPTH_MAPPING.mdx) technique offers significant performance benefits over rendering full 3D interiors, but still requires careful optimization:
+
+*   **Ray Marching Steps (`steps`):** This is a primary performance control. Lower values are faster but reduce quality/accuracy. Find the lowest acceptable value (e.g., 32, 64, 128).
+*   **Texture Resolution:** While high-resolution textures (color, depth) improve visual quality, they increase memory usage and bandwidth requirements. Balance quality with performance targets. Consider using lower resolutions for less critical views or distances.
+*   **Texture Formats:** Ensure depth maps are loaded as linear data. Use efficient formats for color maps (HDR formats like EXR can be large).
+*   **Shader Complexity:** The ray marching loop is the most intensive part. Avoid complex calculations inside the loop.
+*   **Conditional Rendering:** Only run the Interior Depth Mapping shader when the element is visible or relevant.
+
+## Performance Monitoring
+
+*   Utilize browser developer tools (Performance tab).
+*   Integrate `stats.js` or `@react-three/drei/Stats` for real-time FPS monitoring during development.
+*   Profile GPU usage to identify bottlenecks.
+
+*(Add specific measurements, benchmarks, and further optimization details as development progresses)*

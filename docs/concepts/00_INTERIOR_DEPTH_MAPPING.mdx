@@ -1,0 +1,38 @@
+---
+title: "Concept: Interior Depth Mapping"
+date: "2025-04-14"
+lastmod: "2025-04-14"
+status: "draft"
+path: "docs/concepts/00_INTERIOR_DEPTH_MAPPING.mdx"
+tags:
+  - "concept:interior-depth-mapping"
+  - "file-type:concept-definition"
+  - "topic:rendering"
+  - "topic:3d"
+  - "topic:performance"
+  - "topic:frontend"
+  - "feature:hero-animation"
+  - "project-area:3d"
+  - "project-area:frontend"
+---
+
+# Concept: Interior Depth Mapping
+
+This technique, sometimes referred to as '3D Printing' in project discussions, uses environment maps combined with orthographically captured depth and color textures to simulate 3D interior spaces with parallax effects, primarily used in the website's hero section.
+
+It allows for visually rich interior scenes without the full performance cost of rendering complex geometric interiors in real-time.
+
+## Key Characteristics
+*   Uses pre-rendered textures (color, depth).
+*   Relies on shader logic to create parallax based on view angle.
+*   Optimized for specific viewing angles/interactions.
+
+## Related Documentation
+
+*   **Page Specification:** [Landing Page Hero Section](../../03_PAGE_SPECIFICATIONS/00_LANDING_PAGE.mdx)
+*   **Art Requirements:** [Hero Scene Assets](../../04_ART_WORKSHOP/00_HERO_SCENE_SCREENPLAY.mdx)
+*   **Technical Implementation:** [Interior Depth Mapping Details](../../05_TECHNICAL_IMPLEMENTATION/06_3D_IMPLEMENTATION/05_INTERIOR_DEPTH_MAPPING.mdx)
+*   **Performance Considerations:** [3D Performance Optimizations](../../05_TECHNICAL_IMPLEMENTATION/06_3D_IMPLEMENTATION/04_PERFORMANCE.mdx)
+
+## Implementation Notes
+*   *(Add any high-level technical notes or links to specific code if applicable)*
