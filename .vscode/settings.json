@@ -202,5 +202,9 @@
     "**/prisma/generated/**": true,
     "**/.storybook-cache/**": true,
     "**/storybook-static/**": true
-  }
+  },
+  "files.associations": {
+    "*.mdx": "markdown"
+  },
+  "mdx-preview.preview.useVscodeMarkdownStyles": false
 }

@@ -8,7 +8,8 @@
     },
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+      "alwaysAllow": ["create_directory"]
     }
   }
 }

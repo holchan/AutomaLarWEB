@@ -1,0 +1,320 @@
+---
+title: "Interior Depth Mapping ('3D Printing') Technique"
+date: "YYYY-MM-DD"
+lastmod: "YYYY-MM-DD"
+status: "draft"
+---
+
+# Interior Depth Mapping ('3D Printing') Technique
+
+## Overview
+
+This document details the rendering technique used to create the illusion of 3D interior spaces with parallax effects, notably for the website's hero section. Inspired by techniques seen in "The Matrix Awakens: An Unreal Engine 5 Experience", this method uses a combination of environment maps and orthographically captured depth/color information to simulate depth without rendering full 3D geometry for the interior contents.
+
+**Goal:** To create a visually convincing, performant 3D interior effect for elements like the hero section's living room, allowing camera orbits around a central object (e.g., the logo) while perceiving depth within the room.
+
+## Core Concept: Dual-Depth Ray Marching
+
+The technique combines two main elements:
+
+1.  **Environment Mapping (Cubemap):** Renders the basic room structure (walls, floor, ceiling) using a standard cubemap.
+2.  **Depth-Based Ray Marching:** Uses orthographic depth maps (front and back) and corresponding color maps to render the _contents_ of the room (furniture, objects) with a parallax effect. The shader marches rays from the camera, using the depth maps to determine where the ray intersects the "volume" defined by the interior objects.
+
+**Reference:** This approach is adapted from techniques used in high-end game engines. See the Unreal Engine 5 "The Matrix Awakens" documentation and talks for conceptual background (though our implementation is simplified for web). Video segment discussion starts around [Timestamp, e.g., 39:15] in the provided video reference.
+
+## Required Assets
+
+For each interior space utilizing this technique (e.g., the hero living room):
+
+1.  **Environment Cubemap (for Room Structure):**
+
+    - **Format:** Standard 6x1 layout image (e.g., JPG, PNG).
+    - **Resolution:** Suggest 1024px per face (6144x1024 total) or higher.
+    - **Content:** Renders of the empty room walls, floor, ceiling.
+    - **Type:** LDR (SDR) is usually sufficient for the room structure itself.
+
+2.  **Interior Object Maps (Orthographic):**
+    - **Front Color Map:**
+      - **Type:** HDR (e.g., `.exr`) orthographic render from the front view, containing color and lighting information of the interior objects _only_ (room structure should be masked out or rendered separately).
+      - **Resolution:** High (e.g., 2048x2048 or 4096x4096).
+    - **Back Color Map:**
+      - **Type:** HDR (e.g., `.exr`) orthographic render from the back view (looking forward into the room).
+      - **Resolution:** Same as front color map.
+    - **Front Depth Map:**
+      - **Type:** 16-bit Grayscale PNG orthographic render from the front view. White = closest to camera (front surface), Black = furthest.
+      - **Resolution:** Same as color maps.
+      - **Normalization:** Depth values should be mapped linearly to the 0-1 range corresponding to the defined `depthScale` (e.g., 500cm).
+    - **Back Depth Map:**
+      - **Type:** 16-bit Grayscale PNG orthographic render from the back view. White = closest to camera (back surface), Black = furthest.
+      - **Resolution:** Same as color maps.
+      - **Normalization:** Same as front depth map.
+    - **Optional Normal Map:**
+      - **Type:** Standard Normal Map (tangent space) rendered orthographically from the front view. Can enhance lighting on interior objects.
+      - **Resolution:** Same as color maps.
+
+## Asset Creation Workflow (Example: Blender/3ds Max)
+
+1.  **Model the Scene:** Create the full 3D interior scene (room + objects).
+2.  **Render Environment Cubemap:** Hide interior objects, place a camera at the center, and render a 6x1 cubemap of the empty room.
+3.  **Render Orthographic Maps:**
+    - Hide the room structure (walls, floor, ceiling).
+    - **Front View:** Place an orthographic camera facing the objects from the front (e.g., at `Y = -depthScale/2`). Set camera size to match `depthScale`.
+      - Render HDR Color (`frontColorMap.exr`).
+      - Render 16-bit Depth (`frontDepthMap.png`), ensuring depth is normalized.
+      - Render Normal Map (`normalMap.png`, optional).
+    - **Back View:** Move the orthographic camera to the back (e.g., at `Y = +depthScale/2`), rotate 180 degrees to face the objects.
+      - Render HDR Color (`backColorMap.exr`).
+      - Render 16-bit Depth (`backDepthMap.png`), ensuring depth is normalized.
+
+## React Three Fiber Implementation
+
+### 1. Shader Material (`DepthPrintingMaterial`)
+
+```jsx
+import { shaderMaterial } from "@react-three/drei";
+import * as THREE from "three";
+import { extend } from "@react-three/fiber";
+
+// Create the custom shader material
+const DepthPrintingMaterial = shaderMaterial(
+  {
+    // Textures
+    envMap: null, // THREE.CubeTexture for the room
+    frontColorMap: null, // THREE.Texture (HDR)
+    backColorMap: null, // THREE.Texture (HDR)
+    frontDepthMap: null, // THREE.Texture (16-bit Grayscale)
+    backDepthMap: null, // THREE.Texture (16-bit Grayscale)
+
+    // Parameters
+    cameraPosition: new THREE.Vector3(),
+    steps: 64, // Ray marching steps
+    ditherStrength: 0.5,
+    depthScale: 500.0, // Match the size used during rendering
+  },
+  // Vertex Shader (Pass UVs, World Position, View Direction)
+  `
+    varying vec2 vUv;
+    varying vec3 vWorldPos;
+    varying vec3 vViewDir;
+    uniform vec3 cameraPosition; // Receive camera position
+
+    void main() {
+      vUv = uv;
+      vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+      vWorldPos = worldPosition.xyz;
+      vViewDir = normalize(cameraPosition - vWorldPos); // Calculate view direction
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  // Fragment Shader (Core Logic)
+  `
+    uniform samplerCube envMap;
+    uniform sampler2D frontColorMap;
+    uniform sampler2D backColorMap;
+    uniform sampler2D frontDepthMap;
+    uniform sampler2D backDepthMap;
+
+    uniform vec3 cameraPosition; // Received from vertex shader or uniforms
+    uniform float steps;
+    uniform float ditherStrength;
+    uniform float depthScale; // Size of the captured volume
+
+    varying vec2 vUv;
+    varying vec3 vWorldPos;
+    varying vec3 vViewDir; // Direction from fragment to camera
+
+    // Simple random function for dithering
+    float random(vec2 co) {
+      return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
+    }
+
+    // Simplified perspective correction - assumes plane is facing camera initially
+    vec2 perspectiveCorrect(vec2 uv, vec3 viewDir, float depth) {
+        // Adjust UV based on view direction and depth (h)
+        // Note: This requires careful setup matching the original shader's intent
+        // It assumes the plane geometry is oriented correctly.
+        // A more robust solution might pass camera projection info.
+        return uv + viewDir.xy * depth / abs(viewDir.z);
+    }
+
+    void main() {
+      vec3 rayDir = normalize(vViewDir); // Normalized direction from fragment to camera
+
+      // 1. Sample Environment (Room)
+      vec3 envColor = texture(envMap, reflect(-rayDir, vec3(0.0, 0.0, 1.0))).rgb; // Simplified normal for reflection
+
+      // 2. Ray March for Interior Objects
+      vec2 finalUV = vUv; // Start with standard UV
+      float hitDepth = -1.0; // Track if we hit something inside
+
+      // Generate a random value for dithering based on screen position
+      float dither = random(gl_FragCoord.xy) * ditherStrength;
+
+      for (float i = 0.0; i < steps; i++) {
+        float h = (i + dither) / steps; // Current depth slice (0 to 1)
+
+        // Calculate UV at this depth using perspective correction
+        // We approximate the view vector relative to the plane center for perspective
+        vec2 uvCurrent = perspectiveCorrect(vUv, vViewDir, h);
+
+        // Boundary check
+        if (uvCurrent.x < 0.0 || uvCurrent.x > 1.0 || uvCurrent.y < 0.0 || uvCurrent.y > 1.0) {
+          continue; // Skip samples outside the texture bounds
+        }
+
+        // Sample front and back depth maps
+        float frontDepth = texture2D(frontDepthMap, uvCurrent).r;
+        float backDepth = texture2D(backDepthMap, uvCurrent).r;
+
+        // Check if the ray is within the volume defined by the depth maps
+        // h represents normalized distance from the *front* plane inwards
+        if (h > frontDepth && h < (1.0 - backDepth)) { // Assuming back depth measures distance from back plane
+            finalUV = uvCurrent;
+            hitDepth = h; // Record the depth of the hit
+            break; // Exit loop once a surface is hit
+        }
+      }
+
+      // 3. Sample Interior Color if a hit occurred
+      vec3 interiorColor = vec3(0.0);
+      if (hitDepth >= 0.0) {
+          // Determine if closer to front or back based on hit depth
+          bool closerToFront = hitDepth < 0.5;
+          if (closerToFront) {
+              interiorColor = texture2D(frontColorMap, finalUV).rgb;
+          } else {
+              interiorColor = texture2D(backColorMap, finalUV).rgb;
+          }
+          // Blend interior color over environment color
+          finalColor = interiorColor;
+      } else {
+          // If no hit, use the environment color
+          finalColor = envColor;
+      }
+
+      gl_FragColor = vec4(finalColor, 1.0);
+    }
+  `
+);
+
+// Register the material
+extend({ DepthPrintingMaterial });
+```
+
+Mdx
+
+### 2. React Component (HeroScene)
+
+```jsx
+import React, { useRef, Suspense } from "react";
+import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
+import { OrbitControls, useTexture, useCubeTexture } from "@react-three/drei";
+import * as THREE from "three";
+
+// Assume DepthPrintingMaterial is defined and extended above
+
+function LivingRoom3DPrint() {
+  const materialRef = useRef();
+  const { camera } = useThree();
+
+  // Load Textures
+  const envMap = useCubeTexture(
+    ["px.jpg", "nx.jpg", "py.jpg", "ny.jpg", "pz.jpg", "nz.jpg"],
+    { path: "/cubemaps/living_room/" } // Path to your cubemap faces
+  );
+  const frontColor = useTexture("/textures/living_room_front_color.exr");
+  const backColor = useTexture("/textures/living_room_back_color.exr");
+  const frontDepth = useTexture("/textures/living_room_front_depth.png");
+  const backDepth = useTexture("/textures/living_room_back_depth.png");
+
+  // Ensure textures are correctly configured
+  useEffect(() => {
+    [frontDepth, backDepth].forEach((tex) => {
+      tex.encoding = THREE.LinearEncoding; // Depth maps are linear data
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.needsUpdate = true;
+    });
+    [frontColor, backColor].forEach((tex) => {
+      tex.encoding = THREE.LinearEncoding; // Use Linear for HDR
+      tex.needsUpdate = true;
+    });
+    envMap.encoding = THREE.sRGBEncoding; // Cubemap is likely sRGB
+  }, [envMap, frontColor, backColor, frontDepth, backDepth]);
+
+  // Update camera position uniform continuously
+  useFrame(() => {
+    if (materialRef.current) {
+      materialRef.current.uniforms.cameraPosition.value.copy(camera.position);
+    }
+  });
+
+  return (
+    <mesh scale={[500, 500, 1]} position={[0, 0, 0]}>
+      {" "}
+      {/* Flat plane */}
+      <planeGeometry args={[1, 1]} /> {/* Simple plane */}
+      <depthPrintingMaterial
+        ref={materialRef}
+        key={DepthPrintingMaterial.key} // Important for hot-reloading shaders
+        envMap={envMap}
+        frontColorMap={frontColor}
+        backColorMap={backColor}
+        frontDepthMap={frontDepth}
+        backDepthMap={backDepth}
+        steps={64} // Adjust for quality/performance
+        ditherStrength={0.5}
+        depthScale={500.0} // Match your scene capture size
+        side={THREE.DoubleSide} // Render both sides of the plane
+      />
+    </mesh>
+  );
+}
+
+function FloatingLogo() {
+  const logoTexture = useTexture("/logo.png");
+  return (
+    <mesh position={[0, 0, 0]}>
+      {" "}
+      {/* Position relative to the room center */}
+      <planeGeometry args={[100, 100]} />
+      <meshBasicMaterial
+        map={logoTexture}
+        transparent
+        alphaTest={0.5}
+        side={THREE.DoubleSide}
+        depthWrite={false}
+      />
+    </mesh>
+  );
+}
+
+function HeroScene() {
+  return (
+    <Canvas camera={{ position: [0, 0, 750], fov: 50 }}>
+      {" "}
+      {/* Adjust camera start */}
+      <ambientLight intensity={0.7} />
+      <Suspense fallback={null}>
+        <LivingRoom3DPrint />
+        <FloatingLogo />
+      </Suspense>
+      <OrbitControls target={[0, 0, 0]} /> {/* Orbit around the center */}
+    </Canvas>
+  );
+}
+
+export default HeroScene;
+```
+
+Jsx
+
+Key Implementation Notes:
+
+- **Shader Logic:** The fragment shader now samples the `envMap` first. Then, it performs the ray march using the `frontDepthMap` and `backDepthMap`. If the ray hits the volume defined by these maps, it samples the corresponding `frontColorMap` or `backColorMap` based on the view direction and overrides the `envColor`. Otherwise, the base `envColor` from the cubemap is shown.
+- **Asset Loading:** Use `useCubeTexture` for the environment map and `useTexture` for the orthographic renders. Ensure HDR (`.exr`) textures are loaded correctly (they might need specific loaders or settings). Mark depth maps as `LinearEncoding`.
+- **Geometry:** You apply this material to a simple `PlaneGeometry`. The 3D effect comes entirely from the shader. The size of the plane should match the aspect ratio of your orthographic renders. Position the plane where the "window" or opening into the room would be.
+- **Logo:** Place your logo mesh in front of the plane displaying the room effect (adjust Z position). Use `depthWrite={false}` on the logo material so it doesn't interfere with the room's depth testing.
+- **Camera:** The `OrbitControls` should target the center of the scene (where the logo is) to achieve the desired orbiting effect.
+
+This approach correctly separates the room environment (cubemap) from the interior objects (dual-depth maps), achieving the "3D printing" effect you described. Remember to create high-quality, precisely aligned orthographic renders for the best results.

@@ -1,0 +1,37 @@
+---
+title: "Hero Scene Screenplay"
+date: 'YYYY-MM-DD'
+lastmod: 'YYYY-MM-DD'
+status: 'draft'
+---
+
+# Hero Scene Screenplay
+
+## Living Room Scene - Asset Requirements
+
+To support the Interior Depth Mapping ('3D Printing') technique for the hero section's living room scene, the following assets are required from the 3D artist:
+
+1.  **Environment Cubemap (for Room Structure):**
+    *   **Format:** Standard 6x1 layout image (e.g., JPG, PNG).
+    *   **Resolution:** 1024px per face (6144x1024 total) or higher.
+    *   **Content:** Renders of the empty room walls, floor, ceiling.
+    *   **Type:** LDR (SDR).
+
+2.  **Interior Object Maps (Orthographic):**
+    *   **Front Color Map:**
+        *   **Type:** HDR (e.g., `.exr`) orthographic render from the front view, containing color and lighting information of the interior objects *only* (room structure should be masked out).
+        *   **Resolution:** 2048x2048 or 4096x4096.
+    *   **Back Color Map:**
+        *   **Type:** HDR (e.g., `.exr`) orthographic render from the back view (looking forward into the room).
+        *   **Resolution:** Same as front color map.
+    *   **Front Depth Map:**
+        *   **Type:** 16-bit Grayscale PNG orthographic render from the front view. White = closest to camera (front surface), Black = furthest.
+        *   **Resolution:** Same as color maps.
+        *   **Normalization:** Depth values should be mapped linearly to the 0-1 range corresponding to the defined `depthScale` (e.g., 500cm).
+    *   **Back Depth Map:**
+        *   **Type:** 16-bit Grayscale PNG orthographic render from the back view. White = closest to camera (back surface), Black = furthest.
+        *   **Resolution:** Same as color maps.
+        *   **Normalization:** Same as front depth map.
+    *   **Optional Normal Map:**
+        *   **Type:** Standard Normal Map (tangent space) rendered orthographically from the front view. Can enhance lighting on interior objects.
+        *   **Resolution:** Same as color maps.
