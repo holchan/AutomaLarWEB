@@ -1,0 +1,163 @@
+/* Use VS Code theme variables for better integration */
+:root {
+  --container-padding: 8px;
+  --item-padding: 8px;
+  --item-gap: 6px;
+  --font-size-small: 11px; /* Slightly smaller for info */
+}
+
+body {
+  padding: 0;
+  margin: 0;
+  color: var(--vscode-foreground);
+  font-size: var(--vscode-font-size);
+  font-weight: var(--vscode-font-weight);
+  font-family: var(--vscode-font-family);
+  background-color: var(
+    --vscode-sideBar-background
+  ); /* Match sidebar background */
+}
+
+#root {
+  padding: var(--container-padding);
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--item-gap);
+}
+
+.task-item {
+  background-color: var(
+    --vscode-list-inactiveSelectionBackground
+  ); /* Use inactive selection for items */
+  border: 1px solid var(--vscode-contrastBorder, transparent); /* Subtle border */
+  border-radius: 3px;
+  padding: var(--item-padding);
+  cursor: default; /* Default cursor, maybe change on hover for specific actions */
+  transition: background-color 0.1s ease-in-out;
+  overflow: hidden; /* Prevent content spill */
+}
+
+.task-item:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.task-title {
+  font-weight: 600; /* Make title slightly bolder */
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-grow: 1; /* Allow title to take available space */
+  margin-right: 8px; /* Space before actions */
+}
+
+.status-icon {
+  font-size: 14px; /* Adjust icon size if needed */
+  flex-shrink: 0; /* Prevent icon from shrinking */
+}
+
+.task-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0; /* Prevent actions from shrinking */
+}
+
+.action-button {
+  background: none;
+  border: none;
+  color: var(--vscode-icon-foreground); /* Use icon color */
+  padding: 1px 3px; /* Minimal padding */
+  border-radius: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px; /* Match icon size */
+  opacity: 0.8; /* Slightly dimmer */
+  transition: opacity 0.1s ease-in-out, background-color 0.1s ease-in-out;
+}
+
+.action-button:hover {
+  background-color: var(--vscode-toolbar-hoverBackground);
+  opacity: 1;
+}
+
+.task-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-small);
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 4px;
+  gap: 8px; /* Add gap between info items */
+}
+
+.task-date,
+.task-status {
+  white-space: nowrap;
+}
+
+.task-stats {
+  display: flex;
+  gap: 10px;
+  font-size: var(--font-size-small);
+  color: var(--vscode-descriptionForeground);
+  flex-wrap: wrap; /* Allow stats to wrap if needed */
+}
+
+.task-stat {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.stat-label {
+  /* font-weight: 500; */ /* Optional: make label slightly bolder */
+}
+
+.loading,
+.error,
+.empty-state {
+  padding: 15px var(--container-padding);
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+.error {
+  color: var(--vscode-errorForeground);
+  font-style: normal;
+}
+
+/* Status-specific coloring (applied to icon primarily) */
+.status-inSync .status-icon {
+  color: var(--vscode-testing-iconPassed, var(--vscode-terminal-ansiGreen));
+}
+.status-outOfSync .status-icon {
+  color: var(--vscode-testing-iconQueued, var(--vscode-terminal-ansiYellow));
+}
+.status-notExported .status-icon {
+  color: var(--vscode-testing-iconSkipped, var(--vscode-terminal-ansiBlue));
+}
+.status-sourceMissing .status-icon {
+  color: var(--vscode-testing-iconFailed, var(--vscode-terminal-ansiRed));
+}
+.status-error .status-icon {
+  color: var(--vscode-errorForeground);
+}
+
+/* Tooltip styling (optional, relies on title attribute) */
+[title] {
+  /* Basic tooltip styling if needed, but VS Code might handle this */
+}

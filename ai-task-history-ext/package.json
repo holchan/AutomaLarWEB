@@ -1,0 +1,146 @@
+{
+  "name": "ai-task-history-ext",
+  "displayName": "AI Task History",
+  "description": "View and manage AI task history from Roo.",
+  "version": "0.0.1",
+  "publisher": "automalarlar",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:ai-task-history.taskView"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ai-task-history",
+          "title": "AI Task History",
+          "icon": "books-svgrepo-com.svg"
+        }
+      ]
+    },
+    "views": {
+      "ai-task-history": [
+        {
+          "type": "webview",
+          "id": "ai-task-history.taskView",
+          "name": "Task History",
+          "icon": "books-svgrepo-com.svg",
+          "contextualTitle": "AI Task History"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "ai-task-history.refresh",
+        "title": "Refresh Task History",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ai-task-history.exportAll",
+        "title": "Export All Tasks",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "ai-task-history.deleteAllExports",
+        "title": "Delete All Exported Tasks",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "ai-task-history.configure",
+        "title": "Configure AI Task History Settings",
+        "icon": "$(settings-gear)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ai-task-history.refresh",
+          "when": "view == ai-task-history.taskView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ai-task-history.exportAll",
+          "when": "view == ai-task-history.taskView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ai-task-history.deleteAllExports",
+          "when": "view == ai-task-history.taskView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ai-task-history.configure",
+          "when": "view == ai-task-history.taskView",
+          "group": "navigation@4"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Task History",
+      "properties": {
+        "ai-task-history.exportPath": {
+          "type": "string",
+          "default": ".roo/graphiti/task_history",
+          "description": "Directory relative to the workspace root where task Markdown files will be exported.",
+          "scope": "resource"
+        },
+        "ai-task-history.autoExport": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically export tasks to Markdown when they are created or updated by Roo.",
+          "scope": "resource"
+        },
+        "ai-task-history.rooTasksPathOverride": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "(Optional) Manually specify the absolute path to the Roo task storage directory (e.g., if auto-detection fails). Leave null to auto-detect.",
+          "scope": "machine-overridable"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "yarn run compile",
+    "compile": "tsc -p ./ && webpack --config webpack.config.js",
+    "watch": "webpack --config webpack.config.js --watch",
+    "pretest": "yarn run compile && yarn run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "18.x",
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@types/vscode": "^1.80.0",
+    "@typescript-eslint/eslint-plugin": "^6.7.3",
+    "@typescript-eslint/parser": "^6.7.3",
+    "@vscode/test-electron": "^2.3.4",
+    "eslint": "^8.50.0",
+    "glob": "^10.3.3",
+    "mocha": "^10.2.0",
+    "typescript": "^5.2.2",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4",
+    "copy-webpack-plugin": "^12.0.2",
+    "ts-loader": "^9.5.1",
+    "@babel/core": "^7.24.0",
+    "@babel/preset-env": "^7.24.0",
+    "@babel/preset-react": "^7.23.3",
+    "babel-loader": "^9.1.3"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}

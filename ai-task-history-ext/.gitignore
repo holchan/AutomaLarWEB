@@ -1,0 +1,27 @@
+# Node modules
+node_modules
+
+# Compiled output
+out
+
+# VS Code Test Runner
+.vscode-test/
+
+# IDE specific files
+.vscode/
+
+# OS specific files
+.DS_Store
+*.pem
+
+# Log files
+*.log
+
+# Environment variables
+.env*
+!.env.example
+
+# Build artifacts
+dist/
+build/
+*.vsix

@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2020", // Target a reasonably modern ES version
+    "outDir": "out", // Output directory for compiled JS
+    "lib": ["ES2020", "DOM"], // Include DOM types for webview code
+    "sourceMap": true, // Generate source maps for debugging
+    "rootDir": "src", // Source directory for TS files
+    "strict": true, // Enable all strict type-checking options
+    "esModuleInterop": true, // Allows default imports from commonjs modules
+    "skipLibCheck": true, // Skip type checking of declaration files
+    "forceConsistentCasingInFileNames": true, // Ensure consistent file casing
+    "jsx": "react", // Support JSX syntax for the webview UI
+    "resolveJsonModule": true // Allow importing JSON files
+  },
+  "include": [
+    "src/**/*" // Include all files in the src directory
+  ],
+  "exclude": [
+    "node_modules",
+    ".vscode-test" // Exclude VS Code test runner files
+  ]
+}
