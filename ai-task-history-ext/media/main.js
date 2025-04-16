@@ -9,48 +9,8 @@ import ReactDOM from "react-dom/client";
   // Get VS Code API
   const vscode = acquireVsCodeApi();
 
-  // Task status constants from model (ensure consistency)
-  const STATUS = {
-    InSync: "inSync",
-    OutOfSync: "outOfSync",
-    NotExported: "notExported",
-    SourceMissing: "sourceMissing",
-    Error: "error",
-  };
-
-  // Task status display info
-  const STATUS_INFO = {
-    [STATUS.InSync]: {
-      label: "Exported & Up-to-date",
-      icon: "codicon-check",
-      cssClass: "status-inSync",
-    },
-    [STATUS.OutOfSync]: {
-      label: "Exported (Outdated)",
-      icon: "codicon-sync-ignored",
-      cssClass: "status-outOfSync",
-    },
-    [STATUS.NotExported]: {
-      label: "Not Exported",
-      icon: "codicon-circle-outline",
-      cssClass: "status-notExported",
-    },
-    [STATUS.SourceMissing]: {
-      label: "Source Missing (Orphaned Export)",
-      icon: "codicon-error",
-      cssClass: "status-sourceMissing",
-    },
-    [STATUS.Error]: {
-      label: "Error Checking Status",
-      icon: "codicon-warning",
-      cssClass: "status-error",
-    },
-    default: {
-      label: "Unknown Status",
-      icon: "codicon-question",
-      cssClass: "status-unknown",
-    },
-  };
+  // Task status display info - REMOVED as status is no longer tracked this way
+  // const STATUS_INFO = { ... };
 
   // Format date
   function formatDate(timestamp) {
@@ -104,7 +64,8 @@ import ReactDOM from "react-dom/client";
             setError(null);
             break;
           case "setTasks":
-            setTasks(message.tasks || []);
+            // Ensure message.tasks is always an array
+            setTasks(Array.isArray(message.tasks) ? message.tasks : []);
             setLoading(false);
             setError(null);
             break;
@@ -119,6 +80,7 @@ import ReactDOM from "react-dom/client";
       window.addEventListener("message", handleMessage);
 
       // Request initial tasks when component mounts
+      console.log("Webview requesting initial tasks..."); // Debugging
       vscode.postMessage({ command: "getTasks" });
 
       // Cleanup listener on unmount
@@ -130,25 +92,18 @@ import ReactDOM from "react-dom/client";
     // --- Event Handlers ---
     const handleExportTask = (taskId, event) => {
       event.stopPropagation(); // Prevent triggering other clicks
-      setLoading(true); // Optionally show loading state for the specific task
+      // setLoading(true); // Optionally show loading state for the specific task
       vscode.postMessage({ command: "exportTask", payload: { taskId } });
     };
 
-    const handleDeleteExport = (taskId, event) => {
-      event.stopPropagation();
-      // Optional: Add confirmation dialog here if desired
-      vscode.postMessage({ command: "deleteExport", payload: { taskId } });
-    };
+    // NEW Delete Task Handler - REMOVED
+    // const handleDeleteTask = (taskId, event) => { ... };
 
-    const handleOpenSource = (taskId, event) => {
-      event.stopPropagation();
-      vscode.postMessage({ command: "openSourceFile", payload: { taskId } });
-    };
+    // Open Source Handler - REMOVED (functionality not implemented)
+    // const handleOpenSource = (taskId, event) => { ... };
 
-    const handleOpenExport = (taskId, event) => {
-      event.stopPropagation();
-      vscode.postMessage({ command: "openExportFile", payload: { taskId } });
-    };
+    // Open Export Handler - REMOVED (cannot open automatically anymore)
+    // const handleOpenExport = (taskId, event) => { ... };
 
     // --- Rendering Logic ---
     if (loading && tasks.length === 0) {
@@ -175,50 +130,45 @@ import ReactDOM from "react-dom/client";
       );
     }
 
+    console.log("Rendering tasks:", tasks); // Debugging: Check the tasks array before mapping
+
     return React.createElement(
       "div",
       { className: "task-list" },
       tasks.map((task) => {
-        const statusInfo = STATUS_INFO[task.syncStatus] || STATUS_INFO.default;
-        const canExport =
-          task.syncStatus === STATUS.NotExported ||
-          task.syncStatus === STATUS.OutOfSync;
-        const canDelete =
-          task.syncStatus !== STATUS.NotExported &&
-          task.syncStatus !== STATUS.SourceMissing; // Can delete if export exists
-        const canOpenExport =
-          task.syncStatus !== STATUS.NotExported &&
-          task.syncStatus !== STATUS.SourceMissing;
-        const canOpenSource = task.syncStatus !== STATUS.SourceMissing;
+        // Status logic removed
+        // const statusInfo = STATUS_INFO[task.status] || STATUS_INFO.default;
+        // const canExport = task.status === "yellow" || task.status === "red";
+        // const canDelete = task.status !== "unknown";
+        // const canOpenExport = task.status === "green";
+        // const canOpenSource = task.status !== "red";
+
+        // console.log(`Task ${task.id} Status: ${task.status}`, statusInfo); // Debugging
 
         return React.createElement(
           "div",
           {
             key: task.id,
-            className: `task-item ${statusInfo.cssClass}`,
-            title: `Task ID: ${task.id}\nStatus: ${
-              statusInfo.label
-            }\nSource Modified: ${formatDate(
-              task.sourceLastModified
-            )}\nExport Modified: ${formatDate(task.exportLastModified)}`,
+            className: `task-item`, // Removed status CSS class
+            title: `Task ID: ${task.id}\nLast Modified: ${formatDate(
+              task.lastModified
+            )}`,
           },
           [
-            // Header: Status Icon, Title, Actions
+            // Header: Title, Actions
             React.createElement("div", { className: "task-header" }, [
               React.createElement(
                 "div",
                 {
                   className: "task-title",
-                  onClick: (e) => canOpenSource && handleOpenSource(task.id, e),
-                  title: canOpenSource
-                    ? `Click to open source: ${task.sourcePath}`
-                    : "Source file missing",
+                  title: `Task: ${task.title || "Untitled"}`,
                 },
                 [
-                  React.createElement("span", {
-                    className: `codicon ${statusInfo.icon} status-icon`,
-                    title: statusInfo.label, // Tooltip for icon
-                  }),
+                  // Status icon removed
+                  // React.createElement("span", {
+                  //   className: `codicon ${statusInfo.icon} status-icon`,
+                  //   title: statusInfo.label,
+                  // }),
                   React.createElement(
                     "span",
                     {},
@@ -227,102 +177,44 @@ import ReactDOM from "react-dom/client";
                 ]
               ),
               React.createElement("div", { className: "task-actions" }, [
-                // Open Source Button
-                canOpenSource &&
-                  React.createElement(
-                    "button",
-                    {
-                      className: "action-button",
-                      title: `Open Source JSON (${task.id})`,
-                      onClick: (e) => handleOpenSource(task.id, e),
-                    },
-                    React.createElement("span", {
-                      className: "codicon codicon-json",
-                    })
-                  ),
-                // Open Export Button
-                canOpenExport &&
-                  React.createElement(
-                    "button",
-                    {
-                      className: "action-button",
-                      title: `Open Exported Markdown (${task.id})`,
-                      onClick: (e) => handleOpenExport(task.id, e),
-                    },
-                    React.createElement("span", {
-                      className: "codicon codicon-markdown",
-                    })
-                  ),
-                // Export/Re-export Button
-                canExport &&
-                  React.createElement(
-                    "button",
-                    {
-                      className: "action-button",
-                      title:
-                        task.syncStatus === STATUS.OutOfSync
-                          ? `Re-export Task (${task.id})`
-                          : `Export Task (${task.id})`,
-                      onClick: (e) => handleExportTask(task.id, e),
-                    },
-                    React.createElement("span", {
-                      className: "codicon codicon-sync",
-                    })
-                  ),
-                // Delete Export Button
-                canDelete &&
-                  React.createElement(
-                    "button",
-                    {
-                      className: "action-button",
-                      title: `Delete Exported File (${task.id})`,
-                      onClick: (e) => handleDeleteExport(task.id, e),
-                    },
-                    React.createElement("span", {
-                      className: "codicon codicon-trash",
-                    })
-                  ),
+                // Open Source Button REMOVED
+                // Open Export Button REMOVED
+                // Export Button (Always available now)
+                React.createElement(
+                  "button",
+                  {
+                    className: "action-button",
+                    title: `Export Task (${task.id})`,
+                    onClick: (e) => handleExportTask(task.id, e),
+                  },
+                  React.createElement("span", {
+                    // Using export icon instead of sync
+                    className: "codicon codicon-cloud-download",
+                  })
+                ),
+                // Delete Task Button REMOVED
               ]),
             ]),
-            // Info: Date, Status Label
+            // Info: Date only
             React.createElement("div", { className: "task-info" }, [
               React.createElement(
                 "div",
                 {
                   className: "task-date",
-                  title: `Source Modified: ${new Date(
-                    task.sourceLastModified
+                  title: `Last Modified: ${new Date(
+                    task.lastModified
                   ).toISOString()}`,
                 },
-                formatDate(task.sourceLastModified)
+                formatDate(task.lastModified)
               ),
-              React.createElement(
-                "div",
-                { className: "task-status" },
-                statusInfo.label
-              ),
+              // Status label removed
+              // React.createElement(
+              //   "div",
+              //   { className: "task-status" },
+              //   statusInfo.label
+              // ),
             ]),
-            // Stats: Size
-            React.createElement("div", { className: "task-stats" }, [
-              React.createElement(
-                "span",
-                { className: "task-stat", title: "Size of source JSON file" },
-                [
-                  React.createElement(
-                    "span",
-                    { className: "stat-label" },
-                    "Size:"
-                  ),
-                  React.createElement(
-                    "span",
-                    { className: "stat-value" },
-                    formatSize(task.size)
-                  ),
-                ]
-              ),
-              // Add token counts here if available in task model and needed
-              // React.createElement('span', { className: 'task-stat' }, `Tokens: ${task.tokensIn || 0}/${task.tokensOut || 0}`)
-            ]),
+            // Stats section removed for simplicity
           ]
         );
       })
