@@ -42,16 +42,6 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "ai-task-history.exportAll",
-        "title": "Export All Tasks",
-        "icon": "$(sync)"
-      },
-      {
-        "command": "ai-task-history.deleteAllExports",
-        "title": "Delete All Exported Tasks",
-        "icon": "$(trash)"
-      },
-      {
         "command": "ai-task-history.configure",
         "title": "Configure AI Task History Settings",
         "icon": "$(settings-gear)"
@@ -65,19 +55,9 @@
           "group": "navigation@1"
         },
         {
-          "command": "ai-task-history.exportAll",
-          "when": "view == ai-task-history.taskView",
-          "group": "navigation@2"
-        },
-        {
-          "command": "ai-task-history.deleteAllExports",
-          "when": "view == ai-task-history.taskView",
-          "group": "navigation@3"
-        },
-        {
           "command": "ai-task-history.configure",
           "when": "view == ai-task-history.taskView",
-          "group": "navigation@4"
+          "group": "navigation@2"
         }
       ]
     },
@@ -111,6 +91,7 @@
   "scripts": {
     "vscode:prepublish": "yarn run compile",
     "compile": "tsc -p ./ && webpack --config webpack.config.js",
+    "build": "webpack --config webpack.config.js --mode production",
     "watch": "webpack --config webpack.config.js --watch",
     "pretest": "yarn run compile && yarn run lint",
     "lint": "eslint src --ext ts",
@@ -141,6 +122,7 @@
   },
   "dependencies": {
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "@vscode/codicons": "^0.0.35"
   }
 }

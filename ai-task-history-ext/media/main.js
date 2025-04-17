@@ -9,8 +9,38 @@ import ReactDOM from "react-dom/client";
   // Get VS Code API
   const vscode = acquireVsCodeApi();
 
-  // Task status display info - REMOVED as status is no longer tracked this way
-  // const STATUS_INFO = { ... };
+  // Task status display info
+  const STATUS_INFO = {
+    new: {
+      // Renamed from 'not_exported' and updated color/label
+      icon: "codicon-circle-large-outline", // ⚪
+      color: "var(--vscode-terminal-ansiRed)", // Red for New as per design doc
+      label: "New (Not Exported)",
+    },
+    synced: {
+      // Renamed from 'exported'
+      icon: "codicon-check", // ✅
+      color: "var(--vscode-terminal-ansiGreen)",
+      label: "Synced",
+    },
+    out_of_sync: {
+      // New status
+      icon: "codicon-sync", // 🔄
+      color: "var(--vscode-terminal-ansiYellow)",
+      label: "Out of Sync",
+    },
+    error: {
+      icon: "codicon-error",
+      color: "var(--vscode-terminal-ansiRed)",
+      label: "Error",
+    },
+    default: {
+      // Fallback
+      icon: "codicon-question",
+      color: "var(--vscode-foreground)",
+      label: "Unknown Status",
+    },
+  };
 
   // Format date
   function formatDate(timestamp) {
@@ -65,9 +95,14 @@ import ReactDOM from "react-dom/client";
             break;
           case "setTasks":
             // Ensure message.tasks is always an array
-            setTasks(Array.isArray(message.tasks) ? message.tasks : []);
+            const newTasks = Array.isArray(message.tasks) ? message.tasks : [];
+            console.log("Webview: Calling setTasks with:", newTasks); // Log before setting state
+            setTasks(newTasks);
+            console.log("Webview: Calling setLoading(false)"); // Log before setting state
             setLoading(false);
             setError(null);
+            // Log state *after* updates (Note: state updates might be async, this log might show old value)
+            console.log("Webview: State update calls completed for setTasks.");
             break;
           case "error":
             setError(message.message || "An unknown error occurred.");
@@ -105,6 +140,12 @@ import ReactDOM from "react-dom/client";
     // Open Export Handler - REMOVED (cannot open automatically anymore)
     // const handleOpenExport = (taskId, event) => { ... };
 
+    // Handler to open the exported task file
+    const handleOpenTask = (taskId) => {
+      console.log(`Webview requesting to open task: ${taskId}`);
+      vscode.postMessage({ command: "openTask", payload: { taskId } });
+    };
+
     // --- Rendering Logic ---
     if (loading && tasks.length === 0) {
       return React.createElement(
@@ -130,17 +171,21 @@ import ReactDOM from "react-dom/client";
       );
     }
 
-    console.log("Rendering tasks:", tasks); // Debugging: Check the tasks array before mapping
+    // Log the state right before rendering the list
+    console.log(
+      `Webview: Rendering App component. Loading: ${loading}, Error: ${error}, Tasks count: ${tasks.length}`
+    );
+    console.log("Webview: Tasks state before mapping:", tasks);
 
     return React.createElement(
       "div",
       { className: "task-list" },
       tasks.map((task) => {
-        // Status logic removed
-        // const statusInfo = STATUS_INFO[task.status] || STATUS_INFO.default;
-        // const canExport = task.status === "yellow" || task.status === "red";
-        // const canDelete = task.status !== "unknown";
-        // const canOpenExport = task.status === "green";
+        // Get status info based on the status received from the backend
+        const statusInfo = STATUS_INFO[task.status] || STATUS_INFO.default;
+        // const canExport = task.status === "yellow" || task.status === "red"; // Old logic
+        // const canDelete = task.status !== "unknown"; // Old logic
+        // const canOpenExport = task.status === "green"; // Old logic
         // const canOpenSource = task.status !== "red";
 
         // console.log(`Task ${task.id} Status: ${task.status}`, statusInfo); // Debugging
@@ -152,7 +197,9 @@ import ReactDOM from "react-dom/client";
             className: `task-item`, // Removed status CSS class
             title: `Task ID: ${task.id}\nLast Modified: ${formatDate(
               task.lastModified
-            )}`,
+            )}\nClick to open exported file`, // Updated title
+            onClick: () => handleOpenTask(task.id), // Add onClick handler
+            style: { cursor: "pointer" }, // Add pointer cursor
           },
           [
             // Header: Title, Actions
@@ -164,11 +211,12 @@ import ReactDOM from "react-dom/client";
                   title: `Task: ${task.title || "Untitled"}`,
                 },
                 [
-                  // Status icon removed
-                  // React.createElement("span", {
-                  //   className: `codicon ${statusInfo.icon} status-icon`,
-                  //   title: statusInfo.label,
-                  // }),
+                  // Add Status icon
+                  React.createElement("span", {
+                    className: `codicon ${statusInfo.icon} status-icon`,
+                    style: { color: statusInfo.color, marginRight: "6px" }, // Add color and spacing
+                    title: statusInfo.label,
+                  }),
                   React.createElement(
                     "span",
                     {},
@@ -207,10 +255,10 @@ import ReactDOM from "react-dom/client";
                 },
                 formatDate(task.lastModified)
               ),
-              // Status label removed
+              // Optionally add status label back if desired
               // React.createElement(
               //   "div",
-              //   { className: "task-status" },
+              //   { className: "task-status", style: { color: statusInfo.color } },
               //   statusInfo.label
               // ),
             ]),
@@ -222,11 +270,19 @@ import ReactDOM from "react-dom/client";
   }
 
   // Render the app using the imported ReactDOM
-  const container = document.getElementById("root");
+  console.log(
+    "Webview: Attempting to find container element '#task-list-container'"
+  );
+  const container = document.getElementById("task-list-container"); // <-- Target the correct container ID
   if (container) {
+    console.log("Webview: Container found. Creating React root.");
     const root = ReactDOM.createRoot(container);
+    console.log("Webview: Rendering React App component.");
     root.render(React.createElement(App));
+    console.log("Webview: React App component rendered.");
   } else {
-    console.error("Root element not found for React app.");
+    console.error(
+      "Root element '#task-list-container' not found for React app."
+    );
   }
 })();

@@ -31,6 +31,15 @@ module.exports = {
       patterns: [
         { from: "media/style.css", to: "style.css" }, // Copy CSS file to dist folder
         { from: "media/icon.svg", to: "icon.svg" }, // Copy icon file to dist folder
+        // Add codicon assets
+        {
+          from: "node_modules/@vscode/codicons/dist/codicon.css",
+          to: "codicon.css",
+        },
+        {
+          from: "node_modules/@vscode/codicons/dist/codicon.ttf",
+          to: "codicon.ttf",
+        },
       ],
     }),
   ],

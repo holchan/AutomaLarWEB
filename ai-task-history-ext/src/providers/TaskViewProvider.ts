@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
-import { TaskService } from "../services/taskService";
+import { TaskService, TaskStatus } from "../services/taskService"; // Import TaskStatus
 import { getNonce } from "../utils/getNonce";
 import { getUri } from "../utils/getUri";
-import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
@@ -18,13 +17,16 @@ interface RooTaskDetails {
   tokensIn?: number;
   tokensOut?: number;
   totalCost?: number;
+  size?: number;
+  workspace?: string;
 }
 
-// Define the structure we send to the webview (simplified - status removed for now)
-type WebViewTask = RooTaskDetails;
-// type WebViewTask = RooTaskDetails & {
-//   status: "yellow" | "green" | "unknown"; // Simplified status: Yellow (Needs Export), Green (Exported)
-// };
+// Define the structure we send to the webview
+// type TaskStatus = "exported" | "not_exported" | "error"; // REMOVED - Now imported from TaskService
+type WebViewTask = RooTaskDetails & {
+  status: TaskStatus; // Use imported TaskStatus type
+  lastModified: number;
+};
 
 export class TaskViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "ai-task-history.taskView";
@@ -38,22 +40,9 @@ export class TaskViewProvider implements vscode.WebviewViewProvider {
     console.log("TaskViewProvider: constructor called.");
     this._extensionUri = context.extensionUri;
     this._taskService = new TaskService(context); // Instantiate TaskService here
-
-    console.log("TaskViewProvider: Setting up configuration change listener.");
-    vscode.workspace.onDidChangeConfiguration(
-      (e: vscode.ConfigurationChangeEvent) => {
-        if (e.affectsConfiguration("ai-task-history")) {
-          console.log(
-            "TaskViewProvider: AI Task History configuration changed. Refreshing view."
-          );
-          this.refreshTasks();
-        }
-      },
-      null,
-      this._disposables
-    );
-    console.log("TaskViewProvider: Configuration change listener set up.");
   }
+
+  // REMOVED: getTaskStatus method - Logic moved to TaskService
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -122,97 +111,126 @@ export class TaskViewProvider implements vscode.WebviewViewProvider {
     try {
       console.log("TaskViewProvider: Calling taskService.discoverTaskIds...");
       const taskIds = await this._taskService.discoverTaskIds();
-      console.log(`TaskViewProvider: Discovered ${taskIds.length} task IDs.`);
+      console.log(`TaskViewProvider: Discovered ${taskIds.length} task IDs.`); // <-- Keep this log
+
+      // Add logging for number of tasks before processing
+      if (taskIds.length > 50) {
+        console.warn(
+          `TaskViewProvider: Processing a large number of tasks (${taskIds.length}). This might be slow.`
+        );
+      }
 
       console.log("TaskViewProvider: Mapping task IDs to details...");
+      console.time("TaskViewProvider: loadTaskDetails"); // Start timer for detail loading
       const taskDetailsPromises = taskIds.map(async (id) => {
         // console.log(`TaskViewProvider [${id}]: Processing task ID.`); // Very verbose
-        // let status: "yellow" | "green" | "unknown" = "unknown"; // Status removed
         let lastModified = 0;
         let taskDirectoryExists = false;
         let metadata: any = null; // To store metadata if read
+        let title = `Task ${id}`; // Default title
 
         try {
-          // console.log(`TaskViewProvider [${id}]: Getting Roo tasks path...`); // Verbose
           const rooTasksPath = await this._taskService.getRooTasksPath();
           if (!rooTasksPath) {
             console.error(
               `TaskViewProvider [${id}]: Roo tasks path could not be determined.`
             );
-            // status = "unknown"; // Status removed
             return {
               id: id,
               title: `Task ${id} (Roo path error)`,
               lastModified: 0,
-              // status: status, // Status removed
+              status: "error",
             } as WebViewTask;
           }
 
           const taskDirectoryPath = path.join(rooTasksPath, "tasks", id);
+
+          try {
+            const dirStats = await vscode.workspace.fs.stat(
+              vscode.Uri.file(taskDirectoryPath)
+            );
+            if (dirStats.type !== vscode.FileType.Directory) {
+              console.warn(
+                `TaskViewProvider: Path exists but is not a directory: ${taskDirectoryPath}. Skipping task.`
+              );
+              return null;
+            }
+            lastModified = dirStats.mtime;
+            taskDirectoryExists = true;
+          } catch (dirStatError) {
+            if (
+              dirStatError instanceof vscode.FileSystemError &&
+              dirStatError.code === "FileNotFound"
+            ) {
+              console.warn(
+                `TaskViewProvider [${id}]: Task directory NOT FOUND: ${taskDirectoryPath}. Skipping task.`
+              );
+            } else {
+              console.error(
+                `TaskViewProvider: Error stating task directory ${taskDirectoryPath}:`,
+                dirStatError
+              );
+            }
+            return null; // Skip task if directory doesn't exist or error occurs
+          }
+
+          // Try to read metadata to get a better title/timestamp if possible
           const metadataPath = path.join(
             taskDirectoryPath,
             "task_metadata.json"
-          ); // Path to metadata
-
-          // console.log(`TaskViewProvider [${id}]: Checking task directory: ${taskDirectoryPath}`); // Verbose
-          taskDirectoryExists = fs.existsSync(taskDirectoryPath);
-          // console.log(`TaskViewProvider [${id}]: Task directory exists? ${taskDirectoryExists}`); // Verbose
-
-          if (!taskDirectoryExists) {
-            console.warn(
-              `TaskViewProvider [${id}]: Task directory NOT FOUND. Skipping task.`
+          );
+          try {
+            const metadataContent = await vscode.workspace.fs.readFile(
+              vscode.Uri.file(metadataPath)
             );
-            return null;
-          }
-
-          // Get last modified time of the directory itself
-          lastModified = fs.statSync(taskDirectoryPath).mtimeMs;
-
-          // Try to read metadata to get a better title/timestamp if possible
-          if (fs.existsSync(metadataPath)) {
-            try {
-              const metadataContent = fs.readFileSync(metadataPath, "utf8");
-              metadata = JSON.parse(metadataContent);
-              // Use metadata timestamp if available and valid, otherwise keep directory mtime
-              if (metadata && typeof metadata.ts === "number") {
-                lastModified = metadata.ts;
-              }
-            } catch (metaError) {
+            metadata = JSON.parse(
+              Buffer.from(metadataContent).toString("utf8")
+            ) as any; // Loosen type for now
+            if (metadata && typeof metadata.ts === "number") {
+              lastModified = metadata.ts; // Overwrite directory mtime with metadata timestamp
+            }
+            // Use task description from metadata as title if available
+            if (metadata && metadata.task) {
+              title = `${metadata.task.substring(0, 50)}... (${id.substring(
+                0,
+                8
+              )})`;
+            }
+          } catch (metaError) {
+            if (
+              !(
+                metaError instanceof vscode.FileSystemError &&
+                metaError.code === "FileNotFound"
+              )
+            ) {
               console.warn(
                 `TaskViewProvider [${id}]: Failed to read or parse metadata ${metadataPath}:`,
                 metaError
               );
-              // Proceed without metadata, using directory mtime
             }
           }
 
-          // --- Status check based on old export path REMOVED ---
-
-          // Use task description from metadata as title if available
-          const title =
-            metadata && metadata.task
-              ? `${metadata.task.substring(0, 50)}... (${id.substring(0, 8)})`
-              : `Task ${id}`;
+          // Determine task status
+          const status = await this._taskService.getTaskStatus(id); // Use service method
 
           return {
             id: id,
-            title: title, // Use potentially better title
-            lastModified: lastModified, // Use potentially better timestamp
-            // status: status, // Status removed
+            title: title,
+            lastModified: lastModified,
+            status: status,
           } as WebViewTask;
         } catch (error) {
-          // Handle case where task directory might disappear between existsSync and statSync
+          // Handle case where task directory might disappear or other errors occur
           if (
             error instanceof Error &&
             error.message.includes("ENOENT") &&
-            !taskDirectoryExists // Check the flag we set earlier
+            !taskDirectoryExists
           ) {
             console.warn(
               `TaskViewProvider [${id}]: Task directory likely deleted during processing.`
             );
             return null; // Skip this task
           }
-          // Log other errors
           console.error(
             `TaskViewProvider [${id}]: Failed to get details:`,
             error
@@ -221,7 +239,7 @@ export class TaskViewProvider implements vscode.WebviewViewProvider {
             id: id,
             title: `Task ${id} (Error)`,
             lastModified: 0,
-            // status: "unknown", // Status removed
+            status: "error",
           } as WebViewTask;
         }
       });
@@ -230,6 +248,7 @@ export class TaskViewProvider implements vscode.WebviewViewProvider {
       const tasks = (await Promise.all(taskDetailsPromises)).filter(
         (details): details is WebViewTask => details !== null
       );
+      console.timeEnd("TaskViewProvider: loadTaskDetails"); // End timer for detail loading
       console.log(
         `TaskViewProvider: Filtered task details complete. Count: ${tasks.length}`
       );
@@ -286,128 +305,109 @@ export class TaskViewProvider implements vscode.WebviewViewProvider {
         switch (command) {
           case "getTasks":
             console.log("TaskViewProvider: Handling 'getTasks' message.");
-            await this._loadTasks();
-            break;
-
-          case "exportTask":
-            console.log("TaskViewProvider: Handling 'exportTask' message.");
-            if (payload?.taskId) {
-              const taskId = payload.taskId;
+            await this._loadTasks(); // Call _loadTasks when webview requests
+            break; // Correct break statement
+          case "openTask": {
+            // Handle request to open the exported markdown file
+            const taskId = payload?.taskId;
+            if (typeof taskId === "string") {
+              console.log(
+                `TaskViewProvider: Handling 'openTask' message for task ${taskId}.`
+              );
               try {
-                vscode.window.showInformationMessage(
-                  `Exporting task ${taskId}...` // Keep user feedback
-                );
-                // Call the NEW manual export method
-                await this._taskService.exportTaskManually(taskId);
-                // No automatic refresh needed as file location is chosen by user
+                // We need the TaskService to construct the target path
+                const targetDir = this._taskService.getTargetPath(); // Assuming TaskService has a method like this
+                const exportFilename = `${taskId}.md`;
+                const exportPath = path.join(targetDir, exportFilename);
+                const exportUri = vscode.Uri.file(exportPath);
+
+                // Check if file exists before trying to open
+                try {
+                  await vscode.workspace.fs.stat(exportUri);
+                  await vscode.window.showTextDocument(exportUri);
+                  console.log(
+                    `TaskViewProvider: Opened exported file: ${exportPath}`
+                  );
+                } catch (statError) {
+                  if (
+                    statError instanceof vscode.FileSystemError &&
+                    statError.code === "FileNotFound"
+                  ) {
+                    console.warn(
+                      `TaskViewProvider: Export file not found for task ${taskId}: ${exportPath}`
+                    );
+                    vscode.window.showWarningMessage(
+                      `Export file for task ${taskId} not found. It might need to be exported first.`
+                    );
+                  } else {
+                    throw statError; // Re-throw other stat errors
+                  }
+                }
               } catch (error) {
-                // Error handling remains the same, error is logged by service now
                 console.error(
-                  `TaskViewProvider: Export failed for task ${taskId}`,
+                  `TaskViewProvider: Error opening task file for ${taskId}:`,
                   error
+                );
+                vscode.window.showErrorMessage(
+                  `Failed to open export file for task ${taskId}.`
                 );
               }
             } else {
-              console.error(
-                "TaskViewProvider: Invalid payload for exportTask:",
-                payload
+              console.warn(
+                "TaskViewProvider: 'openTask' message received without a valid taskId in payload."
               );
             }
             break;
-
-          // --- deleteTask case REMOVED ---
-          // --- exportSelectedTasks case REMOVED ---
-          // --- exportAllTasksFromWebview case REMOVED ---
-
-          case "showInfoMessage":
-            console.log(
-              "TaskViewProvider: Handling 'showInfoMessage' message."
-            );
-            if (payload?.message) {
-              vscode.window.showInformationMessage(payload.message);
-            }
-            break;
-
-          case "openExportFile":
-            // Inform user we cannot automatically open the file anymore.
-            console.log("TaskViewProvider: Handling 'openExportFile' message.");
-            if (payload?.taskId) {
-              vscode.window.showInformationMessage(
-                `Cannot automatically open export for task ${payload.taskId}. Please locate the file where you saved it.`
-              );
-            } else {
-              console.error(
-                "TaskViewProvider: Invalid payload for openExportFile:",
-                payload
-              );
-            }
-            break;
-
-          default:
-            console.warn(
-              `TaskViewProvider: Received unknown command from webview: ${command}`
-            );
+          }
+          // Add other cases here if needed
         }
-        console.log(
-          `TaskViewProvider: Finished handling message command='${command}'.`
-        );
-      },
-      undefined,
-      this._disposables
-    );
-    console.log("TaskViewProvider: Webview message listener attached.");
-  }
+      } // End of async message handler
+    ); // End of onDidReceiveMessage
+  } // End of _setWebviewMessageListener
 
   /**
-   * Generates the HTML content for the webview panel.
+   * Gets the HTML content for the webview panel.
    */
   private _getHtmlForWebview(webview: vscode.Webview): string {
-    console.log("TaskViewProvider: _getHtmlForWebview called");
-    // Use the bundler's output (assuming webpack or similar)
-    const scriptUri = getUri(webview, this._extensionUri, [
-      "dist",
-      "bundle.js",
-    ]);
+    // Get URIs for required assets
+    // Get URIs for required assets from the 'dist' directory
     const styleUri = getUri(webview, this._extensionUri, ["dist", "style.css"]);
-    const codiconsUri = getUri(webview, this._extensionUri, [
+    const codiconUri = getUri(webview, this._extensionUri, [
       "dist",
       "codicon.css",
-    ]); // Make sure this is copied to dist
+    ]);
+    const scriptUri = getUri(webview, this._extensionUri, [
+      "dist",
+      "bundle.js", // Point to the bundled script
+    ]);
     const nonce = getNonce();
-    console.log(
-      `TaskViewProvider: Script URI: ${scriptUri.toString()}, Style URI: ${styleUri.toString()}, Codicons URI: ${codiconsUri.toString()}, Nonce: ${nonce}`
-    );
 
-    // Removed "Export Selected" and "Export All" buttons from HTML
+    // Basic HTML structure (can be enhanced)
     return /*html*/ `
       <!DOCTYPE html>
       <html lang="en">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
-        <link href="${styleUri}" rel="stylesheet" />
-        <link href="${codiconsUri}" rel="stylesheet" />
+        <meta
+          http-equiv="Content-Security-Policy"
+          content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+        <link rel="stylesheet" type="text/css" href="${codiconUri}">
+        <link rel="stylesheet" type="text/css" href="${styleUri}">
         <title>AI Task History</title>
       </head>
       <body>
-        <h1>Roo Task History</h1>
-        <div class="controls">
-          <button id="refresh-button" title="Refresh Task List">
-            <i class="codicon codicon-refresh"></i> Refresh
-          </button>
-          <!-- Removed Export Selected/All buttons -->
-        </div>
+        <h1>AI Task History</h1>
+        <button id="refresh-button">Refresh</button>
         <div id="task-list-container">
           <p id="loading-message">Loading tasks...</p>
-          <p id="error-message" class="error-message" style="display: none;"></p>
           <ul id="task-list"></ul>
         </div>
-        <script type="module" nonce="${nonce}" src="${scriptUri}"></script>
-      </body>
-      </html>
-    `;
-  }
-}
+        <p id="error-message" style="color: red; display: none;"></p>
 
-console.log("TaskViewProvider: Module loaded.");
+        <script nonce="${nonce}" type="module" src="${scriptUri}"></script>
+      </body>
+    </html>
+  `;
+  } // End of _getHtmlForWebview
+} // End of TaskViewProvider class

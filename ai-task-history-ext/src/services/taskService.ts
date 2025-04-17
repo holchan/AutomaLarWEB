@@ -1,22 +1,23 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as os from "os";
-import * as fs from "fs"; // Import fs for existsSync
+// Removed 'fs' import as we'll rely solely on vscode.workspace.fs
+
+// Define our extension's ID for global storage path
+const EXTENSION_ID = "automalar.dev-aid"; // As per design doc
 
 console.log("TaskService: Loading module...");
 
 // --- Types adapted from Roo Code ---
-// Basic structure based on observed api_conversation_history.json and export-markdown.ts
-// We might need to refine these as we implement the parsing logic.
 interface RooMessageContentBlock {
-  type: "text" | "image" | "tool_use" | "tool_result" | string; // Allow other types
+  type: "text" | "image" | "tool_use" | "tool_result" | string;
   text?: string;
-  source?: { media_type?: string; data?: string }; // For images
-  name?: string; // For tool use/result
-  input?: any; // For tool use
-  id?: string; // For tool use/result
-  content?: string | RooMessageContentBlock[]; // For tool result
-  is_error?: boolean; // For tool result
+  source?: { media_type?: string; data?: string };
+  name?: string;
+  input?: any;
+  id?: string;
+  content?: string | RooMessageContentBlock[];
+  is_error?: boolean;
 }
 
 interface RooMessageParam {
@@ -27,17 +28,18 @@ interface RooMessageParam {
 interface RooTaskMetadata {
   id: string;
   number: number;
-  ts: number; // Timestamp for the task start - crucial for filename
+  ts: number; // Timestamp for the task start
   task: string; // Initial prompt/task description
   tokensIn?: number;
   tokensOut?: number;
   totalCost?: number;
   size?: number;
   workspace?: string;
-  // Add other fields if needed based on task_metadata.json inspection
 }
-
 // --- End Types ---
+
+// Define the possible statuses for a task export
+export type TaskStatus = "new" | "synced" | "out_of_sync" | "error";
 
 export class TaskService {
   private context: vscode.ExtensionContext;
@@ -45,28 +47,49 @@ export class TaskService {
   constructor(context: vscode.ExtensionContext) {
     console.log("TaskService: constructor called.");
     this.context = context;
+    if (!context || !context.globalStorageUri) {
+      console.error(
+        "TaskService FATAL: Extension context or globalStorageUri is unavailable during construction."
+      );
+      // Consider throwing an error or setting a 'disabled' state
+    }
   }
 
   // --- Configuration Helpers ---
 
   private getConfiguration() {
-    // console.log("TaskService: getConfiguration() called."); // Too noisy maybe
     return vscode.workspace.getConfiguration("ai-task-history");
   }
 
   private getRooTasksPathOverride(): string | null {
-    const override = this.getConfiguration().get<string | null>(
+    return this.getConfiguration().get<string | null>(
       "rooTasksPathOverride",
       null
     );
-    // console.log(`TaskService: getRooTasksPathOverride() returning: ${override}`); // Too noisy
-    return override;
   }
 
   // --- Path Management ---
 
   /**
-   * Ensures a directory exists, creating it if necessary.
+   * Gets the absolute path to this extension's dedicated export directory
+   * within VS Code's global storage.
+   */
+  public getTargetPath(): string {
+    // Changed from private to public
+    if (!this.context.globalStorageUri) {
+      console.error("TaskService: globalStorageUri is unavailable.");
+      throw new Error(
+        "Extension context is not available for determining storage path."
+      );
+    }
+    const storagePath = this.context.globalStorageUri.fsPath;
+    // Note: The directory name uses EXTENSION_ID which is 'automalar.dev-aid'
+    const targetDir = path.join(storagePath, "task_exports");
+    return targetDir;
+  }
+
+  /**
+   * Ensures a directory exists, creating it if necessary using vscode.workspace.fs.
    */
   private async ensureDirectoryExists(dirPath: string): Promise<void> {
     console.log(`TaskService: ensureDirectoryExists() called for: ${dirPath}`);
@@ -90,23 +113,23 @@ export class TaskService {
             createError
           );
           vscode.window.showErrorMessage(
+            // Show message outside try block
             `Failed to create required directory: ${dirPath}`
           );
-          throw createError; // Re-throw to indicate failure
+          throw createError;
         }
       } else {
-        // Log other errors during stat
         console.error(
           `TaskService: Error checking directory ${dirPath}:`,
           error
         );
-        throw error; // Re-throw other errors
+        throw error;
       }
     }
   }
 
   /**
-   * Detects or retrieves the path to the Roo task storage directory.
+   * Detects or retrieves the path to the Roo task storage directory (Source).
    * Uses the override setting first, then attempts auto-detection.
    * Ensures the base path and the 'tasks' subdirectory exist.
    */
@@ -119,48 +142,23 @@ export class TaskService {
       console.log(
         `TaskService: Checking overridden Roo tasks path: ${overridePath}`
       );
-      // Use fs.existsSync for synchronous check before async operations
-      if (fs.existsSync(overridePath)) {
-        try {
-          const stats = await vscode.workspace.fs.stat(
-            vscode.Uri.file(overridePath)
-          );
-          if (stats.type === vscode.FileType.Directory) {
-            console.log(
-              `TaskService: Using valid overridden path: ${overridePath}`
-            );
-            basePath = overridePath;
-          } else {
-            console.warn(
-              `TaskService: Overridden path ${overridePath} exists but is not a directory. Falling back to auto-detection.`
-            );
-            vscode.window.showWarningMessage(
-              `The configured 'Roo Tasks Path Override' (${overridePath}) is not a directory. Trying auto-detection.`
-            );
-          }
-        } catch (statError) {
-          // Handle potential errors during stat, e.g., permission issues
-          console.warn(
-            `TaskService: Error stating overridden path ${overridePath}:`,
-            statError
-          );
-          vscode.window.showWarningMessage(
-            `Could not verify the configured 'Roo Tasks Path Override' (${overridePath}). Trying auto-detection.`
-          );
-        }
+      if (await this.isValidDirectory(overridePath)) {
+        console.log(
+          `TaskService: Using valid overridden path: ${overridePath}`
+        );
+        basePath = overridePath;
       } else {
         console.warn(
-          `TaskService: Overridden path ${overridePath} does not exist. Falling back to auto-detection.`
+          `TaskService: Overridden path ${overridePath} is invalid or not a directory. Falling back to auto-detection.`
         );
         vscode.window.showWarningMessage(
-          `The configured 'Roo Tasks Path Override' (${overridePath}) was not found. Trying auto-detection.`
+          `The configured 'Roo Tasks Path Override' (${overridePath}) is invalid. Trying auto-detection.`
         );
       }
     }
 
     if (!basePath) {
       console.log("TaskService: Starting auto-detection of Roo tasks path...");
-      // Common locations for Roo Code task storage
       const possiblePaths = [
         // VS Code Server (Remote Development) - Most likely in devcontainer
         path.join(
@@ -171,7 +169,7 @@ export class TaskService {
           "globalStorage",
           "rooveterinaryinc.roo-cline"
         ),
-        // VS Code (Linux)
+        // Other common paths... (Linux, macOS, Windows, Flatpak) - Copied from previous version
         path.join(
           os.homedir(),
           ".config",
@@ -180,7 +178,6 @@ export class TaskService {
           "globalStorage",
           "rooveterinaryinc.roo-cline"
         ),
-        // VS Code (macOS)
         path.join(
           os.homedir(),
           "Library",
@@ -190,7 +187,6 @@ export class TaskService {
           "globalStorage",
           "rooveterinaryinc.roo-cline"
         ),
-        // VS Code (Windows)
         path.join(
           os.homedir(),
           "AppData",
@@ -200,7 +196,6 @@ export class TaskService {
           "globalStorage",
           "rooveterinaryinc.roo-cline"
         ),
-        // Flatpak installations
         path.join(
           os.homedir(),
           ".var",
@@ -212,15 +207,13 @@ export class TaskService {
           "globalStorage",
           "rooveterinaryinc.roo-cline"
         ),
-        // --- Insiders Versions --- (Add if needed, check common paths)
       ];
 
       for (const p of possiblePaths) {
-        // console.log(`TaskService: Checking possible path: ${p}`); // Verbose
         if (await this.isValidDirectory(p)) {
           console.log(`TaskService: Auto-detected Roo tasks path: ${p}`);
           basePath = p;
-          break; // Found a valid path
+          break;
         }
       }
       console.log("TaskService: Auto-detection finished.");
@@ -231,26 +224,23 @@ export class TaskService {
         `TaskService: Ensuring required subdirectories under: ${basePath}`
       );
       try {
-        // Ensure base path exists (should already, but good practice)
         await this.ensureDirectoryExists(basePath);
-        // Ensure 'tasks' subdirectory exists
         await this.ensureDirectoryExists(path.join(basePath, "tasks"));
-        // REMOVED check/creation for 'exports' directory
-        console.log(`TaskService: Required subdirectories ensured.`);
-        return basePath;
+        console.log(`TaskService: Required source subdirectories ensured.`);
+        return basePath; // Return the base path, not the 'tasks' subpath directly
       } catch (error) {
         console.error(
-          `TaskService: Failed to ensure required subdirectories exist under ${basePath}.`,
+          `TaskService: Failed to ensure required source subdirectories exist under ${basePath}.`,
           error
         );
         vscode.window.showErrorMessage(
           `Failed to ensure required Roo directories exist. Check permissions for ${basePath}.`
         );
-        return null; // Failed to ensure directories
+        return null;
       }
     } else {
       console.error(
-        "TaskService: Could not detect or validate Roo Code tasks path. Please configure it manually in settings."
+        "TaskService: Could not detect or validate Roo Code tasks path."
       );
       vscode.window.showErrorMessage(
         "Could not find the Roo task storage directory. Please set the 'AI Task History: Roo Tasks Path Override' setting if needed."
@@ -259,70 +249,52 @@ export class TaskService {
     }
   }
 
+  /** Checks if a path exists and is a directory using vscode.workspace.fs */
   private async isValidDirectory(dirPath: string): Promise<boolean> {
-    // console.log(`TaskService: isValidDirectory() called for: ${dirPath}`); // Very verbose
     try {
-      // Use fs.existsSync for a quick check first
-      if (!fs.existsSync(dirPath)) {
-        // console.log(`TaskService: isValidDirectory - ${dirPath} does not exist (fs.existsSync).`); // Verbose
-        return false;
-      }
-      // If it exists, then perform the async stat to confirm it's a directory
       const stats = await vscode.workspace.fs.stat(vscode.Uri.file(dirPath));
-      // console.log(`TaskService: stat successful for ${dirPath}, type: ${stats.type}`); // Verbose
       return stats.type === vscode.FileType.Directory;
     } catch (error) {
-      // Catch errors from fs.stat specifically (e.g., permissions)
       if (
         !(
           error instanceof vscode.FileSystemError &&
           error.code === "FileNotFound"
         )
       ) {
-        // Log errors other than FileNotFound (which is handled by existsSync)
         console.warn(`TaskService: Error during stat for ${dirPath}:`, error);
-      } else {
-        // This case should ideally not be reached if existsSync is false, but included for safety
-        // console.log(`TaskService: stat failed for ${dirPath} (FileNotFound, expected during checks).`); // Verbose
       }
       return false;
     }
   }
 
   /**
-   * Discovers task UUIDs by listing directories in the tasks subfolder.
-   * Returns an array of task UUID strings.
+   * Discovers task UUIDs by listing directories in the source tasks subfolder.
    */
   public async discoverTaskIds(): Promise<string[]> {
     console.log("TaskService: discoverTaskIds() called.");
-    const rooTasksPath = await this.getRooTasksPath(); // This now ensures subdirs exist
-    if (!rooTasksPath) {
+    const rooTasksBasePath = await this.getRooTasksPath();
+    if (!rooTasksBasePath) {
       console.error(
-        "TaskService: Roo tasks path could not be determined for discovery. Cannot discover task IDs."
+        "TaskService: Roo tasks base path could not be determined. Cannot discover task IDs."
       );
       return [];
     }
 
+    const actualTasksDirPath = path.join(rooTasksBasePath, "tasks");
     let taskIds: string[] = [];
-    const actualTasksDirPath = path.join(rooTasksPath, "tasks");
 
     try {
       console.log(
         "TaskService: Discovering task IDs via directory listing in:",
         actualTasksDirPath
       );
-
-      // Re-check if tasks dir exists, although getRooTasksPath should have created it
       if (!(await this.isValidDirectory(actualTasksDirPath))) {
         console.warn(
-          `TaskService: 'tasks' subdirectory not found at ${actualTasksDirPath} even after check. Cannot discover tasks.`
+          `TaskService: 'tasks' subdirectory not found at ${actualTasksDirPath}. Cannot discover tasks.`
         );
         return [];
       }
 
-      console.log(
-        `TaskService: Reading directory entries for ${actualTasksDirPath}...`
-      );
       const entries = await vscode.workspace.fs.readDirectory(
         vscode.Uri.file(actualTasksDirPath)
       );
@@ -331,26 +303,20 @@ export class TaskService {
       );
 
       for (const [entryName, entryType] of entries) {
-        // console.log(`TaskService: Processing entry: ${entryName}, type: ${entryType}`); // Verbose
         if (entryType === vscode.FileType.Directory) {
-          // Basic UUID check (adjust if Roo's format is different)
+          // Basic UUID check
           if (
             /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
               entryName
             )
           ) {
             taskIds.push(entryName);
-            // console.log(`TaskService: Added potential task ID: ${entryName}`); // Verbose
-          } else {
-            // Only warn if it's not the known 'checkpoints' folder name pattern
-            if (!entryName.startsWith("checkpoints")) {
-              console.warn(
-                `TaskService: Skipping entry '${entryName}' as it doesn't look like a standard UUID directory.`
-              );
-            }
+          } else if (!entryName.startsWith("checkpoints")) {
+            // Ignore known non-task folders
+            console.warn(
+              `TaskService: Skipping entry '${entryName}' as it doesn't look like a standard UUID directory.`
+            );
           }
-        } else {
-          // console.log(`TaskService: Skipping non-directory entry: ${entryName}`); // Verbose
         }
       }
     } catch (error) {
@@ -367,189 +333,191 @@ export class TaskService {
     console.log(
       `TaskService: Finished discovery. Found ${taskIds.length} potential task IDs.`
     );
-    // Sort tasks reverse chronologically based on UUID structure (less reliable than timestamp)
-    // A better approach would be to read metadata for each task, but that's slower.
-    taskIds.sort().reverse(); // Simple reverse alphabetical sort for now
+    taskIds.sort().reverse(); // Simple reverse alphabetical sort
     return taskIds;
   }
 
-  // --- Manual Export Implementation ---
+  // --- Automated Export Implementation ---
 
   /**
-   * Reads task data, formats it as markdown, and prompts the user to save it.
+   * Reads source task data (metadata, history), generates markdown,
+   * and writes it to the dedicated target export directory.
+   * This is the core function for the automated workflow.
    */
-  public async exportTaskManually(taskId: string): Promise<void> {
-    console.log(`TaskService: exportTaskManually() called for task ${taskId}.`);
-    const rooTasksPath = await this.getRooTasksPath();
-    if (!rooTasksPath) {
+  public async processAndExportTask(taskId: string): Promise<string | null> {
+    console.log(
+      `TaskService: processAndExportTask() called for task ${taskId}.`
+    );
+    const rooTasksBasePath = await this.getRooTasksPath();
+    if (!rooTasksBasePath) {
       console.error(
-        "TaskService: Cannot export manually, Roo tasks path not found."
+        `TaskService: Cannot process task ${taskId}, Roo tasks path not found.`
       );
-      vscode.window.showErrorMessage(
-        "Could not determine Roo tasks path for export."
-      );
-      return;
+      return null; // Indicate failure
     }
 
-    const taskDirPath = path.join(rooTasksPath, "tasks", taskId);
+    const taskDirPath = path.join(rooTasksBasePath, "tasks", taskId);
     const metadataPath = path.join(taskDirPath, "task_metadata.json");
     const historyPath = path.join(taskDirPath, "api_conversation_history.json");
 
     let metadata: RooTaskMetadata | null = null;
     let conversationHistory: RooMessageParam[] = [];
+    let markdownContent = "";
 
     try {
-      // --- Read Metadata ---
-      console.log(`TaskService: Reading metadata from ${metadataPath}...`);
-      if (!fs.existsSync(metadataPath)) {
-        throw new Error(`Metadata file not found: ${metadataPath}`);
-      }
-      const metadataContent = await vscode.workspace.fs.readFile(
-        vscode.Uri.file(metadataPath)
-      );
-      metadata = JSON.parse(
-        Buffer.from(metadataContent).toString("utf8")
-      ) as RooTaskMetadata;
-      if (!metadata || typeof metadata.ts !== "number") {
-        throw new Error(
-          `Invalid or missing timestamp in metadata: ${metadataPath}`
+      // --- Read Metadata (Optional) ---
+      try {
+        console.log(`TaskService: Reading metadata from ${metadataPath}...`);
+        const metadataContentBytes = await vscode.workspace.fs.readFile(
+          vscode.Uri.file(metadataPath)
         );
+        metadata = JSON.parse(
+          Buffer.from(metadataContentBytes).toString("utf8")
+        ) as RooTaskMetadata;
+        console.log(`TaskService: Metadata read successfully for ${taskId}.`);
+        // Add timestamp if missing (important for status checks later)
+        if (metadata && typeof metadata.ts !== "number") {
+          metadata.ts = Date.now(); // Use current time as fallback
+          console.warn(
+            `TaskService: Added missing timestamp to metadata for ${taskId}`
+          );
+        }
+      } catch (error) {
+        if (
+          error instanceof vscode.FileSystemError &&
+          error.code === "FileNotFound"
+        ) {
+          console.warn(
+            `TaskService: Metadata file not found for task ${taskId}: ${metadataPath}. Proceeding without it.`
+          );
+          metadata = {
+            id: taskId,
+            number: 0,
+            ts: Date.now(),
+            task: "[Metadata Missing]",
+          }; // Create placeholder metadata
+        } else {
+          console.error(
+            `TaskService: Error reading metadata for task ${taskId}:`,
+            error
+          );
+          // Decide if we should throw or continue with placeholder
+          metadata = {
+            id: taskId,
+            number: 0,
+            ts: Date.now(),
+            task: "[Metadata Error]",
+          };
+        }
       }
-      console.log(
-        `TaskService: Metadata read successfully. Timestamp: ${metadata.ts}`
-      );
 
       // --- Read History ---
-      console.log(`TaskService: Reading history from ${historyPath}...`);
-      if (!fs.existsSync(historyPath)) {
-        // It's possible a task exists with metadata but no history yet
-        console.warn(
-          `TaskService: History file not found: ${historyPath}. Exporting with empty history.`
-        );
-        // Allow export to continue, will result in an empty markdown file (or just headers)
-      } else {
-        const historyContent = await vscode.workspace.fs.readFile(
+      try {
+        console.log(`TaskService: Reading history from ${historyPath}...`);
+        const historyContentBytes = await vscode.workspace.fs.readFile(
           vscode.Uri.file(historyPath)
         );
         conversationHistory = JSON.parse(
-          Buffer.from(historyContent).toString("utf8")
+          Buffer.from(historyContentBytes).toString("utf8")
         ) as RooMessageParam[];
         console.log(
-          `TaskService: History read successfully. ${conversationHistory.length} messages.`
+          `TaskService: History read successfully for ${taskId}. ${conversationHistory.length} messages.`
         );
+      } catch (error) {
+        if (
+          error instanceof vscode.FileSystemError &&
+          error.code === "FileNotFound"
+        ) {
+          console.warn(
+            `TaskService: History file not found for task ${taskId}: ${historyPath}. Exporting empty history.`
+          );
+          // Continue with empty history
+        } else {
+          console.error(
+            `TaskService: Error reading history for task ${taskId}:`,
+            error
+          );
+          // Decide if we should throw or continue with empty history
+          vscode.window.showWarningMessage(
+            `Could not read history for task ${taskId}. Export may be incomplete.`
+          );
+        }
       }
 
-      // --- Generate Filename (adapted from Roo Code) ---
-      const dateTs = metadata.ts; // Use timestamp from metadata
-      const date = new Date(dateTs);
-      const month = date
-        .toLocaleString("en-US", { month: "short" })
-        .toLowerCase();
-      const day = date.getDate();
-      const year = date.getFullYear();
-      let hours = date.getHours();
-      const minutes = date.getMinutes().toString().padStart(2, "0");
-      const seconds = date.getSeconds().toString().padStart(2, "0");
-      const ampm = hours >= 12 ? "pm" : "am";
-      hours = hours % 12;
-      hours = hours ? hours : 12; // the hour '0' should be '12'
-      const defaultFileName = `cline_task_${month}-${day}-${year}_${hours}-${minutes}-${seconds}-${ampm}.md`;
-      console.log(
-        `TaskService: Generated default filename: ${defaultFileName}`
-      );
+      // --- Generate Markdown Content ---
+      // Add a header with metadata if available
+      let header = `<!-- Task ID: ${taskId} -->\n`;
+      if (metadata) {
+        header += `# Task: ${metadata.task || "[No Task Description]"}\n`;
+        header += `*   **ID:** ${metadata.id}\n`;
+        header += `*   **Timestamp:** ${new Date(
+          metadata.ts
+        ).toLocaleString()}\n`;
+        // Add other metadata fields if desired
+        header += `\n---\n\n`;
+      }
 
-      // --- Generate Markdown Content (adapted from Roo Code) ---
-      const markdownContent = conversationHistory
+      const historyMarkdown = conversationHistory
         .map((message) => {
-          // Basic validation
           if (!message || !message.role || !message.content) {
             console.warn(
               "TaskService: Skipping invalid message structure:",
               message
             );
-            return null; // Skip invalid messages
+            return null;
           }
           const role = message.role === "user" ? "**User:**" : "**Assistant:**";
           const content = Array.isArray(message.content)
             ? message.content
-                .map((block) => this.formatContentBlockToMarkdown(block)) // Use the helper method
-                .join("\n\n") // Use double newline between blocks for better spacing
+                .map((block) => this.formatContentBlockToMarkdown(block))
+                .join("\n\n")
             : typeof message.content === "string"
             ? message.content
-            : "[Unsupported Content Format]"; // Handle plain string content
-          return `${role}\n\n${content}\n\n`; // Add double newline after role and content
+            : "[Unsupported Content Format]";
+          return `${role}\n\n${content}\n\n`;
         })
-        .filter(Boolean) // Remove null entries from skipped messages
-        .join("---\n\n"); // Separator between messages
+        .filter(Boolean)
+        .join("---\n\n");
+
+      markdownContent = header + historyMarkdown;
       console.log(
-        `TaskService: Generated markdown content (length: ${markdownContent.length}).`
+        `TaskService: Generated markdown content for ${taskId} (length: ${markdownContent.length}).`
       );
 
-      // --- Prompt user for save location ---
-      console.log(`TaskService: Prompting user for save location...`);
-      const saveUri = await vscode.window.showSaveDialog({
-        filters: { Markdown: ["md"] },
-        defaultUri: vscode.Uri.file(
-          path.join(os.homedir(), "Downloads", defaultFileName) // Default to Downloads
-        ),
-        saveLabel: "Export Task History",
-        title: `Export Roo Task (${taskId})`,
-      });
+      // --- Write to Target Export Directory ---
+      const targetDir = this.getTargetPath();
+      const targetFilename = `${taskId}.md`; // Use UUID as filename
+      const targetExportPath = path.join(targetDir, targetFilename);
 
-      if (saveUri) {
-        console.log(
-          `TaskService: User selected save location: ${saveUri.fsPath}`
-        );
-        // Write content to the selected location
-        await vscode.workspace.fs.writeFile(
-          saveUri,
-          Buffer.from(markdownContent)
-        );
-        console.log(
-          `TaskService: Markdown file successfully saved to ${saveUri.fsPath}.`
-        );
-        vscode.window.showInformationMessage(
-          `Task ${taskId} exported successfully to ${path.basename(
-            saveUri.fsPath
-          )}`
-        );
-        // Optionally open the saved file
-        // vscode.window.showTextDocument(saveUri, { preview: true });
-      } else {
-        console.log("TaskService: User cancelled save dialog.");
-      }
+      console.log(
+        `TaskService: Preparing to write export for ${taskId} to: ${targetExportPath}`
+      );
+      await this.ensureDirectoryExists(targetDir); // Ensure target dir exists
+
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(targetExportPath),
+        Buffer.from(markdownContent, "utf8")
+      );
+      console.log(
+        `TaskService: Successfully exported task ${taskId} to: ${targetExportPath}`
+      );
+      return targetExportPath; // Return the path of the exported file
     } catch (error) {
       console.error(
-        `TaskService: Failed to manually export task ${taskId}:`,
+        `TaskService: Failed to process and export task ${taskId}:`,
         error
       );
-      // Provide more specific feedback based on the error type
-      let errorMessage = `Failed to export task ${taskId}.`;
-      if (error instanceof Error) {
-        if (error.message.includes("Metadata file not found")) {
-          errorMessage = `Could not find metadata for task ${taskId}. It might be corrupted or incomplete.`;
-        } else if (error.message.includes("History file not found")) {
-          errorMessage = `Could not find history file for task ${taskId}. It might be corrupted or incomplete.`;
-        } else if (error.message.includes("Invalid or missing timestamp")) {
-          errorMessage = `Metadata for task ${taskId} is missing a valid timestamp. Cannot generate filename.`;
-        } else if (error instanceof SyntaxError) {
-          errorMessage = `Failed to parse task data for ${taskId}. Files might be corrupted.`;
-        } else {
-          errorMessage = `Failed to export task ${taskId}: ${error.message}`;
-        }
-      } else {
-        errorMessage = `Failed to export task ${taskId}: ${String(error)}`;
-      }
-      vscode.window.showErrorMessage(errorMessage);
+      vscode.window.showErrorMessage(
+        `Failed to automatically export task ${taskId}. Check logs for details.`
+      );
+      return null; // Indicate failure
     }
   }
 
   /**
    * Formats a single content block from Roo's conversation history into Markdown.
-   * Adapted directly from Roo Code's export-markdown.ts.
    */
   private formatContentBlockToMarkdown(block: RooMessageContentBlock): string {
-    // Add basic validation for the block structure
     if (!block || typeof block.type !== "string") {
       console.warn("TaskService: Skipping invalid content block:", block);
       return "[Invalid Content Block]";
@@ -557,43 +525,27 @@ export class TaskService {
 
     switch (block.type) {
       case "text":
-        return block.text ?? ""; // Handle potentially undefined text
+        return block.text ?? "";
       case "image":
-        // You might want to include more info if available, e.g., media type
-        // For now, keep it simple like Roo Code
-        return `[Image]`; // Simple placeholder
+        return `[Image]`; // Placeholder
       case "tool_use":
         let inputStr: string;
-        // Safely handle different input types
-        if (typeof block.input === "object" && block.input !== null) {
-          try {
-            // Format object inputs nicely, handle potential circular references during stringify
-            inputStr = Object.entries(block.input)
-              .map(
-                ([key, value]) =>
-                  `${
-                    key.charAt(0).toUpperCase() + key.slice(1)
-                  }: ${JSON.stringify(value, null, 2)}` // Pretty print JSON
-              )
-              .join("\n");
-          } catch (e) {
-            console.warn(
-              "TaskService: Could not stringify tool input object:",
-              e
-            );
-            inputStr = "[Could not display tool input object]";
-          }
-        } else if (block.input !== undefined && block.input !== null) {
-          inputStr = String(block.input); // Convert other non-nullish types to string
-        } else {
-          inputStr = "[No Input Provided]";
+        try {
+          inputStr =
+            typeof block.input === "object" && block.input !== null
+              ? JSON.stringify(block.input, null, 2) // Pretty print JSON
+              : block.input !== undefined && block.input !== null
+              ? String(block.input)
+              : "[No Input Provided]";
+        } catch (e) {
+          console.warn("TaskService: Could not stringify tool input:", e);
+          inputStr = "[Could not display tool input]";
         }
-        // Include the tool name and formatted input within a code block
         return `\`\`\`tool_use\nTool: ${
           block.name || "Unknown Tool"
         }\nInput:\n${inputStr}\n\`\`\``;
       case "tool_result":
-        const toolName = block.name || "Tool"; // Use name if available
+        const toolName = block.name || "Tool";
         let resultStr: string;
         // Handle string content
         if (typeof block.content === "string") {
@@ -632,6 +584,150 @@ export class TaskService {
           `TaskService: Encountered unknown content block type: ${block.type}`
         );
         return `[Unsupported content type: ${block.type}]`;
+    }
+  }
+
+  /**
+   * Determines the synchronization status of a task's export file
+   * by comparing source file timestamps with the export file timestamp.
+   * @param taskId The UUID of the task.
+   * @returns The calculated TaskStatus.
+   */
+  public async getTaskStatus(taskId: string): Promise<TaskStatus> {
+    console.log(`TaskService: getTaskStatus() called for task ${taskId}.`);
+    const rooTasksBasePath = await this.getRooTasksPath();
+    if (!rooTasksBasePath) {
+      console.error(
+        `TaskService: Cannot get status for task ${taskId}, Roo tasks path not found.`
+      );
+      return "error";
+    }
+
+    const taskDirPath = path.join(rooTasksBasePath, "tasks", taskId);
+    const metadataPath = path.join(taskDirPath, "task_metadata.json");
+    const historyPath = path.join(taskDirPath, "api_conversation_history.json");
+    const exportPath = path.join(this.getTargetPath(), `${taskId}.md`);
+
+    let sourceMtime = 0;
+    let exportMtime = -1; // Use -1 to indicate not found initially
+    let sourceExists = false;
+
+    try {
+      // --- Check Source Files ---
+      try {
+        const metadataStats = await vscode.workspace.fs.stat(
+          vscode.Uri.file(metadataPath)
+        );
+        sourceMtime = Math.max(sourceMtime, metadataStats.mtime);
+        sourceExists = true;
+      } catch (error) {
+        if (
+          !(
+            error instanceof vscode.FileSystemError &&
+            error.code === "FileNotFound"
+          )
+        ) {
+          console.warn(
+            `TaskService [${taskId}]: Error stating metadata file:`,
+            error
+          );
+        } // Ignore FileNotFound for metadata
+      }
+
+      try {
+        const historyStats = await vscode.workspace.fs.stat(
+          vscode.Uri.file(historyPath)
+        );
+        sourceMtime = Math.max(sourceMtime, historyStats.mtime);
+        sourceExists = true;
+      } catch (error) {
+        if (
+          error instanceof vscode.FileSystemError &&
+          error.code === "FileNotFound"
+        ) {
+          // If history is missing but metadata existed, that's okay.
+          // If both are missing, sourceExists will remain false.
+        } else {
+          console.warn(
+            `TaskService [${taskId}]: Error stating history file:`,
+            error
+          );
+        }
+      }
+
+      if (!sourceExists) {
+        console.warn(
+          `TaskService [${taskId}]: Neither metadata nor history file found in source directory ${taskDirPath}. Cannot determine status accurately.`
+        );
+        // If source doesn't exist, we can't really determine status vs export.
+        // Let's check if the export exists and treat it as 'error' or 'new'.
+        try {
+          await vscode.workspace.fs.stat(vscode.Uri.file(exportPath));
+          // Export exists but source doesn't? This is an error state.
+          return "error";
+        } catch (exportStatError) {
+          if (
+            exportStatError instanceof vscode.FileSystemError &&
+            exportStatError.code === "FileNotFound"
+          ) {
+            // Neither source nor export exists. Could be considered 'new' but is unusual.
+            // Let's return 'error' as the source is missing.
+            return "error";
+          }
+          // Error stating the export file itself
+          console.error(
+            `TaskService [${taskId}]: Error stating export file when source was missing:`,
+            exportStatError
+          );
+          return "error";
+        }
+      }
+
+      // --- Check Export File ---
+      try {
+        const exportStats = await vscode.workspace.fs.stat(
+          vscode.Uri.file(exportPath)
+        );
+        exportMtime = exportStats.mtime;
+      } catch (error) {
+        if (
+          error instanceof vscode.FileSystemError &&
+          error.code === "FileNotFound"
+        ) {
+          // Export file doesn't exist, status is 'new'
+          console.log(
+            `TaskService [${taskId}]: Export file not found. Status: new.`
+          );
+          return "new";
+        } else {
+          // Other error stating the export file
+          console.error(
+            `TaskService [${taskId}]: Error stating export file:`,
+            error
+          );
+          return "error";
+        }
+      }
+
+      // --- Compare Timestamps ---
+      if (exportMtime >= sourceMtime) {
+        console.log(
+          `TaskService [${taskId}]: Export is up-to-date. Status: synced.`
+        );
+        return "synced";
+      } else {
+        console.log(
+          `TaskService [${taskId}]: Export is older than source. Status: out_of_sync.`
+        );
+        return "out_of_sync";
+      }
+    } catch (error) {
+      // Catch any unexpected errors during the process
+      console.error(
+        `TaskService [${taskId}]: Unexpected error during getTaskStatus:`,
+        error
+      );
+      return "error";
     }
   }
 

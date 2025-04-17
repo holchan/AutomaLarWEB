@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { TaskViewProvider } from "./providers/TaskViewProvider";
 import { TaskService } from "./services/taskService"; // Import TaskService
 import * as path from "path";
-import * as fs from "fs"; // Import the fs module
+// import * as fs from "fs"; // Import the fs module - REMOVE - REMOVED
 
 console.log("AI Task History: Loading extension module...");
 
@@ -154,64 +154,90 @@ export async function activate(context: vscode.ExtensionContext) {
   }
   // --- End Optional Event Listeners ---
 
+  // --- Setup Periodic Task Rescan (Fallback mechanism) ---
+  const periodicRescan = async () => {
+    console.log("AI Task History: Starting periodic task rescan...");
+    const rooTasksPath = await taskService.getRooTasksPath();
+    if (rooTasksPath) {
+      const taskIds = await taskService.discoverTaskIds();
+      console.log(
+        `AI Task History: Found ${taskIds.length} tasks during rescan.`
+      );
+      for (const taskId of taskIds) {
+        await taskService.processAndExportTask(taskId);
+      }
+      console.log("AI Task History: Periodic task rescan complete.");
+      taskViewProvider.refreshTasks(); // Refresh after rescan
+    } else {
+      console.warn(
+        "AI Task History: Could not perform periodic rescan: Roo tasks path not found."
+      );
+    }
+  };
+
+  const rescanIntervalMinutes = 15; // Adjust as needed
+  console.log(
+    `AI Task History: Setting up periodic task rescan every ${rescanIntervalMinutes} minutes.`
+  );
+  setInterval(periodicRescan, rescanIntervalMinutes * 60 * 1000); // Run every rescanIntervalMinutes minutes
+
   // --- Setup File System Watcher (Primary update mechanism) ---
   console.log("AI Task History: Setting up File System Watcher...");
   // TaskService instance already created above
   const rooTasksPath = await taskService.getRooTasksPath(); // Ensures directories exist
   if (rooTasksPath) {
-    const watchPaths = [
-      path.join(rooTasksPath, "tasks"),
-      path.join(rooTasksPath, "exports"),
-    ];
+    const tasksDir = path.join(rooTasksPath, "tasks"); // Watch only the tasks directory
 
-    watchPaths.forEach((watchPath) => {
-      try {
-        // Check if path exists before watching
-        if (fs.existsSync(watchPath)) {
-          console.log(
-            `AI Task History: Setting up file system watcher for: ${watchPath}`
-          );
-          const watcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(watchPath, "**/*") // Watch contents
-          );
+    try {
+      console.log(
+        `AI Task History: Setting up file system watcher for: ${tasksDir}`
+      );
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(tasksDir, "**/*") // Watch all contents recursively
+      );
 
-          // Debounce refresh calls slightly
-          let refreshTimeout: NodeJS.Timeout | null = null;
-          const debounceMs = 500; // Adjust as needed
+      // Debounce task processing
+      let processTimeout: NodeJS.Timeout | null = null;
+      const debounceMs = 1000; // Adjust as needed
 
-          const refreshHandler = (uri: vscode.Uri | undefined) => {
-            if (refreshTimeout) {
-              clearTimeout(refreshTimeout);
-            }
-            refreshTimeout = setTimeout(() => {
-              console.log(
-                `AI Task History: File system event in ${watchPath} (debounced). Refreshing task list.`
-              );
-              taskViewProvider.refreshTasks();
-              refreshTimeout = null;
-            }, debounceMs);
-          };
+      const processTask = async (uri: vscode.Uri | undefined) => {
+        if (!uri) return; // No URI provided
 
-          watcher.onDidChange(refreshHandler);
-          watcher.onDidCreate(refreshHandler);
-          watcher.onDidDelete(refreshHandler);
-
-          context.subscriptions.push(watcher);
-          console.log(
-            `AI Task History: File system watcher started for ${watchPath}`
-          );
-        } else {
-          console.warn(
-            `AI Task History: Directory not found, cannot start watcher: ${watchPath}`
-          );
+        if (processTimeout) {
+          clearTimeout(processTimeout);
         }
-      } catch (watchError) {
-        console.error(
-          `AI Task History: Error setting up watcher for ${watchPath}:`,
-          watchError
-        );
-      }
-    });
+
+        processTimeout = setTimeout(async () => {
+          const taskId = path.basename(path.dirname(uri.fsPath)); // Extract task ID from URI
+          console.log(
+            `AI Task History: Change detected for task ${taskId}, processing...`
+          );
+
+          await taskService.processAndExportTask(taskId); // Process and export
+
+          console.log(
+            `AI Task History: Task ${taskId} processed and exported (if needed). Refreshing task list.`
+          );
+          taskViewProvider.refreshTasks(); // Refresh the view
+          processTimeout = null;
+        }, debounceMs);
+      };
+
+      // Watch for changes, creations, and deletions
+      watcher.onDidChange(processTask);
+      watcher.onDidCreate(processTask);
+      watcher.onDidDelete(processTask);
+
+      context.subscriptions.push(watcher);
+      console.log(
+        `AI Task History: File system watcher started for ${tasksDir}`
+      );
+    } catch (watchError) {
+      console.error(
+        `AI Task History: Error setting up watcher for ${tasksDir}:`,
+        watchError
+      );
+    }
   } else {
     console.warn(
       "AI Task History: Could not start file system watcher: Roo tasks path not found."
