@@ -1,0 +1,33 @@
+Query: {{query}}
+
+{% if datasets %}
+Searched Datasets/Repositories: {{datasets}}
+{% endif %}
+
+Analysis Notes from Planning Stage:
+{{analysis_notes}}
+
+Summary of Explored Code Relationships:
+{{relationship_summary}}
+
+# Relevant Text Snippets Found:
+
+{% for result in results %}
+---
+File: `{{result.file_path}}`
+Dataset: {{result.dataset}}
+{% if result.node_type %}Type: {{result.node_type}}{% endif %}
+Relevance Score: {{result.relevance_score | round(2)}}
+{% if result.line_range.start and result.line_range.end %}Lines: {{result.line_range.start}}-{{result.line_range.end}}{% elif result.line_range.end %}Lines: (estimated end at {{result.line_range.end}}){% else %}Lines: (unknown){% endif %}
+Vector ID: {{result.vector_id}}
+{{result.snippet}}
+{% endfor %}
+---
+
+{% if has_out_of_scope %}
+Note: {{out_of_scope_count}} potentially relevant file(s) were also found in other datasets (metadata only).
+{% endif %}
+
+# Task:
+
+Based *strictly* on the original query, analysis notes, relationship summary, and the provided text snippets above, generate a comprehensive analysis. Structure your response using the required JSON format. Cover all sections (overview, key components, implementation details, code relationships, patterns, technical considerations, navigation guidance, follow-up suggestions) *only to the extent supported by the provided information*. Do not invent details or speculate beyond the given context. If information for a section isn't present, explicitly state that.

@@ -1,0 +1,22 @@
+Query: {{query}}
+
+# Initial Search Results Summary:
+
+Relevant Files Found (Top 7 - Metadata Only):
+{{relevant_files_summary}}
+
+Out-of-Scope Files Found (Top 3 - Metadata Only):
+{{out_of_scope_summary}}
+(Note: {{out_of_scope_count}} total out-of-scope files were found in other datasets.)
+
+Available Node Types in Graph (Examples): {{available_node_types}}
+Available Relationship Types for Exploration: {{available_edge_types}}
+
+# Task:
+
+Based *only* on the query and the initial search results summarized above, create a detailed retrieval plan. Specify exactly:
+1. Which files (by `file_path` and `vector_id`) need their *full content* retrieved, and the reason why.
+2. What *additional search queries* (as text) should be run, and the reason why.
+3. What specific *graph relationships* (by `vector_id`, `relationship_type`, `direction`) should be explored, and the reason why.
+
+Explain the reasoning behind each planned step. Use the required JSON format precisely.
