@@ -11,14 +11,18 @@ from .treesitter_setup import get_parser, get_language
 PYTHON_QUERIES = {
     "imports": """
         [
-            (import_statement name: (dotted_name) @import) @import_statement
-            (import_from_statement module_name: (dotted_name)? @import_from name: (dotted_name) @import) @import_statement
-            (import_from_statement module_name: (dotted_name)? @import_from name: (wildcard_import) @import) @import_statement ;; from . import *
+            (import_statement (aliased_import . name: (dotted_name) @import alias: (identifier) @alias)) @import_statement ;; import foo as bar
+            (import_statement name: (dotted_name) @import) @import_statement ;; import foo
+            (import_from_statement module_name: (dotted_name)? @import_from name: (dotted_name) @import) @import_statement ;; from foo import bar
+            (import_from_statement module_name: (dotted_name)? @import_from name: (wildcard_import) @import) @import_statement ;; from foo import *
         ]
         """,
     "functions": """
         (function_definition
-            name: (identifier) @name) @definition
+            name: (identifier) @name
+            parameters: (parameters)? @params
+            body: (block)? @body
+        ) @definition
         """,
     "classes": """
         (class_definition
@@ -35,18 +39,21 @@ class PythonParser(BaseParser):
         self.language = get_language("python")
         self.parser = get_parser("python")
         if self.language:
-            self.queries = {
-                name: self.language.query(query_str)
-                for name, query_str in PYTHON_QUERIES.items()
-            }
+            try:
+                self.queries = {
+                    name: self.language.query(query_str)
+                    for name, query_str in PYTHON_QUERIES.items()
+                }
+            except Exception as e:
+                 logger.error(f"Failed to compile Python queries: {e}", exc_info=True)
         else:
             self.queries = {}
             logger.error("Python tree-sitter language not loaded. Python parsing will be limited.")
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
         """Parses a Python file, yielding chunks, functions, classes, and imports."""
-        if not self.parser or not self.language:
-            logger.error(f"Python parser not available, skipping parsing for {file_path}")
+        if not self.parser or not self.language or not self.queries:
+            logger.error(f"Python parser not available or queries failed compilation, skipping parsing for {file_path}")
             return
 
         content = await read_file_content(file_path)
@@ -92,6 +99,17 @@ class PythonParser(BaseParser):
                                 start_line = node.start_point[0] + 1 # 1-based
                                 end_line = node.end_point[0] + 1
 
+                                params_node: Optional[TSNODE_TYPE] = None
+                                body_node: Optional[TSNODE_TYPE] = None
+                                for child_capture in query.captures(node):
+                                    if child_capture[1] == "params":
+                                        params_node = child_capture[0]
+                                    elif child_capture[1] == "body":
+                                        body_node = child_capture[0]
+
+                                parameters = get_node_text(params_node, content_bytes) if params_node else ""
+                                body = get_node_text(body_node, content_bytes) if body_node else ""
+
                                 if name and entity_text:
                                     entity_id_str = f"{file_id}:{name}:{start_line}"
                                     yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
@@ -111,21 +129,26 @@ class PythonParser(BaseParser):
                         # Find specific @import or @import_from captures
                         import_target_node = None
                         import_from_node = None
+                        alias_node: Optional[TSNODE_TYPE] = None # Capture alias
                         for child_capture in import_query.captures(node):
-                             if child_capture[1] == "import":
-                                 import_target_node = child_capture[0]
-                             elif child_capture[1] == "import_from":
-                                 import_from_node = child_capture[0]
+                            if child_capture[1] == "import":
+                                import_target_node = child_capture[0]
+                            elif child_capture[1] == "import_from":
+                                import_from_node = child_capture[0]
+                            elif child_capture[1] == "alias":
+                                alias_node = child_capture[0]
 
                         if import_target_node:
-                             target_name = get_node_text(import_target_node, content_bytes)
-                             if import_from_node:
-                                 from_module = get_node_text(import_from_node, content_bytes)
-                                 target = f"{from_module}.{target_name}" if from_module else target_name
-                             else:
-                                 target = target_name
-                        elif import_from_node: # Handle 'from x import *' or cases where only module is captured
-                             target = get_node_text(import_from_node, content_bytes)
+                            target_name = get_node_text(import_target_node, content_bytes)
+                            if alias_node:
+                                target = get_node_text(alias_node, content_bytes)
+                            elif import_from_node:
+                                from_module = get_node_text(import_from_node, content_bytes)
+                                target = f"{from_module}.{target_name}" if from_module else target_name
+                            else:
+                                target = target_name
+                        elif import_from_node:  # Handle 'from x import *' or cases where only module is captured
+                            target = get_node_text(import_from_node, content_bytes)
 
                         snippet = get_node_text(node, content_bytes)
                         start_line = node.start_point[0] + 1
@@ -137,7 +160,7 @@ class PythonParser(BaseParser):
                             yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
                             processed_imports.add(import_key)
                         elif not target:
-                             logger.warning(f"Could not determine import target at {file_path}:{start_line}")
+                             logger.warning(f"Could not determine Python import target at {file_path}:{start_line}")
 
 
         except Exception as e:

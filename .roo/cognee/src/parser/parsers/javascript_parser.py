@@ -13,28 +13,32 @@ JAVASCRIPT_QUERIES = {
     "imports": """
         [
             (import_statement source: (string) @import_from) @import_statement ;; import ... from '...'
-            (import_statement (import_clause (identifier) @import) source: (string) @import_from) @import_statement ;; import defaultExport from '...'
-            (import_statement (import_clause (namespace_import (identifier) @import)) source: (string) @import_from) @import_statement ;; import * as name from '...'
-            (import_statement (import_clause (named_imports (import_specifier name: (identifier) @import))) source: (string) @import_from) @import_statement ;; import { name } from '...'
-            (import_statement (import_clause (named_imports (import_specifier property: (identifier) @import name: (identifier)))) source: (string) @import_from) @import_statement ;; import { name as alias } from '...'
+            (import_statement (import_clause (identifier) @default_import)) source: (string) @import_from @import_statement ;; import defaultExport from '...'
+            (import_statement (import_clause (namespace_import (identifier) @namespace_import)) source: (string) @import_from) @import_statement ;; import * as name from '...'
+            (import_statement (import_clause (named_imports (import_specifier name: (identifier) @named_import))) source: (string) @import_from) @import_statement ;; import { name } from '...'
+            (import_statement (import_clause (named_imports (import_specifier property: (identifier) @property_import name: (identifier) @named_import))) source: (string) @import_from) @import_statement ;; import { name as alias } from '...'
 
             (lexical_declaration
               (variable_declarator
-                name: [(identifier) @import (object_pattern (shorthand_property_identifier_pattern) @import)] ;; const name = require('...'); const { name } = require('...');
+                name: [(identifier) @require_target (object_pattern (shorthand_property_identifier_pattern) @require_target)]
                 value: (call_expression function: (identifier) @_req arguments: (arguments (string) @import_from)))
               (#match? @_req "^require$")) @import_statement ;; Basic require('...') pattern
+
+            (call_expression
+              function: (identifier) @_dynamic_import (#match? @_dynamic_import "^import$"))
+              arguments: (arguments (string) @import_from)) @import_statement ;; dynamic import("module")
         ]
         """,
     "functions": """
         [
-            (function_declaration name: (identifier) @name) @definition ;; function foo() {}
+            (function_declaration name: (identifier) @name parameters: (formal_parameters)? @params) @definition ;; function foo() {}
             (lexical_declaration
               (variable_declarator
                 name: (identifier) @name
-                value: [(arrow_function) (function)])) @definition ;; const foo = () => {}; const foo = function() {};
-            (expression_statement (assignment_expression left: [(identifier) (member_expression)] @name right: [(arrow_function) (function)])) @definition ;; foo = () => {}; module.exports = function() {};
-            (method_definition name: (property_identifier) @name) @definition ;; class { foo() {} }
-            (pair key: (property_identifier) @name value: [(arrow_function) (function)]) @definition ;; const obj = { foo: () => {} };
+                value: [(arrow_function parameters: (formal_parameters)? @params) (function parameters: (formal_parameters)? @params)])) @definition ;; const foo = () => {}; const foo = function() {};
+            (expression_statement (assignment_expression left: [(identifier) (member_expression)] @name right: [(arrow_function parameters: (formal_parameters)? @params) (function parameters: (formal_parameters)? @params)])) @definition ;; foo = () => {}; module.exports = function() {};
+            (method_definition name: (property_identifier) @name parameters: (formal_parameters)? @params) @definition ;; class { foo() {} }
+            (pair key: (property_identifier) @name value: [(arrow_function parameters: (formal_parameters)? @params) (function parameters: (formal_parameters)? @params)]) @definition ;; const obj = { foo: () => {} };
         ]
         """,
     "classes": """
@@ -97,10 +101,12 @@ class JavascriptParser(BaseParser):
 
                         if node_type == "definition":
                             name_node: Optional[TSNODE_TYPE] = None
+                            params_node: Optional[TSNODE_TYPE] = None
                             for child_capture in query.captures(node):
                                 if child_capture[1] == "name":
                                     name_node = child_capture[0]
-                                    break
+                                elif child_capture[1] == "params":
+                                     params_node = child_capture[0]
 
                             if name_node:
                                 name = get_node_text(name_node, content_bytes)
@@ -112,6 +118,7 @@ class JavascriptParser(BaseParser):
                                 entity_text = get_node_text(node, content_bytes)
                                 start_line = node.start_point[0] + 1
                                 end_line = node.end_point[0] + 1
+                                parameters = get_node_text(params_node, content_bytes) if params_node else ""
 
                                 if name and entity_text:
                                     entity_id_str = f"{file_id}:{name}:{start_line}"
@@ -131,23 +138,30 @@ class JavascriptParser(BaseParser):
                         target = "unknown_import"
                         import_target_node = None
                         import_from_node = None
+                        dynamic_import_node: Optional[TSNODE_TYPE] = None
 
-                        # Find specific @import or @import_from captures within the statement
+                        # Find specific captures within the statement
                         for child_capture in import_query.captures(node):
-                            if child_capture[1] == "import": # Specific named/default/namespace import
-                                import_target_node = child_capture[0]
-                            elif child_capture[1] == "import_from": # The 'from' path string
+                            if child_capture[1] == "import_from":
                                 import_from_node = child_capture[0]
+                            elif child_capture[1] in ["default_import", "namespace_import", "named_import", "require_target"]:
+                                import_target_node = child_capture[0]
+                            elif child_capture[1] == "import_from" and node.type == "call_expression":
+                                 dynamic_import_node = child_capture[0] # Dynamic import
 
-                        if import_from_node:
+                        if dynamic_import_node:
+                            target = get_node_text(dynamic_import_node, content_bytes)
+                            if target and target.startswith(('"', "'")):
+                                target = target[1:-1]
+                        elif import_from_node:
                             target = get_node_text(import_from_node, content_bytes)
                             # Clean quotes from string literal if necessary
                             if target and target.startswith(('"', "'")):
                                 target = target[1:-1]
-                        elif import_target_node: # Case like require('module') where target is captured directly
-                             target = get_node_text(import_target_node, content_bytes)
-                             if target and target.startswith(('"', "'")):
-                                 target = target[1:-1]
+                        elif import_target_node:  # Case like require('module') where target is captured directly
+                            target = get_node_text(import_target_node, content_bytes)
+                            if target and target.startswith(('"', "'")):
+                                target = target[1:-1]
 
 
                         snippet = get_node_text(node, content_bytes)

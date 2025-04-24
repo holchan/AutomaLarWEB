@@ -12,28 +12,28 @@ TYPESCRIPT_QUERIES = {
     "imports": """
         [
             (import_statement source: (string) @import_from) @import_statement ;; import ... from '...'
-            (import_statement (import_clause (identifier) @import) source: (string) @import_from) @import_statement ;; import defaultExport from '...'
-            (import_statement (import_clause (namespace_import (identifier) @import)) source: (string) @import_from) @import_statement ;; import * as name from '...'
-            (import_statement (import_clause (named_imports (import_specifier name: [(identifier) (type_identifier)] @import))) source: (string) @import_from) @import_statement ;; import { name } from '...'
-            (import_statement (import_clause (named_imports (import_specifier property: [(identifier) (type_identifier)] @import name: [(identifier) (type_identifier)]))) source: (string) @import_from) @import_statement ;; import { name as alias } from '...'
+            (import_statement (import_clause (identifier) @default_import)) source: (string) @import_from @import_statement ;; import defaultExport from '...'
+            (import_statement (import_clause (namespace_import (identifier) @namespace_import)) source: (string) @import_from) @import_statement ;; import * as name from '...'
+            (import_statement (import_clause (named_imports (import_specifier name: [(identifier) (type_identifier)] @named_import))) source: (string) @import_from) @import_statement ;; import { name } from '...'
+            (import_statement (import_clause (named_imports (import_specifier property: [(identifier) (type_identifier)] @property_import name: [(identifier) (type_identifier)] @named_import))) source: (string) @import_from) @import_statement ;; import { name as alias } from '...'
             ;; Basic require - less common in TS but possible
             (lexical_declaration
               (variable_declarator
-                name: [(identifier) @import (object_pattern (shorthand_property_identifier_pattern) @import)]
+                name: [(identifier) @require_target (object_pattern (shorthand_property_identifier_pattern) @require_target)]
                 value: (call_expression function: (identifier) @_req arguments: (arguments (string) @import_from)))
               (#match? @_req "^require$")) @import_statement
         ]
         """,
     "functions": """
         [
-            (function_declaration name: (identifier) @name) @definition ;; function foo() {}
-            (function_signature name: (identifier) @name) @definition ;; declare function foo(); (often in .d.ts)
+            (function_declaration name: (identifier) @name parameters: (formal_parameters)? @params) @definition ;; function foo() {}
+            (function_signature name: (identifier) @name parameters: (formal_parameters)? @params) @definition ;; declare function foo(); (often in .d.ts)
             (lexical_declaration
               (variable_declarator
                 name: (identifier) @name
-                value: [(arrow_function) (function)])) @definition ;; const foo = () => {}; const foo = function() {};
-            (method_definition name: (property_identifier) @name) @definition ;; class { foo() {} }
-            (method_signature name: (property_identifier) @name) @definition ;; interface { foo(): void; }
+                value: [(arrow_function parameters: (formal_parameters)? @params) (function parameters: (formal_parameters)? @params)])) @definition ;; const foo = () => {}; const foo = function() {};
+            (method_definition name: (property_identifier) @name parameters: (formal_parameters)? @params) @definition ;; class { foo() {} }
+            (method_signature name: (property_identifier) @name parameters: (formal_parameters)? @params) @definition ;; interface { foo(): void; }
         ]
         """,
     "classes": """
@@ -109,16 +109,19 @@ class TypescriptParser(BaseParser):
 
                         if node_type == "definition":
                             name_node: Optional[TSNODE_TYPE] = None
+                            params_node: Optional[TSNODE_TYPE] = None
                             for child_capture in query.captures(node):
                                 if child_capture[1] == "name":
                                     name_node = child_capture[0]
-                                    break
+                                elif child_capture[1] == "params":
+                                    params_node = child_capture[0]
 
                             if name_node:
                                 name = get_node_text(name_node, content_bytes)
                                 entity_text = get_node_text(node, content_bytes)
                                 start_line = node.start_point[0] + 1
                                 end_line = node.end_point[0] + 1
+                                parameters = get_node_text(params_node, content_bytes) if params_node else ""
 
                                 if name and entity_text:
                                     entity_id_str = f"{file_id}:{name}:{start_line}"
@@ -138,21 +141,30 @@ class TypescriptParser(BaseParser):
                         target = "unknown_import"
                         import_target_node = None
                         import_from_node = None
+                        alias_node: Optional[TSNODE_TYPE] = None
+                        default_import_node: Optional[TSNODE_TYPE] = None
+                        namespace_import_node: Optional[TSNODE_TYPE] = None
 
                         for child_capture in import_query.captures(node):
-                            if child_capture[1] == "import":
-                                import_target_node = child_capture[0]
-                            elif child_capture[1] == "import_from":
+                            if child_capture[1] == "import_from":
                                 import_from_node = child_capture[0]
+                            elif child_capture[1] == "named_import":
+                                import_target_node = child_capture[0]
+                            elif child_capture[1] == "default_import":
+                                import_target_node = child_capture[0]
+                            elif child_capture[1] == "namespace_import":
+                                import_target_node = child_capture[0]
+                            elif child_capture[1] == "alias":
+                                alias_node = child_capture[0]
 
                         if import_from_node:
                             target = get_node_text(import_from_node, content_bytes)
                             if target and target.startswith(('"', "'")):
                                 target = target[1:-1]
-                        elif import_target_node: # Handle require('...') case
-                             target = get_node_text(import_target_node, content_bytes)
-                             if target and target.startswith(('"', "'")):
-                                 target = target[1:-1]
+                        elif import_target_node:
+                            target = get_node_text(import_target_node, content_bytes)
+                            if target and target.startswith(('"', "'")):
+                                target = target[1:-1]
 
                         snippet = get_node_text(node, content_bytes)
                         start_line = node.start_point[0] + 1
