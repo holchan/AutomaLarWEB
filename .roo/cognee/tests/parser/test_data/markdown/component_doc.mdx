@@ -1,0 +1,38 @@
+import { MyComponent } from "./MyComponent";
+import { Chart } from "react-chartjs-2";
+
+# Documentation for MyComponent
+
+This component displays important data visually.
+
+## Props
+
+- `data`: (Required) An array of numbers for the chart.
+- `label`: (Optional) A string label for the dataset. Defaults to "My Data".
+
+## Example Usage
+
+Here's how to use it in your React application:
+
+```jsx
+import React from "react";
+import { MyComponent } from "./MyComponent";
+
+const App = () => {
+  const sampleData = [12, 19, 3, 5, 2, 3];
+  return (
+    <div>
+      <h1>Component Demo</h1>
+      <MyComponent data={sampleData} label="Sample Dataset" />
+    </div>
+  );
+};
+
+export default App;
+```
+
+## Live Demo
+
+<MyComponent data={[5, 10, 15]} label="Live Demo Data" />
+
+This demonstrates the component rendering directly within MDX.
