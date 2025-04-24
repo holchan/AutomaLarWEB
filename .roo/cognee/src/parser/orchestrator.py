@@ -1,0 +1,187 @@
+# src/parser/orchestrator.py
+import asyncio
+import os
+import time
+from typing import AsyncGenerator, Dict, Type
+from .entities import Repository, SourceFile, DataPoint
+from .discovery import discover_files
+from .utils import logger
+from .config import SUPPORTED_EXTENSIONS # To know which types are expected
+
+# Import all specific parser classes
+from .parsers.base_parser import BaseParser
+from .parsers.markdown_parser import MarkdownParser
+from .parsers.python_parser import PythonParser
+from .parsers.javascript_parser import JavascriptParser
+from .parsers.typescript_parser import TypescriptParser
+from .parsers.c_parser import CParser
+from .parsers.cpp_parser import CppParser
+from .parsers.rust_parser import RustParser
+from .parsers.dockerfile_parser import DockerfileParser
+from .parsers.css_parser import CssParser
+# Import other parsers as they are created
+
+# Map file type keys (from config.py) to parser classes
+# This is crucial for dispatching
+PARSER_MAP: Dict[str, Type[BaseParser]] = {
+    "markdown": MarkdownParser,
+    "python": PythonParser,
+    "javascript": JavascriptParser,
+    "typescript": TypescriptParser,
+    "c": CParser,
+    "cpp": CppParser,
+    "rust": RustParser,
+    "dockerfile": DockerfileParser,
+    "css": CssParser,
+    # Add mappings for other parsers here
+    # "java": JavaParser,
+}
+
+# --- Orchestration Logic ---
+
+async def _process_single_file(parser_instance: BaseParser, file_path: str, file_id: str) -> list[DataPoint]:
+    """Helper coroutine to run a parser instance on a file and collect results."""
+    datapoints = []
+    try:
+        async for dp in parser_instance.parse(file_path, file_id):
+            datapoints.append(dp)
+        logger.debug(f"Parser {parser_instance.parser_type} yielded {len(datapoints)} DataPoints for {os.path.basename(file_path)}")
+    except Exception as e:
+        logger.error(f"Error executing parser {parser_instance.parser_type} on file {file_path}: {e}", exc_info=True)
+    return datapoints
+
+
+async def process_repository(repo_path: str, concurrency_limit: int = 50) -> AsyncGenerator[DataPoint, None]:
+    """
+    Main orchestrator function. Discovers files, assigns parsers, runs them
+    concurrently, and yields all generated DataPoint objects.
+
+    Args:
+        repo_path: The absolute path to the repository root.
+        concurrency_limit: Maximum number of files to parse concurrently.
+
+    Yields:
+        DataPoint objects representing the repository, files, chunks, and extracted entities.
+    """
+    abs_repo_path = os.path.abspath(repo_path)
+    start_time = time.time()
+    logger.info(f"Starting repository processing for: {abs_repo_path}")
+
+    if not os.path.isdir(abs_repo_path):
+        logger.error(f"Repository path not found or not a directory: {abs_repo_path}")
+        return
+
+    # 1. Yield Repository Node
+    repo_node = Repository(repo_path=abs_repo_path)
+    yield repo_node
+    repo_id = repo_node.payload['id'] # Access ID safely
+    total_yielded = 1
+
+    # 2. Discover Files and Prepare Parsing Tasks
+    file_processing_tasks = []
+    parser_instances: Dict[str, BaseParser] = {} # Cache parser instances
+
+    async for file_path, relative_path, file_type in discover_files(abs_repo_path):
+        # Yield SourceFile Node immediately after discovery
+        try:
+            file_node = SourceFile(file_path=file_path, relative_path=relative_path, repo_id=repo_id, file_type=file_type)
+            yield file_node
+            total_yielded += 1
+            file_id = file_node.payload['id']
+        except Exception as e:
+            logger.error(f"Failed to create SourceFile node for {relative_path}: {e}", exc_info=True)
+            continue # Skip this file if node creation fails
+
+        # Get the appropriate parser class
+        ParserClass = PARSER_MAP.get(file_type)
+
+        if ParserClass:
+            # Instantiate parser if not already cached
+            if file_type not in parser_instances:
+                 try:
+                     parser_instances[file_type] = ParserClass()
+                 except Exception as e:
+                     logger.error(f"Failed to instantiate parser {ParserClass.__name__} for type '{file_type}': {e}", exc_info=True)
+                     continue # Skip files of this type if parser fails to init
+
+            parser_instance = parser_instances[file_type]
+            # Create a task to process this file
+            task = _process_single_file(parser_instance, file_path, file_id)
+            file_processing_tasks.append(task)
+        else:
+            # This case should ideally not happen if discovery only yields supported types
+            # But good to have a warning just in case config/discovery mismatch
+            logger.warning(f"No parser mapped for supported file type '{file_type}'. Skipping detailed parsing for: {relative_path}")
+
+
+    logger.info(f"Discovery complete. Found {len(file_processing_tasks)} files to parse.")
+
+    # 3. Run Parsing Tasks Concurrently
+    processed_files = 0
+    for i in range(0, len(file_processing_tasks), concurrency_limit):
+        batch = file_processing_tasks[i:i + concurrency_limit]
+        logger.info(f"Processing batch {i//concurrency_limit + 1} ({len(batch)} files)...")
+        # gather runs tasks concurrently
+        batch_results = await asyncio.gather(*batch, return_exceptions=True)
+        processed_files += len(batch)
+
+        # Yield datapoints from successful results in the batch
+        for result in batch_results:
+            if isinstance(result, list): # Successful result is a list of DataPoints
+                for data_point in result:
+                    yield data_point
+                    total_yielded += 1
+            elif isinstance(result, Exception):
+                 # Error was already logged in _process_single_file or gather caught it
+                 logger.error(f"A file processing task failed: {result}")
+            else:
+                 logger.warning(f"Unexpected result type from asyncio.gather: {type(result)}")
+
+        logger.info(f"Finished batch {i//concurrency_limit + 1}. Total files processed so far: {processed_files}")
+
+
+    end_time = time.time()
+    duration = end_time - start_time
+    logger.info(f"Finished processing repository. Total DataPoints yielded: {total_yielded} in {duration:.2f} seconds.")
+
+
+# --- Example Usage ---
+async def main():
+    # Replace with the actual path to the repository you want to parse
+    # repo_to_parse = "/path/to/your/repository"
+    repo_to_parse = "." # Parse the current directory as an example
+    print(f"Starting parsing process via orchestrator for repository: {os.path.abspath(repo_to_parse)}")
+
+    count = 0
+    start_time = time.time()
+    # Use the orchestrator
+    async for data_point in process_repository(repo_to_parse, concurrency_limit=50):
+        count += 1
+        # Simple progress indicator
+        if count == 1: # First DP is the Repository node
+             print(f"Yielded Repository Node: {data_point.payload.get('path')}")
+        elif data_point.payload.get('type') == 'SourceFile':
+             print(f"Yielded SourceFile Node: {data_point.payload.get('relative_path')}")
+
+        # Optional: Print details of other datapoints for debugging
+        # elif data_point.payload.get('type') == 'TextChunk':
+        #      print(f"  Yielded TextChunk (Index: {data_point.payload.get('chunk_index')})")
+        # elif data_point.payload.get('type') == 'CodeEntity':
+        #      print(f"  Yielded CodeEntity: {data_point.payload.get('type')} - {data_point.payload.get('name')}")
+        # elif data_point.payload.get('type') == 'Dependency':
+        #       print(f"  Yielded Dependency: {data_point.payload.get('target_module')}")
+
+
+        if count % 200 == 0: # Adjust frequency of progress message
+             elapsed = time.time() - start_time
+             print(f" ... yielded {count} data points ({elapsed:.2f}s elapsed) ...")
+
+    end_time = time.time()
+    print(f"\nOrchestrator finished. Yielded {count} DataPoint objects in {end_time - start_time:.2f} seconds.")
+
+if __name__ == "__main__":
+    # To run this parser standalone for testing: python -m src.parser.orchestrator
+    # Ensure you run it from the directory containing the 'src' folder (e.g., .roo/cognee)
+    # Or adjust Python path accordingly.
+    # Example: cd .roo/cognee && python -m src.parser.orchestrator
+    asyncio.run(main())
