@@ -11,33 +11,44 @@ _IGNORED_FILES: Set[str] = set(IGNORED_FILES)
 
 async def discover_files(repo_path: str) -> AsyncGenerator[Tuple[str, str, str], None]:
     """
-    Discovers supported files in the repository asynchronously.
+    Asynchronously discovers supported files within a given repository path.
 
-    Walks the directory tree, respecting ignore patterns defined in config.py,
-    and identifies files based on supported extensions or exact filenames.
+    This function recursively walks the directory tree starting from `repo_path`.
+    It respects the `IGNORED_DIRS` and `IGNORED_FILES` patterns defined in
+    `config.py` to skip irrelevant directories and files. It identifies supported
+    files based on the `SUPPORTED_EXTENSIONS` mapping in `config.py`, checking
+    both exact filenames and file extensions.
 
     Args:
-        repo_path: The absolute path to the root of the repository to scan.
+        repo_path: The absolute or relative path to the root of the repository
+                   directory to scan.
 
     Yields:
-        Tuples containing:
-            - absolute_path (str): The full path to the discovered file.
-            - relative_path (str): The path relative to the repo_path.
-            - file_type (str): The type key assigned in config.SUPPORTED_EXTENSIONS
-                               (e.g., 'python', 'markdown', 'dockerfile').
+        A tuple for each discovered supported file:
+        - absolute_path (str): The full, absolute path to the discovered file.
+        - relative_path (str): The path to the file relative to the `repo_path`.
+        - file_type (str): The key from `config.SUPPORTED_EXTENSIONS` corresponding
+                           to the file's type (e.g., 'python', 'markdown', 'dockerfile').
+
+    Raises:
+        FileNotFoundError: If the provided `repo_path` does not exist or is not a directory.
+                           (Note: The current implementation logs an error and returns,
+                            but a future version might raise).
     """
     abs_repo_path = os.path.abspath(repo_path)
     logger.info(f"Starting file discovery in: {abs_repo_path}")
 
     if not os.path.isdir(abs_repo_path):
         logger.error(f"Provided discovery path is not a valid directory: {abs_repo_path}")
+        # Consider raising FileNotFoundError here in a future version
         return
 
     processed_files_count = 0
     supported_files_count = 0
 
+    # topdown=True allows modifying dirs in place to prune the walk
     for root, dirs, files in os.walk(abs_repo_path, topdown=True, onerror=lambda err: logger.error(f"Error walking directory: {err}")):
-        # Filter ignored directories efficiently
+        # Filter ignored directories efficiently by modifying the 'dirs' list in place
         dirs[:] = [d for d in dirs if d not in _IGNORED_DIRS]
 
         for file in files:
@@ -48,23 +59,19 @@ async def discover_files(repo_path: str) -> AsyncGenerator[Tuple[str, str, str],
 
             file_path = os.path.join(root, file)
 
-            # Check if the file path itself contains an ignored directory component
-            # This handles cases where os.walk might enter a dir before it's pruned
-            # if any(ignored_dir in file_path.split(os.sep) for ignored_dir in _IGNORED_DIRS):
-            #     logger.debug(f"Ignoring file within an ignored directory path: {file_path}")
-            #     continue
-
             # Determine file type based on exact name first, then extension
             file_type = SUPPORTED_EXTENSIONS.get(file) # Check exact filename match
             if not file_type:
                 _, ext = os.path.splitext(file)
-                if not ext and file not in SUPPORTED_EXTENSIONS: # Skip files without extensions unless explicitly mapped by name
-                    # logger.debug(f"Skipping file without extension or explicit mapping: {file}")
+                # Skip files without extensions unless explicitly mapped by name
+                if not ext and file not in SUPPORTED_EXTENSIONS:
+                    # logger.debug(f"Skipping file without extension or explicit mapping: {file_path}")
                     continue
-                file_type = SUPPORTED_EXTENSIONS.get(ext.lower()) # Check extension match
+                file_type = SUPPORTED_EXTENSIONS.get(ext.lower()) # Check extension match (case-insensitive)
 
             if file_type:
                 try:
+                    # Calculate relative path
                     relative_path = os.path.relpath(file_path, abs_repo_path)
                     logger.debug(f"Discovered supported file: {relative_path} (Type: {file_type})")
                     supported_files_count += 1

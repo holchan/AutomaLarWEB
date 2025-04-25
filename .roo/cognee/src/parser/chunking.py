@@ -5,18 +5,25 @@ from .utils import logger # Use logger from utils
 
 def basic_chunker(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
     """
-    Simple text chunker based on character count.
+    Splits a given text into smaller chunks based on character count with optional overlap.
+
+    This function provides a simple method for breaking down large text content
+    into manageable segments. It handles edge cases like empty input, invalid
+    size/overlap values, and ensures that progress is made through the text.
 
     Args:
-        text: The text content to chunk.
-        size: The desired maximum size of each chunk (in characters).
-        overlap: The desired overlap between consecutive chunks (in characters).
+        text: The text content to be chunked.
+        size: The maximum number of characters in each chunk. Defaults to CHUNK_SIZE from config.
+        overlap: The number of characters to overlap between consecutive chunks.
+                 Defaults to CHUNK_OVERLAP from config. If overlap is negative or
+                 greater than or equal to size, it is adjusted.
 
     Returns:
-        A list of text chunks.
+        A list of strings, where each string is a chunk of the original text.
+        Returns an empty list if the input text is empty or contains only whitespace.
     """
-    if not text:
-        logger.debug("basic_chunker received empty text.")
+    if not text or not text.strip():
+        logger.debug("basic_chunker received empty or whitespace-only text.")
         return []
     if size <= 0:
         logger.error(f"basic_chunker received invalid chunk size: {size}. Returning single chunk.")

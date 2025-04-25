@@ -17,15 +17,39 @@ except ImportError:
     markdown_parser = None
 
 class MarkdownParser(BaseParser):
-    """Parses Markdown files (.md, .mdx), yielding text chunks."""
+    """
+    Parses Markdown files (.md, .mdx) and yields TextChunk entities.
+
+    This parser primarily uses the `basic_chunker` to break down Markdown
+    content into manageable text segments. It includes optional support for
+    the `mistune` library for potential future extraction of structured
+    Markdown elements (like headings, code blocks), although this advanced
+    parsing is not fully implemented yet.
+
+    Inherits from BaseParser.
+    """
 
     def __init__(self):
+        """Initializes the MarkdownParser."""
         super().__init__()
         if not MD_LOADED:
             logger.info("Mistune library not found. Markdown parsing will rely solely on basic chunking.")
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
-        """Parses a Markdown file, yielding text chunks."""
+        """
+        Parses a Markdown file, yielding TextChunk entities.
+
+        Reads the file content, chunks it using `basic_chunker`, and yields
+        a `TextChunk` DataPoint for each non-empty chunk.
+
+        Args:
+            file_path: The absolute path to the Markdown file to be parsed.
+            file_id: The unique ID of the SourceFile entity corresponding to this file.
+
+        Yields:
+            TextChunk objects representing segments of the Markdown content.
+            May yield other DataPoint types in the future if advanced parsing is enabled.
+        """
         logger.debug(f"Parsing Markdown file: {file_path}")
         content = await read_file_content(file_path)
         if content is None:

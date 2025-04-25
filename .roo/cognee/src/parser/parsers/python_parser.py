@@ -32,12 +32,22 @@ PYTHON_QUERIES = {
 }
 
 class PythonParser(BaseParser):
-    """Parses Python files using Tree-sitter."""
+    """
+    Parses Python files (.py) using Tree-sitter to extract code entities and dependencies.
+
+    This parser identifies functions, classes, and import statements within Python
+    source code. It also utilizes the `basic_chunker` to break down the file
+    content into text segments.
+
+    Inherits from BaseParser.
+    """
 
     def __init__(self):
+        """Initializes the PythonParser and loads the Tree-sitter language and queries."""
         super().__init__()
         self.language = get_language("python")
         self.parser = get_parser("python")
+        self.queries = {}
         if self.language:
             try:
                 self.queries = {
@@ -47,11 +57,25 @@ class PythonParser(BaseParser):
             except Exception as e:
                  logger.error(f"Failed to compile Python queries: {e}", exc_info=True)
         else:
-            self.queries = {}
             logger.error("Python tree-sitter language not loaded. Python parsing will be limited.")
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
-        """Parses a Python file, yielding chunks, functions, classes, and imports."""
+        """
+        Parses a Python file, yielding TextChunks, CodeEntities (functions, classes),
+        and Dependencies (imports).
+
+        Reads the file content, uses Tree-sitter to build an AST, and queries the
+        AST to extract relevant code structures and dependencies. It also generates
+        text chunks from the file content.
+
+        Args:
+            file_path: The absolute path to the Python file to be parsed.
+            file_id: The unique ID of the SourceFile entity corresponding to this file.
+
+        Yields:
+            DataPoint objects: TextChunk, CodeEntity (FunctionDefinition, ClassDefinition),
+            and Dependency entities extracted from the file.
+        """
         if not self.parser or not self.language or not self.queries:
             logger.error(f"Python parser not available or queries failed compilation, skipping parsing for {file_path}")
             return

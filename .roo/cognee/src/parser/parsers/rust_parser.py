@@ -46,25 +46,54 @@ RUST_QUERIES = {
 }
 
 class RustParser(BaseParser):
-    """Parses Rust files using Tree-sitter."""
+    """
+    Parses Rust files (.rs) using Tree-sitter to extract code entities and dependencies.
+
+    This parser identifies functions, structs, enums, traits, implementation blocks,
+    macros, module declarations, and use/extern crate statements within Rust
+    source code. It also utilizes the `basic_chunker` to break down the file
+    content into text segments.
+
+    Inherits from BaseParser.
+    """
 
     def __init__(self):
+        """Initializes the RustParser and loads the Tree-sitter language and queries."""
         super().__init__()
         self.language = get_language("rust")
         self.parser = get_parser("rust")
+        self.queries = {}
         if self.language:
-            self.queries = {
-                name: self.language.query(query_str)
-                for name, query_str in RUST_QUERIES.items()
-            }
+            try:
+                self.queries = {
+                    name: self.language.query(query_str)
+                    for name, query_str in RUST_QUERIES.items()
+                }
+            except Exception as e:
+                 logger.error(f"Failed to compile Rust queries: {e}", exc_info=True)
         else:
-            self.queries = {}
             logger.error("Rust tree-sitter language not loaded. Rust parsing will be limited.")
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
-        """Parses a Rust file, yielding chunks, functions, structs, enums, traits, impls, mods, macros, and imports."""
-        if not self.parser or not self.language:
-            logger.error(f"Rust parser not available, skipping parsing for {file_path}")
+        """
+        Parses a Rust file, yielding TextChunks, CodeEntities (functions, structs,
+        enums, traits, impls, mods, macros), and Dependencies (use, extern crate).
+
+        Reads the file content, uses Tree-sitter to build an AST, and queries the
+        AST to extract relevant code structures and dependencies. It also generates
+        text chunks from the file content.
+
+        Args:
+            file_path: The absolute path to the Rust file to be parsed.
+            file_id: The unique ID of the SourceFile entity corresponding to this file.
+
+        Yields:
+            DataPoint objects: TextChunk, CodeEntity (FunctionDefinition, StructDefinition,
+            EnumDefinition, TraitDefinition, Implementation, MacroDefinition, ModuleDefinition),
+            and Dependency entities extracted from the file.
+        """
+        if not self.parser or not self.language or not self.queries:
+            logger.error(f"Rust parser not available or queries failed compilation, skipping parsing for {file_path}")
             return
 
         content = await read_file_content(file_path)

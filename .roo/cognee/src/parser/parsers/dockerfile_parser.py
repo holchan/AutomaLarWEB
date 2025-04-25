@@ -10,14 +10,38 @@ from ..utils import read_file_content, logger
 # INSTRUCTION_REGEX = re.compile(r"^\s*([A-Z]+)\s+", re.IGNORECASE)
 
 class DockerfileParser(BaseParser):
-    """Parses Dockerfile files, yielding text chunks."""
+    """
+    Parses Dockerfile files (Dockerfile, *.dockerfile) and yields TextChunk entities.
+
+    This parser currently uses the `basic_chunker` to break down Dockerfile
+    content into manageable text segments. It includes commented-out code
+    demonstrating how specific Dockerfile instructions could be parsed and
+    yielded as distinct entities in the future.
+
+    Inherits from BaseParser.
+    """
 
     def __init__(self):
+        """Initializes the DockerfileParser."""
         super().__init__()
         # No specific setup needed for basic chunking
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
-        """Parses a Dockerfile, yielding text chunks."""
+        """
+        Parses a Dockerfile, yielding TextChunk entities.
+
+        Reads the file content, chunks it using `basic_chunker`, and yields
+        a `TextChunk` DataPoint for each non-empty chunk.
+
+        Args:
+            file_path: The absolute path to the Dockerfile to be parsed.
+            file_id: The unique ID of the SourceFile entity corresponding to this file.
+
+        Yields:
+            TextChunk objects representing segments of the Dockerfile content.
+            May yield other DataPoint types (like DockerfileInstruction) in the
+            future if advanced parsing is enabled.
+        """
         logger.debug(f"Parsing Dockerfile: {file_path}")
         content = await read_file_content(file_path)
         if content is None:

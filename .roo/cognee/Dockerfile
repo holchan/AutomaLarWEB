@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
-ARG FINAL_VENV_PATH=/opt/venv
+ARG FINAL_VENV_PATH=/.roo/cognee/.venv
 WORKDIR /build_tmp
 
 ENV UV_LINK_MODE=copy
@@ -16,7 +16,6 @@ RUN apt-get update && \
 RUN uv venv ${FINAL_VENV_PATH}
 
 COPY ./.roo/cognee/pyproject.toml* ./.roo/cognee/uv.lock* /build_tmp/
-WORKDIR /build_tmp
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --no-install-project --python ${FINAL_VENV_PATH}/bin/python
@@ -28,7 +27,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM python:3.12-slim-bookworm
 
-ARG FINAL_VENV_PATH=/opt/venv
+ARG FINAL_VENV_PATH=/.roo/cognee/.venv
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 && \

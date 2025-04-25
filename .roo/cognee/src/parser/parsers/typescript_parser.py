@@ -53,25 +53,54 @@ TYPESCRIPT_QUERIES = {
 
 
 class TypescriptParser(BaseParser):
-    """Parses TypeScript and TSX files using Tree-sitter."""
+    """
+    Parses TypeScript and TSX files (.ts, .tsx) using Tree-sitter to extract
+    code entities and dependencies.
+
+    This parser identifies functions, classes, interfaces, types, enums, and
+    import statements within TypeScript/TSX source code. It also utilizes the
+    `basic_chunker` to break down the file content into text segments.
+
+    Inherits from BaseParser.
+    """
 
     def __init__(self):
+        """Initializes the TypescriptParser and loads the Tree-sitter language and queries."""
         super().__init__()
-        self.language = get_language("typescript")
+        self.language = get_language("typescript") # Note: Tree-sitter uses 'typescript' for both TS and TSX
         self.parser = get_parser("typescript")
+        self.queries = {}
         if self.language:
-            self.queries = {
-                name: self.language.query(query_str)
-                for name, query_str in TYPESCRIPT_QUERIES.items()
-            }
+            try:
+                self.queries = {
+                    name: self.language.query(query_str)
+                    for name, query_str in TYPESCRIPT_QUERIES.items()
+                }
+            except Exception as e:
+                 logger.error(f"Failed to compile TypeScript queries: {e}", exc_info=True)
         else:
-            self.queries = {}
             logger.error("TypeScript tree-sitter language not loaded. TS/TSX parsing will be limited.")
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
-        """Parses a TS/TSX file, yielding chunks, functions, classes, interfaces, types, enums, and imports."""
-        if not self.parser or not self.language:
-            logger.error(f"TypeScript parser not available, skipping parsing for {file_path}")
+        """
+        Parses a TypeScript or TSX file, yielding TextChunks, CodeEntities
+        (functions, classes, interfaces, types, enums), and Dependencies (imports).
+
+        Reads the file content, uses Tree-sitter to build an AST, and queries the
+        AST to extract relevant code structures and dependencies. It also generates
+        text chunks from the file content. Handles both standard TS and TSX syntax.
+
+        Args:
+            file_path: The absolute path to the TS/TSX file to be parsed.
+            file_id: The unique ID of the SourceFile entity corresponding to this file.
+
+        Yields:
+            DataPoint objects: TextChunk, CodeEntity (FunctionDefinition, ClassDefinition,
+            InterfaceDefinition, TypeDefinition, EnumDefinition), and Dependency entities
+            extracted from the file.
+        """
+        if not self.parser or not self.language or not self.queries:
+            logger.error(f"TypeScript parser not available or queries failed compilation, skipping parsing for {file_path}")
             return
 
         content = await read_file_content(file_path)

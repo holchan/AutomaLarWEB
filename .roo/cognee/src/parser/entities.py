@@ -32,7 +32,18 @@ except ImportError:
 # --- Entity Definitions ---
 
 class Repository(DataPoint):
-    """Represents the root of the scanned directory."""
+    """
+    Represents the root of the scanned directory or repository.
+
+    Inherits from DataPoint.
+
+    Attributes:
+        id (str): A unique identifier for the repository (UUID v5 based on absolute path).
+        payload (dict): Dictionary containing repository details.
+            - type (str): Always "Repository".
+            - path (str): The absolute path to the repository root.
+            - timestamp (float): Unix timestamp of when the entity was created.
+    """
     def __init__(self, repo_path: str):
         payload = dict(
             type = "Repository",
@@ -44,7 +55,22 @@ class Repository(DataPoint):
         super().__init__(id=repo_id, **payload)
 
 class SourceFile(DataPoint):
-    """Represents any discovered source file (code, config, doc)."""
+    """
+    Represents any discovered source file (code, configuration, documentation, etc.).
+
+    Inherits from DataPoint.
+
+    Attributes:
+        id (str): A unique identifier for the file (UUID v5 based on absolute path).
+        payload (dict): Dictionary containing file details.
+            - type (str): Always "SourceFile".
+            - name (str): The base name of the file (e.g., "main.py").
+            - file_path (str): The absolute path to the file.
+            - relative_path (str): The path to the file relative to the repository root.
+            - file_type (str): The detected type of the file (e.g., 'python', 'markdown').
+            - part_of_repository (str): The ID of the parent Repository entity.
+            - timestamp (float): Unix timestamp of when the entity was created.
+    """
     def __init__(self, file_path: str, relative_path: str, repo_id: str, file_type: str):
         payload = dict(
             type = "SourceFile",
@@ -60,7 +86,22 @@ class SourceFile(DataPoint):
         super().__init__(id=file_id, **payload)
 
 class CodeEntity(DataPoint):
-    """Generic representation for code elements like functions, classes, structs."""
+    """
+    Generic representation for code elements like functions, classes, structs, enums, etc.
+
+    Inherits from DataPoint.
+
+    Attributes:
+        id (str): A unique identifier for the code entity (UUID v5 based on file ID, type, name, and start line).
+        payload (dict): Dictionary containing code entity details.
+            - type (str): The specific type of code entity (e.g., "FunctionDefinition", "ClassDefinition").
+            - name (str): The name of the code entity.
+            - defined_in_file (str): The ID of the parent SourceFile entity.
+            - source_code_snippet (str): The exact source code lines defining this entity.
+            - start_line (int): The 1-based starting line number of the entity in the file.
+            - end_line (int): The 1-based ending line number of the entity in the file.
+            - timestamp (float): Unix timestamp of when the entity was created.
+    """
     def __init__(self, entity_id_str: str, entity_type: str, name: str, source_file_id: str, source_code: str, start_line: int, end_line: int):
         payload = dict(
             type = entity_type, # e.g., "FunctionDefinition", "ClassDefinition", "StructDefinition"
@@ -78,7 +119,22 @@ class CodeEntity(DataPoint):
         super().__init__(id=entity_id, **payload)
 
 class Dependency(DataPoint):
-    """Generic representation for imports, includes, use statements."""
+    """
+    Represents imports, includes, use statements, or other forms of code dependencies.
+
+    Inherits from DataPoint.
+
+    Attributes:
+        id (str): A unique identifier for the dependency (UUID v5 based on file ID, target, and start line).
+        payload (dict): Dictionary containing dependency details.
+            - type (str): Always "Dependency".
+            - target_module (str): The name or path of the module, file, or library being depended upon.
+            - used_in_file (str): The ID of the SourceFile entity where the dependency is declared.
+            - source_code_snippet (str): The exact source code lines declaring the dependency (e.g., 'import os').
+            - start_line (int): The 1-based starting line number of the dependency declaration.
+            - end_line (int): The 1-based ending line number of the dependency declaration.
+            - timestamp (float): Unix timestamp of when the entity was created.
+    """
     def __init__(self, dep_id_str: str, source_file_id: str, target: str, source_code_snippet: str, start_line: int, end_line: int):
         payload = dict(
             type = "Dependency",
@@ -94,7 +150,23 @@ class Dependency(DataPoint):
         super().__init__(id=dep_id, **payload)
 
 class TextChunk(DataPoint):
-    """Represents a text chunk derived from a file or code entity."""
+    """
+    Represents a segment of text derived from a file or a specific code entity.
+
+    Inherits from DataPoint.
+
+    Attributes:
+        id (str): A unique identifier for the text chunk (UUID v5 based on parent ID and chunk index).
+        payload (dict): Dictionary containing text chunk details.
+            - type (str): Always "TextChunk".
+            - chunk_of (str): The ID of the parent entity (SourceFile or CodeEntity) this chunk belongs to.
+            - text (str): The actual text content of the chunk.
+            - chunk_index (int): The sequential index of this chunk within its parent.
+            - start_line (Optional[int]): The 1-based starting line number of the chunk within the parent's source code (if applicable).
+            - end_line (Optional[int]): The 1-based ending line number of the chunk within the parent's source code (if applicable).
+            - timestamp (float): Unix timestamp of when the entity was created.
+            - metadata (dict): Additional metadata, including hints for indexing.
+    """
     def __init__(self, chunk_id_str: str, parent_id: str, text: str, chunk_index: int, start_line: Optional[int] = None, end_line: Optional[int] = None):
         payload = dict(
             type = "TextChunk",

@@ -50,25 +50,53 @@ JAVASCRIPT_QUERIES = {
 
 
 class JavascriptParser(BaseParser):
-    """Parses JavaScript and JSX files using Tree-sitter."""
+    """
+    Parses JavaScript and JSX files (.js, .jsx, .ts, .tsx - though .ts/.tsx have dedicated parsers)
+    using Tree-sitter to extract code entities and dependencies.
+
+    This parser identifies functions, classes, and various import/require
+    statements within JavaScript and JSX source code. It also utilizes the
+    `basic_chunker` to break down the file content into text segments.
+
+    Inherits from BaseParser.
+    """
 
     def __init__(self):
+        """Initializes the JavascriptParser and loads the Tree-sitter language and queries."""
         super().__init__()
-        self.language = get_language("javascript")
+        self.language = get_language("javascript") # Note: Tree-sitter uses 'javascript' for both JS and JSX
         self.parser = get_parser("javascript")
+        self.queries = {}
         if self.language:
-            self.queries = {
-                name: self.language.query(query_str)
-                for name, query_str in JAVASCRIPT_QUERIES.items()
-            }
+            try:
+                self.queries = {
+                    name: self.language.query(query_str)
+                    for name, query_str in JAVASCRIPT_QUERIES.items()
+                }
+            except Exception as e:
+                 logger.error(f"Failed to compile JavaScript queries: {e}", exc_info=True)
         else:
-            self.queries = {}
             logger.error("JavaScript tree-sitter language not loaded. JS/JSX parsing will be limited.")
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
-        """Parses a JS/JSX file, yielding chunks, functions, classes, and imports."""
-        if not self.parser or not self.language:
-            logger.error(f"JavaScript parser not available, skipping parsing for {file_path}")
+        """
+        Parses a JavaScript or JSX file, yielding TextChunks, CodeEntities
+        (functions, classes), and Dependencies (imports, requires).
+
+        Reads the file content, uses Tree-sitter to build an AST, and queries the
+        AST to extract relevant code structures and dependencies. It also generates
+        text chunks from the file content. Handles both standard JS and basic JSX syntax.
+
+        Args:
+            file_path: The absolute path to the JS/JSX file to be parsed.
+            file_id: The unique ID of the SourceFile entity corresponding to this file.
+
+        Yields:
+            DataPoint objects: TextChunk, CodeEntity (FunctionDefinition, ClassDefinition),
+            and Dependency entities extracted from the file.
+        """
+        if not self.parser or not self.language or not self.queries:
+            logger.error(f"JavaScript parser not available or queries failed compilation, skipping parsing for {file_path}")
             return
 
         content = await read_file_content(file_path)
@@ -86,6 +114,7 @@ class JavascriptParser(BaseParser):
             for i, chunk_text in enumerate(chunks):
                 if not chunk_text.strip(): continue
                 chunk_id_str = f"{file_id}:chunk:{i}"
+                # TODO: Add line number mapping for chunks if possible
                 yield TextChunk(chunk_id_str=chunk_id_str, parent_id=file_id, text=chunk_text, chunk_index=i)
 
             # 2. Yield Code Entities (Functions, Classes)

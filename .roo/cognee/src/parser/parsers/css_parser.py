@@ -9,14 +9,37 @@ from ..utils import read_file_content, logger
 # (selectors, rules, properties) is complex. For now, we focus on chunking.
 
 class CssParser(BaseParser):
-    """Parses CSS files, yielding text chunks."""
+    """
+    Parses CSS files (.css) and yields TextChunk entities.
+
+    This parser currently uses the `basic_chunker` to break down CSS
+    content into manageable text segments. While Tree-sitter grammars
+    exist for CSS, full parsing of selectors, rules, and properties is
+    complex and not implemented in this basic version.
+
+    Inherits from BaseParser.
+    """
 
     def __init__(self):
+        """Initializes the CssParser."""
         super().__init__()
         # No specific setup needed for basic chunking
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
-        """Parses a CSS file, yielding text chunks."""
+        """
+        Parses a CSS file, yielding TextChunk entities.
+
+        Reads the file content, chunks it using `basic_chunker`, and yields
+        a `TextChunk` DataPoint for each non-empty chunk.
+
+        Args:
+            file_path: The absolute path to the CSS file to be parsed.
+            file_id: The unique ID of the SourceFile entity corresponding to this file.
+
+        Yields:
+            TextChunk objects representing segments of the CSS content.
+            May yield other DataPoint types in the future if advanced parsing is enabled.
+        """
         logger.debug(f"Parsing CSS file: {file_path}")
         content = await read_file_content(file_path)
         if content is None:
