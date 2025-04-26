@@ -27,51 +27,7 @@ TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "css"
 if not TEST_DATA_DIR.is_dir():
     pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
-# --- Helper Function (Copied from previous step) ---
-async def run_parser_and_save_output(
-    parser: 'BaseParser',
-    test_file_path: Path,
-    output_dir: Path
-) -> List['DataPoint']:
-    """
-    Runs the parser on a given file path, saves the payload results to a JSON
-    file in output_dir, and returns the list of original DataPoint objects.
-    """
-    if not test_file_path.is_file():
-        pytest.fail(f"Test input file not found: {test_file_path}")
-
-    file_id_base = str(test_file_path.absolute())
-    file_id = f"test_file_id_{hashlib.sha1(file_id_base.encode()).hexdigest()[:10]}"
-
-    results_objects: List[DataPoint] = []
-    results_payloads: List[dict] = []
-
-    try:
-        async for dp in parser.parse(file_path=str(test_file_path), file_id=file_id):
-            results_objects.append(dp)
-            if hasattr(dp, 'model_dump'):
-                payload = dp.model_dump()
-            elif hasattr(dp, 'payload'):
-                payload = dp.payload
-            else:
-                payload = {"id": getattr(dp, 'id', 'unknown'), "type": "UnknownPayloadStructure"}
-            results_payloads.append(payload)
-    except Exception as e:
-        print(f"\nERROR during parser execution for {test_file_path.name}: {e}")
-        pytest.fail(f"Parser execution failed for {test_file_path.name}: {e}", pytrace=True)
-
-    output_filename = output_dir / f"parsed_{test_file_path.stem}_output.json"
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        with open(output_filename, "w", encoding="utf-8") as f:
-            json.dump(results_payloads, f, indent=2, ensure_ascii=False, sort_keys=True)
-        print(f"\n[Test Output] Saved parser results for '{test_file_path.name}' to: {output_filename}")
-    except Exception as e:
-        print(f"\n[Test Output] WARNING: Failed to save test output for {test_file_path.name}: {e}")
-
-    return results_objects
-
-
+# Helper function `run_parser_and_save_output` is now expected to be in conftest.py
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> CssParser:
@@ -95,18 +51,19 @@ async def test_parse_style_css_file(parser: CssParser, tmp_path: Path):
 
     # Expect only TextChunk results currently
     assert len(results) > 0, "Expected DataPoints from style.css"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
     assert all(p.get("type") == "TextChunk" for p in payloads), "Only TextChunks expected"
 
     # Check basic content integrity
     first_chunk = payloads[0]
-    assert first_chunk.get("chunk_index") == 0, "First chunk index mismatch"
-    assert "/* Basic CSS styles */" in first_chunk.get("text",""), "Comment missing"
-    assert "body {" in first_chunk.get("text",""), "body selector missing"
-    assert first_chunk.get("chunk_of", "").startswith("test_file_id_"), "Chunk parent ID invalid"
+    first_chunk_meta = first_chunk.get("metadata", {})
+    assert first_chunk_meta.get("chunk_index") == 0, "First chunk index mismatch"
+    assert "/* Basic CSS styles */" in first_chunk.get("text_content",""), "Comment missing"
+    assert "body {" in first_chunk.get("text_content",""), "body selector missing"
+    assert first_chunk_meta.get("chunk_of", "").startswith("test_file_id_"), "Chunk parent ID invalid"
 
     # Reconstruct text and check for key CSS elements
-    full_text = "".join(p.get("text","") for p in payloads)
+    full_text = "".join(p.get("text_content","") for p in payloads) # Use text_content
     original_content = test_file.read_text(encoding="utf-8")
 
     assert "body {" in full_text
@@ -122,7 +79,7 @@ async def test_parse_style_css_file(parser: CssParser, tmp_path: Path):
     assert "@import url(\"another.css\");" in full_text # @import rule
 
     # Rough length check (can be unreliable with chunking/overlap)
-    # assert len(full_text) >= len(original_content)
+    # assert len(full_text) >= len(original_content) # Comparing reconstructed vs original
 
 async def test_parse_css_with_media_query(parser: CssParser, tmp_path: Path):
     """Test parsing CSS containing a media query and pseudo-elements."""
@@ -151,11 +108,11 @@ p { font-size: 16px; }
 
     # Expect only TextChunk results currently
     assert len(results) > 0, "Expected DataPoints from media query CSS file"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
     assert all(p.get("type") == "TextChunk" for p in payloads), "Only TextChunks expected"
 
     # Reconstruct text and check content integrity
-    full_text = "".join(p.get("text","") for p in payloads)
+    full_text = "".join(p.get("text_content","") for p in payloads) # Use text_content
     assert "/* Comment */" in full_text
     assert "body { color: black; font-size: 1rem; }" in full_text
     assert "@media screen and (min-width: 900px)" in full_text

@@ -2,6 +2,7 @@ import os
 import time
 import pytest
 from uuid import UUID, uuid5, NAMESPACE_OID
+from typing import Optional # Added for TextChunk tests
 
 # Attempt to import entities. This assumes the simplified import in entities.py is done
 # and cognee.low_level.DataPoint is available in the test environment.
@@ -23,16 +24,16 @@ EXPECTED_REPO_ID = str(uuid5(NAMESPACE_OID, ABS_REPO_PATH_STR))
 EXPECTED_FILE_ID = str(uuid5(NAMESPACE_OID, FILE_PATH_STR))
 
 def safe_get_payload(entity_instance):
-    """Helper to get payload, trying model_dump first."""
+    """Helper to get payload dict, trying model_dump first."""
     if hasattr(entity_instance, 'model_dump'):
         try:
-            return entity_instance.model_dump()
-        except Exception:
-            # Fallback if model_dump fails or isn't the right method
-            pass
-    if hasattr(entity_instance, 'payload'):
-        return entity_instance.payload
-    pytest.fail("Could not access payload or model_dump on entity instance")
+            # Use mode='json' to handle types like UUID automatically for serialization checks
+            return entity_instance.model_dump(mode='json')
+        except Exception as e:
+             print(f"Warning: model_dump failed: {e}")
+             # Fallback or fail if model_dump doesn't work as expected
+             pass
+    pytest.fail(f"Could not access model_dump() on entity instance: {entity_instance}")
 
 
 def test_repository_creation():
@@ -40,14 +41,16 @@ def test_repository_creation():
     repo = Repository(repo_path=ABS_REPO_PATH_STR)
     payload = safe_get_payload(repo)
 
-    assert payload.get("type") == "Repository"
-    assert payload.get("path") == ABS_REPO_PATH_STR
-    assert payload.get("id") == EXPECTED_REPO_ID
+    assert payload.get("type") == "Repository" # Check top-level type
+    assert payload.get("id") == EXPECTED_REPO_ID # Compare str to str
     assert isinstance(payload.get("timestamp"), float)
     assert time.time() - payload.get("timestamp", 0) < 5 # Check timestamp is recent
 
-    # Check valid UUID
-    assert isinstance(UUID(payload.get("id")), UUID)
+    # Check nested metadata
+    metadata = payload.get("metadata", {})
+    assert metadata.get("type") == "Repository"
+    assert metadata.get("path") == ABS_REPO_PATH_STR
+    assert metadata.get("index_fields") == [] # Check required field
 
 def test_sourcefile_creation():
     """Test the creation of a SourceFile entity."""
@@ -60,14 +63,18 @@ def test_sourcefile_creation():
     payload = safe_get_payload(sf)
 
     assert payload.get("type") == "SourceFile"
-    assert payload.get("name") == "main.py"
-    assert payload.get("file_path") == FILE_PATH_STR
-    assert payload.get("relative_path") == REL_PATH_STR
-    assert payload.get("file_type") == "python"
-    assert payload.get("part_of_repository") == EXPECTED_REPO_ID
-    assert payload.get("id") == EXPECTED_FILE_ID
+    assert payload.get("id") == EXPECTED_FILE_ID # Compare str to str
     assert isinstance(payload.get("timestamp"), float)
-    assert isinstance(UUID(payload.get("id")), UUID)
+
+    # Check nested metadata
+    metadata = payload.get("metadata", {})
+    assert metadata.get("type") == "SourceFile"
+    assert metadata.get("name") == "main.py"
+    assert metadata.get("file_path") == FILE_PATH_STR
+    assert metadata.get("relative_path") == REL_PATH_STR
+    assert metadata.get("file_type") == "python"
+    assert metadata.get("part_of_repository") == EXPECTED_REPO_ID
+    assert metadata.get("index_fields") == [] # Check required field
 
 def test_codeentity_creation():
     """Test the creation of a CodeEntity."""
@@ -77,7 +84,6 @@ def test_codeentity_creation():
     end_line = 20
     source_code = "def my_function():\n  pass"
     # Construct the string used for ID generation by the parser
-    # This matches the logic within the CodeEntity __init__
     entity_id_base_str = f"{EXPECTED_FILE_ID}:{entity_type}:{name}:{start_line}"
     expected_entity_id = str(uuid5(NAMESPACE_OID, entity_id_base_str))
 
@@ -92,15 +98,21 @@ def test_codeentity_creation():
     )
     payload = safe_get_payload(ce)
 
-    assert payload.get("type") == entity_type
-    assert payload.get("name") == name
-    assert payload.get("defined_in_file") == EXPECTED_FILE_ID
-    assert payload.get("source_code_snippet") == source_code
-    assert payload.get("start_line") == start_line
-    assert payload.get("end_line") == end_line
-    assert payload.get("id") == expected_entity_id
+    # Check the top-level type set by the constructor
+    assert payload.get("type") == entity_type # Should match entity_type passed in
+    assert payload.get("id") == expected_entity_id # Compare str to str
+    assert payload.get("text_content") == source_code # Check main content field
     assert isinstance(payload.get("timestamp"), float)
-    assert isinstance(UUID(payload.get("id")), UUID)
+
+    # Check nested metadata
+    metadata = payload.get("metadata", {})
+    assert metadata.get("type") == entity_type
+    assert metadata.get("name") == name
+    assert metadata.get("defined_in_file") == EXPECTED_FILE_ID
+    assert metadata.get("start_line") == start_line
+    assert metadata.get("end_line") == end_line
+    assert metadata.get("source_code_snippet_field") == "text_content"
+    assert metadata.get("index_fields") == ["text_content", "name"] # Check required field
 
 def test_dependency_creation():
     """Test the creation of a Dependency entity."""
@@ -123,20 +135,26 @@ def test_dependency_creation():
     payload = safe_get_payload(dep)
 
     assert payload.get("type") == "Dependency"
-    assert payload.get("target_module") == target
-    assert payload.get("used_in_file") == EXPECTED_FILE_ID
-    assert payload.get("source_code_snippet") == snippet
-    assert payload.get("start_line") == start_line
-    assert payload.get("end_line") == end_line
-    assert payload.get("id") == expected_dep_id
+    assert payload.get("id") == expected_dep_id # Compare str to str
+    assert payload.get("text_content") == snippet # Check main content field
     assert isinstance(payload.get("timestamp"), float)
-    assert isinstance(UUID(payload.get("id")), UUID)
+
+    # Check nested metadata
+    metadata = payload.get("metadata", {})
+    assert metadata.get("type") == "Dependency"
+    assert metadata.get("target_module") == target
+    assert metadata.get("used_in_file") == EXPECTED_FILE_ID
+    assert metadata.get("start_line") == start_line
+    assert metadata.get("end_line") == end_line
+    assert metadata.get("index_fields") == ["text_content", "target_module"] # Check required field
 
 def test_textchunk_creation():
     """Test the creation of a TextChunk entity."""
     parent_id = EXPECTED_FILE_ID
     text = "This is a chunk of text."
     chunk_index = 0
+    start_line_val: Optional[int] = 1
+    end_line_val: Optional[int] = 5
     # Construct the string used for ID generation by the parser
     chunk_id_base_str = f"{parent_id}:chunk:{chunk_index}"
     expected_chunk_id = str(uuid5(NAMESPACE_OID, chunk_id_base_str))
@@ -146,22 +164,27 @@ def test_textchunk_creation():
         parent_id=parent_id,
         text=text,
         chunk_index=chunk_index,
-        start_line=1, # Optional lines
-        end_line=5   # Optional lines
+        start_line=start_line_val, # Optional lines
+        end_line=end_line_val   # Optional lines
     )
     payload = safe_get_payload(tc)
 
-    assert payload.get("type") == "TextChunk"
-    assert payload.get("chunk_of") == parent_id
-    assert payload.get("text") == text
-    assert payload.get("chunk_index") == chunk_index
-    assert payload.get("start_line") == 1
-    assert payload.get("end_line") == 5
-    assert payload.get("id") == expected_chunk_id
-    assert "metadata" in payload
-    assert payload.get("metadata") == {"index_fields": ["text"]}
+    assert payload.get("type") == "TextChunk" # Top level type
+    assert payload.get("id") == expected_chunk_id # Compare str to str
+    assert payload.get("text_content") == text # Check main content field
     assert isinstance(payload.get("timestamp"), float)
-    assert isinstance(UUID(payload.get("id")), UUID)
+
+    # Check nested metadata
+    metadata = payload.get("metadata", {})
+    assert metadata.get("type") == "TextChunk" # Check nested type
+    assert metadata.get("chunk_of") == parent_id
+    assert metadata.get("chunk_index") == chunk_index
+    assert metadata.get("start_line") == start_line_val
+    assert metadata.get("end_line") == end_line_val
+    # original_text_field was removed from TextChunk metadata
+    # assert metadata.get("original_text_field") == "text_content"
+    assert metadata.get("index_fields") == ["text_content"] # Check required field
+
 
 def test_textchunk_creation_minimal():
     """Test TextChunk with minimal arguments (no line numbers)."""
@@ -181,10 +204,17 @@ def test_textchunk_creation_minimal():
     payload = safe_get_payload(tc)
 
     assert payload.get("type") == "TextChunk"
-    assert payload.get("chunk_of") == parent_id
-    assert payload.get("text") == text
-    assert payload.get("chunk_index") == chunk_index
-    assert payload.get("start_line") is None # Check optional fields are None when omitted
-    assert payload.get("end_line") is None
-    assert payload.get("id") == expected_chunk_id
-    assert payload.get("metadata") == {"index_fields": ["text"]}
+    assert payload.get("id") == expected_chunk_id # Compare str to str
+    assert payload.get("text_content") == text # Check main text field
+    assert isinstance(payload.get("timestamp"), float)
+
+    # Check nested metadata
+    metadata = payload.get("metadata", {})
+    assert metadata.get("type") == "TextChunk" # Check nested type
+    assert metadata.get("chunk_of") == parent_id
+    assert metadata.get("chunk_index") == chunk_index
+    assert metadata.get("start_line") is None # Check optional fields are None when omitted
+    assert metadata.get("end_line") is None
+    # original_text_field was removed from TextChunk metadata
+    # assert metadata.get("original_text_field") == "text_content"
+    assert metadata.get("index_fields") == ["text_content"] # Check required field

@@ -1,10 +1,11 @@
+from uuid import uuid5, NAMESPACE_OID
 import pytest
 import asyncio
 import os
 from pathlib import Path
 # Use unittest.mock for its robust patching capabilities, especially with async
 from unittest.mock import AsyncMock, MagicMock, patch, call
-from uuid import uuid5, NAMESPACE_OID
+from typing import List, Dict, Any, Optional, Tuple # <<< ADD List and Tuple here >>>
 
 # Ensure pytest-asyncio is installed and usable
 pytestmark = pytest.mark.asyncio

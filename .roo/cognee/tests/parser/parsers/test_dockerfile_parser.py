@@ -29,48 +29,7 @@ if not TEST_DATA_DIR.is_dir():
      pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
 # --- Helper Function (Copied from previous step) ---
-# <<< Helper function `run_parser_and_save_output` remains the same >>>
-async def run_parser_and_save_output(
-    parser: 'BaseParser',
-    test_file_path: Path,
-    output_dir: Path
-) -> List['DataPoint']:
-    # ... (helper code as before) ...
-    if not test_file_path.is_file():
-        pytest.fail(f"Test input file not found: {test_file_path}")
-
-    file_id_base = str(test_file_path.absolute())
-    file_id = f"test_file_id_{hashlib.sha1(file_id_base.encode()).hexdigest()[:10]}"
-
-    results_objects: List[DataPoint] = []
-    results_payloads: List[dict] = []
-
-    try:
-        async for dp in parser.parse(file_path=str(test_file_path), file_id=file_id):
-            results_objects.append(dp)
-            if hasattr(dp, 'model_dump'):
-                payload = dp.model_dump()
-            elif hasattr(dp, 'payload'):
-                payload = dp.payload
-            else:
-                payload = {"id": getattr(dp, 'id', 'unknown'), "type": "UnknownPayloadStructure"}
-            results_payloads.append(payload)
-    except Exception as e:
-        print(f"\nERROR during parser execution for {test_file_path.name}: {e}")
-        pytest.fail(f"Parser execution failed for {test_file_path.name}: {e}", pytrace=True)
-
-    output_filename = output_dir / f"parsed_{test_file_path.stem}_output.json"
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        with open(output_filename, "w", encoding="utf-8") as f:
-            json.dump(results_payloads, f, indent=2, ensure_ascii=False, sort_keys=True)
-        print(f"\n[Test Output] Saved parser results for '{test_file_path.name}' to: {output_filename}")
-    except Exception as e:
-        print(f"\n[Test Output] WARNING: Failed to save test output for {test_file_path.name}: {e}")
-
-    return results_objects
-
-
+# Helper function `run_parser_and_save_output` is now expected to be in conftest.py
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> DockerfileParser:
@@ -97,17 +56,17 @@ async def test_parse_dockerfile_from_test_data(parser: DockerfileParser, tmp_pat
 
     # Expect only TextChunk results currently
     assert len(results) > 0, "Expected DataPoints from Dockerfile"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
     assert all(p.get("type") == "TextChunk" for p in payloads), "Only TextChunks expected"
 
     # Check basic content integrity based on the *actual* content of test_data/dockerfile/Dockerfile
     # Read the file content to verify against chunks
     original_content = test_file.read_text(encoding="utf-8")
-    full_text = "".join(p.get("text","") for p in payloads)
+    full_text = "".join(p.get("text_content","") for p in payloads) # Use text_content
 
     # Add assertions based on the content of your test Dockerfile
     # Example assertions (replace with actual content checks):
-    assert "# Add your Dockerfile content checks here" in original_content # Placeholder check
+    # assert "# Add your Dockerfile content checks here" in original_content # Placeholder check
     assert "FROM" in full_text, "FROM instruction missing"
     assert "RUN" in full_text, "RUN instruction missing (if applicable)"
     assert "COPY" in full_text, "COPY instruction missing (if applicable)"

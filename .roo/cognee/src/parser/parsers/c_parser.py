@@ -48,13 +48,18 @@ class CParser(BaseParser):
         self.parser = get_parser("c")
         self.queries = {}
         if self.language:
+            logger.info("Attempting to compile C queries one by one...")
             try:
-                self.queries = {
-                    name: self.language.query(query_str)
-                    for name, query_str in C_QUERIES.items()
-                }
+                for name, query_str in C_QUERIES.items():
+                    logger.info(f"Compiling C query: {name}")
+                    self.queries[name] = self.language.query(query_str)
+                    logger.info(f"Successfully compiled C query: {name}")
+                logger.info("Finished compiling all C queries.")
             except Exception as e:
-                 logger.error(f"Failed to compile C queries: {e}", exc_info=True)
+                 # Log error AND potentially stop further compilation if one fails
+                 logger.error(f"Failed to compile C query '{name}': {e}", exc_info=True)
+                 # Optionally re-raise or clear self.queries to indicate failure
+                 # self.queries = {} # Clear queries if any fail
         else:
             logger.error("C tree-sitter language not loaded. C parsing will be limited.")
 

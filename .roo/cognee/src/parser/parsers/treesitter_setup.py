@@ -52,10 +52,16 @@ def _load_language(lang_name: str, lang_module: Optional[Any]):
     try:
         language = Language(lang_module.language())
         LANGUAGES[lang_name] = language
-        parser = Parser() # Create a new parser instance for each language
-        parser.set_language(language) # IMPORTANT: Set the language on the parser instance
+        parser = Parser() # Create a new parser instance
+        # --- CORRECTED LINE ---
+        # Assign the language object directly to the parser's language attribute
+        parser.language = language
+        # --- END CORRECTION ---
         PARSERS[lang_name] = parser
         logger.info(f"Successfully loaded and configured tree-sitter language: {lang_name}")
+    except AttributeError as ae:
+         # Catch specific AttributeError if language assignment fails in future versions
+         logger.error(f"Failed to set language for '{lang_name}': {ae}", exc_info=True)
     except Exception as e:
         logger.error(f"Failed to load tree-sitter language '{lang_name}': {e}", exc_info=True)
 

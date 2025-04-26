@@ -1,111 +1,112 @@
-import os
-from typing import List, Optional, Dict, Any
-from uuid import NAMESPACE_OID, uuid5
-import time
+# FILE: src/parser/entities.py
 
-# --- Cognee Imports ---
-# Directly import the required base class.
-# If 'cognee' or 'cognee.low_level.DataPoint' is not available in the
-# environment where this code runs, Python will raise a standard ImportError.
-from cognee.low_level import DataPoint
+# --- Imports ---
+import os
+import time
+from typing import List, Optional, Dict, Any
+from uuid import NAMESPACE_OID, uuid5, UUID # Added UUID for type hints if needed
+from cognee.low_level import DataPoint # Direct import
 
 # --- Entity Definitions ---
-# Docstrings added previously remain
 
 class Repository(DataPoint):
-    """
-    Represents the root of the scanned directory or repository.
-    Inherits from DataPoint.
-    Attributes: ... (docstring content)
-    """
+    """Represents the root repository."""
     def __init__(self, repo_path: str):
-        payload = dict(
-            type = "Repository",
-            path = repo_path,
-            timestamp = time.time(),
-        )
         repo_id = str(uuid5(NAMESPACE_OID, os.path.abspath(repo_path)))
-        super().__init__(id=repo_id, **payload)
+        payload = dict(
+            id=repo_id,
+            type="Repository", # Top-level type for DataPoint system
+            metadata=dict(
+                type="Repository", # Type within metadata (required)
+                path=os.path.abspath(repo_path), # Store absolute path
+                index_fields=[], # Required, but maybe none to index here
+            ),
+            timestamp=time.time(),
+        )
+        super().__init__(**payload)
 
 class SourceFile(DataPoint):
-    """
-    Represents any discovered source file (code, configuration, documentation, etc.).
-    Inherits from DataPoint.
-    Attributes: ... (docstring content)
-    """
+    """Represents a discovered source file."""
     def __init__(self, file_path: str, relative_path: str, repo_id: str, file_type: str):
-        payload = dict(
-            type = "SourceFile",
-            name = os.path.basename(file_path),
-            file_path = file_path, # Absolute path
-            relative_path = relative_path, # Path relative to repo root
-            file_type = file_type, # e.g., 'python', 'markdown', 'dockerfile'
-            part_of_repository = repo_id, # Link to parent repository ID
-            timestamp = time.time(),
-        )
         file_id = str(uuid5(NAMESPACE_OID, os.path.abspath(file_path)))
-        super().__init__(id=file_id, **payload)
+        payload = dict(
+            id=file_id,
+            type="SourceFile",
+            metadata=dict(
+                type="SourceFile", # Required
+                name=os.path.basename(file_path),
+                file_path=file_path,
+                relative_path=relative_path,
+                file_type=file_type,
+                part_of_repository=repo_id,
+                index_fields=[], # Required
+            ),
+            timestamp=time.time(),
+        )
+        super().__init__(**payload)
 
 class CodeEntity(DataPoint):
-    """
-    Generic representation for code elements like functions, classes, structs, enums, etc.
-    Inherits from DataPoint.
-    Attributes: ... (docstring content)
-    """
+    """Represents a code element like a function or class."""
     def __init__(self, entity_id_str: str, entity_type: str, name: str, source_file_id: str, source_code: str, start_line: int, end_line: int):
-        payload = dict(
-            type = entity_type,
-            name = name,
-            defined_in_file = source_file_id,
-            source_code_snippet = source_code,
-            start_line = start_line,
-            end_line = end_line,
-            timestamp = time.time(),
-        )
-        # ID generation uses the unique string passed in
-        entity_id = str(uuid5(NAMESPACE_OID, entity_id_str))
-        super().__init__(id=entity_id, **payload)
+         entity_id = str(uuid5(NAMESPACE_OID, entity_id_str))
+         payload = dict(
+             id=entity_id,
+             type=entity_type, # Use specific type (e.g., FunctionDefinition)
+             text_content=source_code, # Store main content here
+             metadata=dict(
+                 type=entity_type, # Required
+                 name=name,
+                 defined_in_file=source_file_id,
+                 start_line=start_line,
+                 end_line=end_line,
+                 source_code_snippet_field="text_content", # Point to main content field
+                 index_fields=["text_content", "name"], # Index content and name
+             ),
+             timestamp=time.time(),
+         )
+         super().__init__(**payload)
 
 class Dependency(DataPoint):
-    """
-    Represents imports, includes, use statements, or other forms of code dependencies.
-    Inherits from DataPoint.
-    Attributes: ... (docstring content)
-    """
+    """Represents an import or include statement."""
     def __init__(self, dep_id_str: str, source_file_id: str, target: str, source_code_snippet: str, start_line: int, end_line: int):
-        payload = dict(
-            type = "Dependency",
-            target_module = target,
-            used_in_file = source_file_id,
-            source_code_snippet = source_code_snippet,
-            start_line = start_line,
-            end_line = end_line,
-            timestamp = time.time(),
-        )
-        # ID generation uses the unique string passed in
         dep_id = str(uuid5(NAMESPACE_OID, dep_id_str))
-        super().__init__(id=dep_id, **payload)
+        payload = dict(
+            id=dep_id,
+            type="Dependency",
+            text_content=source_code_snippet, # Store snippet as main content
+            metadata=dict(
+                type="Dependency", # Required
+                target_module=target,
+                used_in_file=source_file_id,
+                start_line=start_line,
+                end_line=end_line,
+                index_fields=["text_content", "target_module"], # Index snippet and target
+            ),
+            timestamp=time.time(),
+        )
+        super().__init__(**payload)
 
 class TextChunk(DataPoint):
-    """
-    Represents a segment of text derived from a file or a specific code entity.
-    Inherits from DataPoint.
-    Attributes: ... (docstring content)
-    """
+    """Represents a segment of text."""
     def __init__(self, chunk_id_str: str, parent_id: str, text: str, chunk_index: int, start_line: Optional[int] = None, end_line: Optional[int] = None):
-        payload = dict(
-            type = "TextChunk",
-            chunk_of = parent_id,
-            text = text,
-            chunk_index = chunk_index,
-            start_line = start_line,
-            end_line = end_line,
-            timestamp = time.time(),
-            metadata = {"index_fields": ["text"]},
-        )
-        # ID generation uses the unique string passed in
         chunk_id = str(uuid5(NAMESPACE_OID, chunk_id_str))
-        super().__init__(id=chunk_id, **payload)
+        payload = dict(
+            id=chunk_id,
+            type="TextChunk", # Top-level type
+            text_content=text, # Main content field
+            metadata=dict(
+                type="TextChunk", # Required nested type
+                chunk_of=parent_id,
+                chunk_index=chunk_index,
+                start_line=start_line,
+                end_line=end_line,
+                index_fields=["text_content"], # Required, index the text
+            ),
+            timestamp=time.time(),
+        )
+         # Remove None values from metadata before passing (optional fields)
+        payload["metadata"] = {k: v for k, v in payload["metadata"].items() if v is not None}
+        super().__init__(**payload)
 
 # Optional: Rebuild models if using Pydantic features within Cognee's DataPoint
 if hasattr(DataPoint, 'model_rebuild'):

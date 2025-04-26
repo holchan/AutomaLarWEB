@@ -43,14 +43,18 @@ def basic_chunker(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLA
         end = min(start + size, text_len)
         chunk = text[start:end]
         if chunk.strip(): # Only add non-empty chunks
-            chunks.append(chunk)
+             chunks.append(chunk)
 
-        next_start = start + size - overlap
-        # Ensure progress is made, especially if overlap is large or size is small
-        if next_start <= start:
-             next_start = start + 1 # Force at least one character progress
+        # --- Potential Refinement ---
+        # Calculate next start based on step, but don't start a new chunk
+        # if the current chunk already reached the end.
+        if end == text_len:
+             break # Exit loop if the current chunk finished the text
 
-        start = next_start
+        step = size - overlap
+        if step <= 0: step = 1 # Ensure progress
+        start += step
+        # --- End Refinement ---
 
     logger.debug(f"basic_chunker created {len(chunks)} chunks from text of length {text_len}.")
     return chunks

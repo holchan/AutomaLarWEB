@@ -26,51 +26,7 @@ TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "rust"
 if not TEST_DATA_DIR.is_dir():
     pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
-# --- Helper Function (Copied from previous step) ---
-async def run_parser_and_save_output(
-    parser: 'BaseParser',
-    test_file_path: Path,
-    output_dir: Path
-) -> List['DataPoint']:
-    """
-    Runs the parser on a given file path, saves the payload results to a JSON
-    file in output_dir, and returns the list of original DataPoint objects.
-    """
-    if not test_file_path.is_file():
-        pytest.fail(f"Test input file not found: {test_file_path}")
-
-    file_id_base = str(test_file_path.absolute())
-    file_id = f"test_file_id_{hashlib.sha1(file_id_base.encode()).hexdigest()[:10]}"
-
-    results_objects: List[DataPoint] = []
-    results_payloads: List[dict] = []
-
-    try:
-        async for dp in parser.parse(file_path=str(test_file_path), file_id=file_id):
-            results_objects.append(dp)
-            if hasattr(dp, 'model_dump'):
-                payload = dp.model_dump()
-            elif hasattr(dp, 'payload'):
-                payload = dp.payload
-            else:
-                payload = {"id": getattr(dp, 'id', 'unknown'), "type": "UnknownPayloadStructure"}
-            results_payloads.append(payload)
-    except Exception as e:
-        print(f"\nERROR during parser execution for {test_file_path.name}: {e}")
-        pytest.fail(f"Parser execution failed for {test_file_path.name}: {e}", pytrace=True)
-
-    output_filename = output_dir / f"parsed_{test_file_path.stem}_output.json"
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        with open(output_filename, "w", encoding="utf-8") as f:
-            json.dump(results_payloads, f, indent=2, ensure_ascii=False, sort_keys=True)
-        print(f"\n[Test Output] Saved parser results for '{test_file_path.name}' to: {output_filename}")
-    except Exception as e:
-        print(f"\n[Test Output] WARNING: Failed to save test output for {test_file_path.name}: {e}")
-
-    return results_objects
-
-
+# Helper function `run_parser_and_save_output` is now expected to be in conftest.py
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> RustParser:
@@ -99,7 +55,7 @@ async def test_parse_utils_file(parser: RustParser, tmp_path: Path):
     results = await run_parser_and_save_output(parser, test_file, tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from utils.rs"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
 
     # Check for TextChunks
     chunks = [p for p in payloads if p.get("type") == "TextChunk"]
@@ -108,10 +64,11 @@ async def test_parse_utils_file(parser: RustParser, tmp_path: Path):
     # Check for CodeEntity (FunctionDefinition)
     funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
     assert len(funcs) == 1, "Expected one function definition"
-    assert funcs[0].get("name") == "helper"
-    assert funcs[0].get("start_line") == 1
-    assert funcs[0].get("end_line") == 3
-    assert "pub fn helper()" in funcs[0].get("source_code_snippet","")
+    func_meta = funcs[0].get("metadata", {})
+    assert func_meta.get("name") == "helper"
+    assert func_meta.get("start_line") == 1
+    assert func_meta.get("end_line") == 3
+    assert "pub fn helper()" in funcs[0].get("text_content","") # Check main content
 
     # Check no other code entities or dependencies
     other_entities = [p for p in payloads if p.get("type") not in ["TextChunk", "FunctionDefinition"]]
@@ -123,7 +80,7 @@ async def test_parse_simple_mod_file(parser: RustParser, tmp_path: Path):
     results = await run_parser_and_save_output(parser, test_file, tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from simple_mod.rs"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
     payload_map = {p.get("type", "Unknown"): [] for p in payloads}
     for p in payloads:
         payload_map[p.get("type", "Unknown")].append(p)
@@ -141,64 +98,73 @@ async def test_parse_simple_mod_file(parser: RustParser, tmp_path: Path):
 
     # Verify ModuleDefinition
     mod = payload_map["ModuleDefinition"][0]
-    assert mod.get("name") == "utils"
-    assert mod.get("start_line") == 4
-    assert mod.get("source_code_snippet") == "mod utils; // Declare submodule"
+    mod_meta = mod.get("metadata", {})
+    assert mod_meta.get("name") == "utils"
+    assert mod_meta.get("start_line") == 4
+    assert mod.get("text_content") == "mod utils; // Declare submodule" # Check main content
 
     # Verify StructDefinition
     struct = payload_map["StructDefinition"][0]
-    assert struct.get("name") == "Point"
-    assert struct.get("start_line") == 6
-    assert struct.get("end_line") == 9
+    struct_meta = struct.get("metadata", {})
+    assert struct_meta.get("name") == "Point"
+    assert struct_meta.get("start_line") == 6
+    assert struct_meta.get("end_line") == 9
 
     # Verify EnumDefinition
     enum = payload_map["EnumDefinition"][0]
-    assert enum.get("name") == "Status"
-    assert enum.get("start_line") == 19
-    assert enum.get("end_line") == 22
+    enum_meta = enum.get("metadata", {})
+    assert enum_meta.get("name") == "Status"
+    assert enum_meta.get("start_line") == 19
+    assert enum_meta.get("end_line") == 22
 
     # Verify TraitDefinition
     trait = payload_map["TraitDefinition"][0]
-    assert trait.get("name") == "Summary"
-    assert trait.get("start_line") == 24
-    assert trait.get("end_line") == 26
+    trait_meta = trait.get("metadata", {})
+    assert trait_meta.get("name") == "Summary"
+    assert trait_meta.get("start_line") == 24
+    assert trait_meta.get("end_line") == 26
 
     # Verify Implementations
     impls = payload_map["Implementation"]
-    impls.sort(key=lambda i: i.get("start_line", 0)) # Sort by line
+    impls.sort(key=lambda i: i.get("metadata", {}).get("start_line", 0)) # Sort by line in metadata
     impl_point = impls[0] # impl Point { ... }
     impl_summary = impls[1] # impl Summary for Point { ... }
-    assert impl_point.get("name") == "Point" # Name is the type being implemented
-    assert impl_point.get("start_line") == 11
-    assert impl_point.get("end_line") == 17
-    assert "impl Point {" in impl_point.get("source_code_snippet", "")
-    assert impl_summary.get("name") == "Point"
-    assert impl_summary.get("start_line") == 28
-    assert impl_summary.get("end_line") == 32
-    assert "impl Summary for Point {" in impl_summary.get("source_code_snippet", "")
+    impl_point_meta = impl_point.get("metadata", {})
+    impl_summary_meta = impl_summary.get("metadata", {})
+    assert impl_point_meta.get("name") == "Point" # Name is the type being implemented
+    assert impl_point_meta.get("start_line") == 11
+    assert impl_point_meta.get("end_line") == 17
+    assert "impl Point {" in impl_point.get("text_content", "") # Check main content
+    assert impl_summary_meta.get("name") == "Point"
+    assert impl_summary_meta.get("start_line") == 28
+    assert impl_summary_meta.get("end_line") == 32
+    assert "impl Summary for Point {" in impl_summary.get("text_content", "") # Check main content
 
     # Verify FunctionDefinitions
     funcs = payload_map["FunctionDefinition"]
-    func_map = {f.get("name"): f for f in funcs}
+    func_map = {f.get("metadata", {}).get("name"): f for f in funcs}
     assert set(func_map.keys()) == {"new", "distance_from_origin", "summarize", "process_point", "main"}
-    assert func_map["new"]["start_line"] == 12
-    assert func_map["distance_from_origin"]["start_line"] == 15
-    assert func_map["summarize"]["start_line"] == 29 # Method inside trait impl
-    assert func_map["process_point"]["start_line"] == 35
-    assert func_map["main"]["start_line"] == 57
+    assert func_map["new"].get("metadata", {}).get("start_line") == 12
+    assert func_map["distance_from_origin"].get("metadata", {}).get("start_line") == 15
+    assert func_map["summarize"].get("metadata", {}).get("start_line") == 29 # Method inside trait impl
+    assert func_map["process_point"].get("metadata", {}).get("start_line") == 35
+    assert func_map["main"].get("metadata", {}).get("start_line") == 57
 
     # Verify MacroDefinition
     macro = payload_map["MacroDefinition"][0]
-    assert macro.get("name") == "create_map"
-    assert macro.get("start_line") == 46
-    assert macro.get("end_line") == 55
+    macro_meta = macro.get("metadata", {})
+    assert macro_meta.get("name") == "create_map"
+    assert macro_meta.get("start_line") == 46
+    assert macro_meta.get("end_line") == 55
 
     # Verify Dependencies (use statements)
     deps = payload_map["Dependency"]
-    deps.sort(key=lambda d: d.get("start_line", 0)) # Sort by line
-    assert deps[0].get("target_module") == "std::collections::HashMap"
-    assert deps[0].get("start_line") == 2
-    assert deps[0].get("source_code_snippet") == "use std::collections::HashMap; // Standard library import"
-    assert deps[1].get("target_module") == "crate::utils::helper"
-    assert deps[1].get("start_line") == 3
-    assert deps[1].get("source_code_snippet") == "use crate::utils::helper; // Crate relative import"
+    deps.sort(key=lambda d: d.get("metadata", {}).get("start_line", 0)) # Sort by line in metadata
+    dep0_meta = deps[0].get("metadata", {})
+    dep1_meta = deps[1].get("metadata", {})
+    assert dep0_meta.get("target_module") == "std::collections::HashMap"
+    assert dep0_meta.get("start_line") == 2
+    assert deps[0].get("text_content") == "use std::collections::HashMap; // Standard library import" # Check main content
+    assert dep1_meta.get("target_module") == "crate::utils::helper"
+    assert dep1_meta.get("start_line") == 3
+    assert deps[1].get("text_content") == "use crate::utils::helper; // Crate relative import" # Check main content

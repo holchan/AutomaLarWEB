@@ -26,51 +26,7 @@ TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "markdown"
 if not TEST_DATA_DIR.is_dir():
     pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
-# --- Helper Function (Copied from previous step) ---
-async def run_parser_and_save_output(
-    parser: 'BaseParser',
-    test_file_path: Path,
-    output_dir: Path
-) -> List['DataPoint']:
-    """
-    Runs the parser on a given file path, saves the payload results to a JSON
-    file in output_dir, and returns the list of original DataPoint objects.
-    """
-    if not test_file_path.is_file():
-        pytest.fail(f"Test input file not found: {test_file_path}")
-
-    file_id_base = str(test_file_path.absolute())
-    file_id = f"test_file_id_{hashlib.sha1(file_id_base.encode()).hexdigest()[:10]}"
-
-    results_objects: List[DataPoint] = []
-    results_payloads: List[dict] = []
-
-    try:
-        async for dp in parser.parse(file_path=str(test_file_path), file_id=file_id):
-            results_objects.append(dp)
-            if hasattr(dp, 'model_dump'):
-                payload = dp.model_dump()
-            elif hasattr(dp, 'payload'):
-                payload = dp.payload
-            else:
-                payload = {"id": getattr(dp, 'id', 'unknown'), "type": "UnknownPayloadStructure"}
-            results_payloads.append(payload)
-    except Exception as e:
-        print(f"\nERROR during parser execution for {test_file_path.name}: {e}")
-        pytest.fail(f"Parser execution failed for {test_file_path.name}: {e}", pytrace=True)
-
-    output_filename = output_dir / f"parsed_{test_file_path.stem}_output.json"
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        with open(output_filename, "w", encoding="utf-8") as f:
-            json.dump(results_payloads, f, indent=2, ensure_ascii=False, sort_keys=True)
-        print(f"\n[Test Output] Saved parser results for '{test_file_path.name}' to: {output_filename}")
-    except Exception as e:
-        print(f"\n[Test Output] WARNING: Failed to save test output for {test_file_path.name}: {e}")
-
-    return results_objects
-
-
+# Helper function `run_parser_and_save_output` is now expected to be in conftest.py
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> MarkdownParser:
@@ -101,17 +57,18 @@ async def test_parse_standard_markdown_document(parser: MarkdownParser, tmp_path
 
     # Expect only TextChunk results from basic chunker
     assert len(results) > 0, "Expected DataPoints from document.md"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
     assert all(p.get("type") == "TextChunk" for p in payloads), "Only TextChunks expected"
 
     # Check basic content integrity
     first_chunk = payloads[0]
-    assert first_chunk.get("chunk_index") == 0, "First chunk index mismatch"
-    assert "# Main Document Title" in first_chunk.get("text",""), "Title missing in first chunk"
-    assert first_chunk.get("chunk_of", "").startswith("test_file_id_"), "Chunk parent ID missing or invalid"
+    first_chunk_meta = first_chunk.get("metadata", {})
+    assert first_chunk_meta.get("chunk_index") == 0, "First chunk index mismatch"
+    assert "# Main Document Title" in first_chunk.get("text_content",""), "Title missing in first chunk"
+    assert first_chunk_meta.get("chunk_of", "").startswith("test_file_id_"), "Chunk parent ID missing or invalid"
 
     # Reconstruct text roughly and check presence of key elements
-    full_text = "".join(p.get("text","") for p in payloads)
+    full_text = "".join(p.get("text_content","") for p in payloads) # Use text_content
     original_content = test_file.read_text(encoding="utf-8")
 
     # Verify key markdown elements are present in the combined chunk text
@@ -132,18 +89,19 @@ async def test_parse_mdx_document(parser: MarkdownParser, tmp_path: Path):
 
     # Expect only TextChunk results, no special handling of imports/JSX yet
     assert len(results) > 0, "Expected DataPoints from component_doc.mdx"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
     assert all(p.get("type") == "TextChunk" for p in payloads), "Only TextChunks expected for MDX"
 
     # Check basic content integrity including imports/JSX as text
     first_chunk = payloads[0]
-    assert first_chunk.get("chunk_index") == 0
-    assert 'import { MyComponent } from "./MyComponent";' in first_chunk.get("text",""), "Import statement missing"
-    assert 'import { Chart } from "react-chartjs-2";' in first_chunk.get("text",""), "Import statement missing"
-    assert '# Documentation for MyComponent' in first_chunk.get("text",""), "Title missing"
+    first_chunk_meta = first_chunk.get("metadata", {})
+    assert first_chunk_meta.get("chunk_index") == 0
+    assert 'import { MyComponent } from "./MyComponent";' in first_chunk.get("text_content",""), "Import statement missing"
+    assert 'import { Chart } from "react-chartjs-2";' in first_chunk.get("text_content",""), "Import statement missing"
+    assert '# Documentation for MyComponent' in first_chunk.get("text_content",""), "Title missing"
 
     # Reconstruct text and check for JSX elements included as text
-    full_text = "".join(p.get("text","") for p in payloads)
+    full_text = "".join(p.get("text_content","") for p in payloads) # Use text_content
     assert "```jsx" in full_text, "JSX code block marker missing"
     assert "<MyComponent data={sampleData}" in full_text, "JSX example missing"
     assert "<MyComponent data={[5, 10, 15]}" in full_text, "Live demo JSX missing"
@@ -170,11 +128,11 @@ More text here.
 
     # Expect only TextChunks, frontmatter should be included in the text
     assert len(results) > 0, "Expected DataPoints from frontmatter file"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
     assert all(p.get("type") == "TextChunk" for p in payloads), "Only TextChunks expected with frontmatter"
 
     # Check that frontmatter and content are part of the chunked text
-    full_text = "".join(p.get("text","") for p in payloads)
+    full_text = "".join(p.get("text_content","") for p in payloads) # Use text_content
     assert "---" in full_text, "Frontmatter delimiter missing"
     assert "title: Test Document" in full_text, "Frontmatter title missing"
     assert "tags: [test, markdown, frontmatter]" in full_text, "Frontmatter tags missing"

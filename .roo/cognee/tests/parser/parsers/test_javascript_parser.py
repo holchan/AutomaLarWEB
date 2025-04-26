@@ -25,51 +25,7 @@ TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "javascript"
 if not TEST_DATA_DIR.is_dir():
     pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
-# --- Helper Function (Copied from previous step) ---
-async def run_parser_and_save_output(
-    parser: 'BaseParser',
-    test_file_path: Path,
-    output_dir: Path
-) -> List['DataPoint']:
-    """
-    Runs the parser on a given file path, saves the payload results to a JSON
-    file in output_dir, and returns the list of original DataPoint objects.
-    """
-    if not test_file_path.is_file():
-        pytest.fail(f"Test input file not found: {test_file_path}")
-
-    file_id_base = str(test_file_path.absolute())
-    file_id = f"test_file_id_{hashlib.sha1(file_id_base.encode()).hexdigest()[:10]}"
-
-    results_objects: List[DataPoint] = []
-    results_payloads: List[dict] = []
-
-    try:
-        async for dp in parser.parse(file_path=str(test_file_path), file_id=file_id):
-            results_objects.append(dp)
-            if hasattr(dp, 'model_dump'):
-                payload = dp.model_dump()
-            elif hasattr(dp, 'payload'):
-                payload = dp.payload
-            else:
-                payload = {"id": getattr(dp, 'id', 'unknown'), "type": "UnknownPayloadStructure"}
-            results_payloads.append(payload)
-    except Exception as e:
-        print(f"\nERROR during parser execution for {test_file_path.name}: {e}")
-        pytest.fail(f"Parser execution failed for {test_file_path.name}: {e}", pytrace=True)
-
-    output_filename = output_dir / f"parsed_{test_file_path.stem}_output.json"
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        with open(output_filename, "w", encoding="utf-8") as f:
-            json.dump(results_payloads, f, indent=2, ensure_ascii=False, sort_keys=True)
-        print(f"\n[Test Output] Saved parser results for '{test_file_path.name}' to: {output_filename}")
-    except Exception as e:
-        print(f"\n[Test Output] WARNING: Failed to save test output for {test_file_path.name}: {e}")
-
-    return results_objects
-
-
+# Helper function `run_parser_and_save_output` is now expected to be in conftest.py
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> JavascriptParser:
@@ -98,46 +54,50 @@ async def test_parse_simple_function_file(parser: JavascriptParser, tmp_path: Pa
     results = await run_parser_and_save_output(parser, test_file, tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from non-empty file"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
 
     # Check for TextChunks
     chunks = [p for p in payloads if p.get("type") == "TextChunk"]
     assert len(chunks) >= 1, "Expected at least one TextChunk"
-    assert chunks[0].get("text","").strip().startswith("// Simple JS functions"), "First chunk content mismatch"
+    assert chunks[0].get("text_content","").strip().startswith("// Simple JS functions"), "First chunk content mismatch"
 
     # Check for CodeEntity (FunctionDefinition)
     funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
     # Expect: add (function declaration), multiply (arrow func assignment)
     # IIFE is an anonymous function expression, might not be captured by name in current query.
     assert len(funcs) >= 2, "Expected at least 'add' and 'multiply' functions"
-    func_map = {f.get("name"): f for f in funcs if f.get("name")} # Filter for named functions
+    func_map = {f.get("metadata", {}).get("name"): f for f in funcs if f.get("metadata", {}).get("name")} # Filter for named functions
 
     assert "add" in func_map, "Function 'add' not found"
-    assert func_map["add"]["start_line"] == 8, "Incorrect start line for add"
-    assert func_map["add"]["end_line"] == 10, "Incorrect end line for add"
-    assert "function add(a, b)" in func_map["add"]["source_code_snippet"], "Signature mismatch for add"
-    assert "Adds two numbers" in func_map["add"]["source_code_snippet"], "JSDoc missing from add snippet" # Check comment capture
+    add_meta = func_map["add"].get("metadata", {})
+    assert add_meta.get("start_line") == 8, "Incorrect start line for add"
+    assert add_meta.get("end_line") == 10, "Incorrect end line for add"
+    assert "function add(a, b)" in func_map["add"].get("text_content", ""), "Signature mismatch for add"
+    assert "Adds two numbers" in func_map["add"].get("text_content", ""), "JSDoc missing from add snippet" # Check comment capture
 
     assert "multiply" in func_map, "Function 'multiply' not found"
-    assert func_map["multiply"]["start_line"] == 12, "Incorrect start line for multiply"
-    assert func_map["multiply"]["end_line"] == 16, "Incorrect end line for multiply"
-    assert "const multiply = (a, b) =>" in func_map["multiply"]["source_code_snippet"], "Signature mismatch for multiply"
+    multiply_meta = func_map["multiply"].get("metadata", {})
+    assert multiply_meta.get("start_line") == 12, "Incorrect start line for multiply"
+    assert multiply_meta.get("end_line") == 16, "Incorrect end line for multiply"
+    assert "const multiply = (a, b) =>" in func_map["multiply"].get("text_content", ""), "Signature mismatch for multiply"
 
     # Check for Dependency (import and require)
     deps = [p for p in payloads if p.get("type") == "Dependency"]
     assert len(deps) == 2, "Expected 2 dependencies (require path, import utils)"
-    deps.sort(key=lambda d: d.get("start_line", 0)) # Sort by line
+    deps.sort(key=lambda d: d.get("metadata", {}).get("start_line", 0)) # Sort by line in metadata
 
     dep_path = deps[0]
     dep_utils = deps[1]
+    dep_path_meta = dep_path.get("metadata", {})
+    dep_utils_meta = dep_utils.get("metadata", {})
 
-    assert dep_path.get("target_module") == "path"
-    assert dep_path.get("start_line") == 2
-    assert dep_path.get("source_code_snippet") == 'const path = require("path");'
+    assert dep_path_meta.get("target_module") == "path"
+    assert dep_path_meta.get("start_line") == 2
+    assert dep_path.get("text_content") == 'const path = require("path");' # Check main content
 
-    assert dep_utils.get("target_module") == "./utils"
-    assert dep_utils.get("start_line") == 3
-    assert dep_utils.get("source_code_snippet") == 'import { utils } from "./utils"; // ES6 import'
+    assert dep_utils_meta.get("target_module") == "./utils"
+    assert dep_utils_meta.get("start_line") == 3
+    assert dep_utils.get("text_content") == 'import { utils } from "./utils"; // ES6 import' # Check main content
 
 async def test_parse_class_with_imports_file(parser: JavascriptParser, tmp_path: Path):
     """Test parsing class_with_imports.js from test_data."""
@@ -145,7 +105,7 @@ async def test_parse_class_with_imports_file(parser: JavascriptParser, tmp_path:
     results = await run_parser_and_save_output(parser, test_file, tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from non-empty file"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
 
     # Check for TextChunks
     chunks = [p for p in payloads if p.get("type") == "TextChunk"]
@@ -155,50 +115,56 @@ async def test_parse_class_with_imports_file(parser: JavascriptParser, tmp_path:
     classes = [p for p in payloads if p.get("type") == "ClassDefinition"]
     assert len(classes) == 1, "Expected exactly one class definition"
     cls = classes[0]
-    assert cls.get("name") == "FileManager"
-    assert cls.get("start_line") == 4, "Incorrect start line for FileManager class"
-    assert cls.get("end_line") == 30, "Incorrect end line for FileManager class"
+    cls_meta = cls.get("metadata", {})
+    assert cls_meta.get("name") == "FileManager"
+    assert cls_meta.get("start_line") == 4, "Incorrect start line for FileManager class"
+    assert cls_meta.get("end_line") == 30, "Incorrect end line for FileManager class"
 
     # Check for CodeEntity (FunctionDefinition - methods)
     funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
     # Expect: constructor, readFile, listDirectory
     assert len(funcs) == 3, "Expected 3 methods: constructor, readFile, listDirectory"
-    func_map = {f.get("name"): f for f in funcs if f.get("name")}
+    func_map = {f.get("metadata", {}).get("name"): f for f in funcs if f.get("metadata", {}).get("name")}
 
     assert "constructor" in func_map
-    assert func_map["constructor"]["start_line"] == 5
-    assert func_map["constructor"]["end_line"] == 8
+    constructor_meta = func_map["constructor"].get("metadata", {})
+    assert constructor_meta.get("start_line") == 5
+    assert constructor_meta.get("end_line") == 8
 
     assert "readFile" in func_map
-    assert func_map["readFile"]["start_line"] == 10
-    assert func_map["readFile"]["end_line"] == 18
-    assert "async readFile(fileName)" in func_map["readFile"]["source_code_snippet"]
+    readFile_meta = func_map["readFile"].get("metadata", {})
+    assert readFile_meta.get("start_line") == 10
+    assert readFile_meta.get("end_line") == 18
+    assert "async readFile(fileName)" in func_map["readFile"].get("text_content", "") # Check main content
 
     assert "listDirectory" in func_map
-    assert func_map["listDirectory"]["start_line"] == 20
-    assert func_map["listDirectory"]["end_line"] == 27
+    listDirectory_meta = func_map["listDirectory"].get("metadata", {})
+    assert listDirectory_meta.get("start_line") == 20
+    assert listDirectory_meta.get("end_line") == 27
 
     # Check for Dependency (import and require)
     deps = [p for p in payloads if p.get("type") == "Dependency"]
     # Expect: fs/promises (import), path (require), fs (inner require)
     assert len(deps) >= 2, "Expected at least 2 top-level dependencies" # Inner require might be missed or captured differently
-    deps.sort(key=lambda d: d.get("start_line", 0))
+    deps.sort(key=lambda d: d.get("metadata", {}).get("start_line", 0)) # Sort by line in metadata
 
     dep_fs_promises = deps[0]
     dep_path = deps[1]
+    dep_fs_promises_meta = dep_fs_promises.get("metadata", {})
+    dep_path_meta = dep_path.get("metadata", {})
 
-    assert dep_fs_promises.get("target_module") == "fs/promises"
-    assert dep_fs_promises.get("start_line") == 1
-    assert dep_fs_promises.get("source_code_snippet") == 'import fs from "fs/promises";'
+    assert dep_fs_promises_meta.get("target_module") == "fs/promises"
+    assert dep_fs_promises_meta.get("start_line") == 1
+    assert dep_fs_promises.get("text_content") == 'import fs from "fs/promises";' # Check main content
 
-    assert dep_path.get("target_module") == "path"
-    assert dep_path.get("start_line") == 2
-    assert dep_path.get("source_code_snippet") == 'const { join } = require("path"); // CommonJS require'
+    assert dep_path_meta.get("target_module") == "path"
+    assert dep_path_meta.get("start_line") == 2
+    assert dep_path.get("text_content") == 'const { join } = require("path"); // CommonJS require' # Check main content
 
     # Check if inner require was captured (optional, depends on query needs)
-    inner_require = [d for d in deps if d.get("start_line") == 22] # Line of inner require('fs')
+    inner_require = [d for d in deps if d.get("metadata", {}).get("start_line") == 22] # Line of inner require('fs')
     # assert len(inner_require) == 1, "Inner require not captured"
-    # if inner_require: assert inner_require[0].get("target_module") == "fs"
+    # if inner_require: assert inner_require[0].get("metadata", {}).get("target_module") == "fs"
 
 
 async def test_parse_file_with_jsx(parser: JavascriptParser, tmp_path: Path):
@@ -223,21 +189,23 @@ export default MyComponent;
     results = await run_parser_and_save_output(parser, test_file, tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from JSX file"
-    payloads = [dp.payload for dp in results]
+    payloads = [dp.model_dump(mode='json') for dp in results]
 
     # Check function definition includes JSX
     funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
     assert len(funcs) == 1, "Expected one function definition"
     func = funcs[0]
-    assert func.get("name") == "MyComponent"
-    assert func.get("start_line") == 3, "Incorrect start line for MyComponent"
-    assert func.get("end_line") == 10, "Incorrect end line for MyComponent"
-    # Verify JSX is part of the extracted source code snippet
-    assert "<div className=\"greeting\">" in func.get("source_code_snippet", ""), "JSX missing from function snippet"
-    assert "<h1>Hello, {name}!</h1>" in func.get("source_code_snippet", ""), "JSX missing from function snippet"
+    func_meta = func.get("metadata", {})
+    assert func_meta.get("name") == "MyComponent"
+    assert func_meta.get("start_line") == 3, "Incorrect start line for MyComponent"
+    assert func_meta.get("end_line") == 10, "Incorrect end line for MyComponent"
+    # Verify JSX is part of the extracted source code snippet (main content)
+    assert "<div className=\"greeting\">" in func.get("text_content", ""), "JSX missing from function snippet"
+    assert "<h1>Hello, {name}!</h1>" in func.get("text_content", ""), "JSX missing from function snippet"
 
     # Check import dependency
     deps = [p for p in payloads if p.get("type") == "Dependency"]
     assert len(deps) == 1, "Expected one import dependency"
-    assert deps[0].get("target_module") == "react"
-    assert deps[0].get("start_line") == 1, "Incorrect start line for import"
+    dep0_meta = deps[0].get("metadata", {})
+    assert dep0_meta.get("target_module") == "react"
+    assert dep0_meta.get("start_line") == 1, "Incorrect start line for import"
