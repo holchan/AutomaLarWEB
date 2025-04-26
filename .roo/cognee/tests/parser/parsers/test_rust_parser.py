@@ -42,17 +42,17 @@ def parser() -> RustParser:
 
 # --- Test Cases ---
 
-async def test_parse_empty_rs_file(parser: RustParser, tmp_path: Path):
+async def test_parse_empty_rs_file(parser: RustParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty Rust file."""
     empty_file = tmp_path / "empty.rs"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .rs file should yield no DataPoints"
 
-async def test_parse_utils_file(parser: RustParser, tmp_path: Path):
+async def test_parse_utils_file(parser: RustParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing utils.rs which contains only a simple function."""
     test_file = TEST_DATA_DIR / "utils.rs"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from utils.rs"
     payloads = [dp.model_dump(mode='json') for dp in results]
@@ -74,10 +74,10 @@ async def test_parse_utils_file(parser: RustParser, tmp_path: Path):
     other_entities = [p for p in payloads if p.get("type") not in ["TextChunk", "FunctionDefinition"]]
     assert len(other_entities) == 0, f"Found unexpected entities: {[e.get('type') for e in other_entities]}"
 
-async def test_parse_simple_mod_file(parser: RustParser, tmp_path: Path):
+async def test_parse_simple_mod_file(parser: RustParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing simple_mod.rs from test_data."""
     test_file = TEST_DATA_DIR / "simple_mod.rs"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from simple_mod.rs"
     payloads = [dp.model_dump(mode='json') for dp in results]

@@ -42,24 +42,24 @@ def parser() -> CParser:
 
 # --- Test Cases ---
 
-async def test_parse_empty_c_file(parser: CParser, tmp_path: Path):
+async def test_parse_empty_c_file(parser: CParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty C file."""
     empty_file = tmp_path / "empty.c"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .c file should yield no DataPoints"
 
-async def test_parse_empty_h_file(parser: CParser, tmp_path: Path):
+async def test_parse_empty_h_file(parser: CParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty C header file."""
     empty_file = tmp_path / "empty.h"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .h file should yield no DataPoints"
 
-async def test_parse_simple_function_file(parser: CParser, tmp_path: Path):
+async def test_parse_simple_function_file(parser: CParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing simple_function.c from test_data."""
     test_file = TEST_DATA_DIR / "simple_function.c"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from non-empty file"
     # Use model_dump to get payloads
@@ -121,10 +121,10 @@ async def test_parse_simple_function_file(parser: CParser, tmp_path: Path):
     assert dep2_meta.get("start_line") == 3
     assert deps[2].get("text_content") == '#include "header.h" // Local header include' # Check main content field
 
-async def test_parse_header_file(parser: CParser, tmp_path: Path):
+async def test_parse_header_file(parser: CParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing header.h from test_data."""
     test_file = TEST_DATA_DIR / "header.h"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from non-empty header file"
     payloads = [dp.model_dump(mode='json') for dp in results]
@@ -153,7 +153,7 @@ async def test_parse_header_file(parser: CParser, tmp_path: Path):
     deps = [p for p in payloads if p.get("type") == "Dependency"]
     assert len(deps) == 0, "No include dependencies expected in header.h"
 
-async def test_parse_file_with_only_directives(parser: CParser, tmp_path: Path):
+async def test_parse_file_with_only_directives(parser: CParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing a file containing only preprocessor directives and includes."""
     content = """
 #ifndef MY_GUARD_H
@@ -168,7 +168,7 @@ async def test_parse_file_with_only_directives(parser: CParser, tmp_path: Path):
 """
     test_file = tmp_path / "directives.h"
     test_file.write_text(content, encoding="utf-8")
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from directives file"
     payloads = [dp.model_dump(mode='json') for dp in results]

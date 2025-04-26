@@ -21,8 +21,8 @@ JAVASCRIPT_QUERIES = {
             (lexical_declaration
               (variable_declarator
                 name: [(identifier) @require_target (object_pattern (shorthand_property_identifier_pattern) @require_target)]
-                value: (call_expression function: (identifier) @_req arguments: (arguments (string) @import_from)))
-              (#match? @_req "^require$")) @import_statement ;; Basic require('...') pattern
+                value: (call_expression function: (identifier) @require_target arguments: (arguments (string) @import_from)))
+              (identifier) @require_target (#match? @require_target "^require$")) @import_statement ;; Basic require('...') pattern - Fixed query syntax
 
             (call_expression
               function: (identifier) @_dynamic_import (#match? @_dynamic_import "^import$"))

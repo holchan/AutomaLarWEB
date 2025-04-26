@@ -44,17 +44,17 @@ def parser() -> PythonParser:
 
 # --- Test Cases ---
 
-async def test_parse_empty_file(parser: PythonParser, tmp_path: Path):
+async def test_parse_empty_file(parser: PythonParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty Python file."""
     empty_file = tmp_path / "empty.py"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty file should yield no DataPoints"
 
-async def test_parse_simple_function_file(parser: PythonParser, tmp_path: Path):
+async def test_parse_simple_function_file(parser: PythonParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing simple_function.py from test_data."""
     test_file = TEST_DATA_DIR / "simple_function.py"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     # Basic checks
     assert len(results) > 0, "Expected DataPoints from non-empty file"
@@ -102,10 +102,10 @@ async def test_parse_simple_function_file(parser: PythonParser, tmp_path: Path):
     assert dep_log.get("text_content") == "import logging" # Check main content
     assert dep_log_meta.get("used_in_file", "").startswith("test_file_id_"), "Dependency parent ID missing or invalid"
 
-async def test_parse_class_with_imports_file(parser: PythonParser, tmp_path: Path):
+async def test_parse_class_with_imports_file(parser: PythonParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing class_with_imports.py from test_data."""
     test_file = TEST_DATA_DIR / "class_with_imports.py"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from non-empty file"
     payloads = [dp.model_dump(mode='json') for dp in results] # Use model_dump
@@ -186,7 +186,7 @@ async def test_parse_class_with_imports_file(parser: PythonParser, tmp_path: Pat
     assert dep3_meta.get("start_line") == 3
 
 
-async def test_parse_file_with_only_comments(parser: PythonParser, tmp_path: Path):
+async def test_parse_file_with_only_comments(parser: PythonParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing a file containing only comments and whitespace."""
     content = """
 # This is a comment line.
@@ -197,7 +197,7 @@ async def test_parse_file_with_only_comments(parser: PythonParser, tmp_path: Pat
 """ # Added trailing newline as files often have one
     test_file = tmp_path / "comments_only.py"
     test_file.write_text(content, encoding="utf-8")
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     # Expect only TextChunks if content is not empty, otherwise empty list
     if content.strip():

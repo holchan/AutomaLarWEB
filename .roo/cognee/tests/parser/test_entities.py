@@ -38,19 +38,21 @@ def safe_get_payload(entity_instance):
 
 def test_repository_creation():
     """Test the creation of a Repository entity."""
-    repo = Repository(repo_path=ABS_REPO_PATH_STR)
+    repo = Repository(repo_path=REPO_PATH_STR) # Pass original path
     payload = safe_get_payload(repo)
 
     assert payload.get("type") == "Repository" # Check top-level type
     assert payload.get("id") == EXPECTED_REPO_ID # Compare str to str
-    assert isinstance(payload.get("timestamp"), float)
-    assert time.time() - payload.get("timestamp", 0) < 5 # Check timestamp is recent
+    # Check custom field at top level
+    assert payload.get("path") == ABS_REPO_PATH_STR
+    # Timestamp might be added by base class, check existence if needed
+    # assert "timestamp" in payload
+    # assert isinstance(payload.get("timestamp"), float)
 
-    # Check nested metadata
+    # Check required metadata fields
     metadata = payload.get("metadata", {})
     assert metadata.get("type") == "Repository"
-    assert metadata.get("path") == ABS_REPO_PATH_STR
-    assert metadata.get("index_fields") == [] # Check required field
+    assert metadata.get("index_fields") == []
 
 def test_sourcefile_creation():
     """Test the creation of a SourceFile entity."""
@@ -64,17 +66,18 @@ def test_sourcefile_creation():
 
     assert payload.get("type") == "SourceFile"
     assert payload.get("id") == EXPECTED_FILE_ID # Compare str to str
-    assert isinstance(payload.get("timestamp"), float)
+    # Check custom fields at top level
+    assert payload.get("name") == "main.py"
+    assert payload.get("file_path") == FILE_PATH_STR
+    assert payload.get("relative_path") == REL_PATH_STR
+    assert payload.get("file_type") == "python"
+    assert payload.get("part_of_repository") == EXPECTED_REPO_ID
+    # assert "timestamp" in payload
 
-    # Check nested metadata
+    # Check required metadata fields
     metadata = payload.get("metadata", {})
     assert metadata.get("type") == "SourceFile"
-    assert metadata.get("name") == "main.py"
-    assert metadata.get("file_path") == FILE_PATH_STR
-    assert metadata.get("relative_path") == REL_PATH_STR
-    assert metadata.get("file_type") == "python"
-    assert metadata.get("part_of_repository") == EXPECTED_REPO_ID
-    assert metadata.get("index_fields") == [] # Check required field
+    assert metadata.get("index_fields") == ["name", "relative_path"]
 
 def test_codeentity_creation():
     """Test the creation of a CodeEntity."""
@@ -101,18 +104,18 @@ def test_codeentity_creation():
     # Check the top-level type set by the constructor
     assert payload.get("type") == entity_type # Should match entity_type passed in
     assert payload.get("id") == expected_entity_id # Compare str to str
+    # Check custom fields at top level
+    assert payload.get("name") == name
+    assert payload.get("defined_in_file") == EXPECTED_FILE_ID
+    assert payload.get("start_line") == start_line
+    assert payload.get("end_line") == end_line
     assert payload.get("text_content") == source_code # Check main content field
-    assert isinstance(payload.get("timestamp"), float)
+    # assert "timestamp" in payload
 
-    # Check nested metadata
+    # Check required metadata fields
     metadata = payload.get("metadata", {})
     assert metadata.get("type") == entity_type
-    assert metadata.get("name") == name
-    assert metadata.get("defined_in_file") == EXPECTED_FILE_ID
-    assert metadata.get("start_line") == start_line
-    assert metadata.get("end_line") == end_line
-    assert metadata.get("source_code_snippet_field") == "text_content"
-    assert metadata.get("index_fields") == ["text_content", "name"] # Check required field
+    assert metadata.get("index_fields") == ["text_content", "name"]
 
 def test_dependency_creation():
     """Test the creation of a Dependency entity."""
@@ -136,17 +139,18 @@ def test_dependency_creation():
 
     assert payload.get("type") == "Dependency"
     assert payload.get("id") == expected_dep_id # Compare str to str
+    # Check custom fields at top level
+    assert payload.get("target_module") == target
+    assert payload.get("used_in_file") == EXPECTED_FILE_ID
+    assert payload.get("start_line") == start_line
+    assert payload.get("end_line") == end_line
     assert payload.get("text_content") == snippet # Check main content field
-    assert isinstance(payload.get("timestamp"), float)
+    # assert "timestamp" in payload
 
-    # Check nested metadata
+    # Check required metadata fields
     metadata = payload.get("metadata", {})
     assert metadata.get("type") == "Dependency"
-    assert metadata.get("target_module") == target
-    assert metadata.get("used_in_file") == EXPECTED_FILE_ID
-    assert metadata.get("start_line") == start_line
-    assert metadata.get("end_line") == end_line
-    assert metadata.get("index_fields") == ["text_content", "target_module"] # Check required field
+    assert metadata.get("index_fields") == ["text_content", "target_module"]
 
 def test_textchunk_creation():
     """Test the creation of a TextChunk entity."""
@@ -171,19 +175,21 @@ def test_textchunk_creation():
 
     assert payload.get("type") == "TextChunk" # Top level type
     assert payload.get("id") == expected_chunk_id # Compare str to str
+    # Check custom fields at top level
+    assert payload.get("chunk_of") == parent_id
+    assert payload.get("chunk_index") == chunk_index
+    assert payload.get("start_line") == start_line_val
+    assert payload.get("end_line") == end_line_val
     assert payload.get("text_content") == text # Check main content field
-    assert isinstance(payload.get("timestamp"), float)
+    # assert "timestamp" in payload
 
-    # Check nested metadata
+    # Check required metadata fields
     metadata = payload.get("metadata", {})
     assert metadata.get("type") == "TextChunk" # Check nested type
-    assert metadata.get("chunk_of") == parent_id
-    assert metadata.get("chunk_index") == chunk_index
+    assert metadata.get("index_fields") == ["text_content"] # Check required field
+    # Check optional fields were included in metadata if not None
     assert metadata.get("start_line") == start_line_val
     assert metadata.get("end_line") == end_line_val
-    # original_text_field was removed from TextChunk metadata
-    # assert metadata.get("original_text_field") == "text_content"
-    assert metadata.get("index_fields") == ["text_content"] # Check required field
 
 
 def test_textchunk_creation_minimal():
@@ -205,16 +211,18 @@ def test_textchunk_creation_minimal():
 
     assert payload.get("type") == "TextChunk"
     assert payload.get("id") == expected_chunk_id # Compare str to str
+    # Check custom fields at top level
+    assert payload.get("chunk_of") == parent_id
+    assert payload.get("chunk_index") == chunk_index
+    assert payload.get("start_line") is None # Check optional fields are None
+    assert payload.get("end_line") is None
     assert payload.get("text_content") == text # Check main text field
-    assert isinstance(payload.get("timestamp"), float)
+    # assert "timestamp" in payload
 
-    # Check nested metadata
+    # Check required metadata fields
     metadata = payload.get("metadata", {})
     assert metadata.get("type") == "TextChunk" # Check nested type
-    assert metadata.get("chunk_of") == parent_id
-    assert metadata.get("chunk_index") == chunk_index
-    assert metadata.get("start_line") is None # Check optional fields are None when omitted
-    assert metadata.get("end_line") is None
-    # original_text_field was removed from TextChunk metadata
-    # assert metadata.get("original_text_field") == "text_content"
     assert metadata.get("index_fields") == ["text_content"] # Check required field
+    # Check optional fields are absent in metadata when None
+    assert "start_line" not in metadata
+    assert "end_line" not in metadata

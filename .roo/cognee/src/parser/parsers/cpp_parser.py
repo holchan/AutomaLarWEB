@@ -10,7 +10,7 @@ from .treesitter_setup import get_parser, get_language
 # Extends C queries, adds classes, namespaces, templates (simplified)
 CPP_QUERIES = {
     "includes": """
-        (preproc_include path: [(string_literal) (system_lib_string)] @include) @include_statement
+        (preproc_include [(string_literal) (system_lib_string)] @include) @include_statement ;; Simplified includes query
         """,
     "functions": """
         [

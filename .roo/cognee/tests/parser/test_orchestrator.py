@@ -163,8 +163,8 @@ async def test_process_repository_basic_flow(mock_parser_map_dict, mock_discover
         results_dp_objects.append(dp)
 
     # --- Assertions ---
-    # Get payloads for easier checking
-    results_payloads = [dp.payload for dp in results_dp_objects]
+    # Get payloads for easier checking using model_dump
+    results_payloads = [dp.model_dump(mode='json') for dp in results_dp_objects]
 
     # 1. Check total items yielded
     expected_parser_results_count = sum(len(v) for v in expected_outcomes["parser_outputs"].values())
@@ -253,8 +253,9 @@ async def test_process_repository_no_files_found(mock_discover, tmp_path: Path):
     # Should yield only the Repository node
     assert len(results) == 1, "Expected only Repository node for empty discovery"
     assert isinstance(results[0], Repository), "First item should be Repository instance"
-    assert results[0].payload.get("id") == expected_repo_id
-    assert results[0].payload.get("path") == abs_repo_path
+    # Access attributes directly
+    assert results[0].id == expected_repo_id
+    assert results[0].path == abs_repo_path
     mock_discover.assert_called_once_with(abs_repo_path)
 
 
@@ -317,12 +318,15 @@ async def test_process_repository_parser_error_handling(mock_logger, mock_parser
     # --- Assertions ---
     # Expected: 1 Repo + 2 Files + results from ok.py (1 payload)
     assert len(results_dp) == 1 + 2 + 1, "Incorrect number of yielded items with parser error"
-    results_payloads = [dp.payload for dp in results_dp]
+    # Get payloads for easier checking using model_dump
+    results_payloads = [dp.model_dump(mode='json') for dp in results_dp]
 
     # Check that results from ok.py are present
     assert any(p.get("id") == ok_payloads[0]["id"] for p in results_payloads), "Payload from ok.py missing"
     # Check that no parser results related to error.py are present
-    assert not any(p.get("defined_in_file") == file_err_id or p.get("used_in_file") == file_err_id or p.get("chunk_of") == file_err_id for p in results_payloads[3:]), "Results from failed parser should not be yielded"
+    # Access parent links directly from the object attributes if possible, or check metadata in dumped payload
+    # Assuming parent links are top-level attributes based on entity definitions
+    assert not any(dp.defined_in_file == file_err_id or dp.used_in_file == file_err_id or dp.chunk_of == file_err_id for dp in results_dp[3:]), "Results from failed parser should not be yielded"
 
     # Check logs: ensure error was logged for error.py by _process_single_file
     # We check the logger patch applied to the orchestrator module

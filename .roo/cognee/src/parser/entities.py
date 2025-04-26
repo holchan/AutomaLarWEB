@@ -4,44 +4,64 @@
 import os
 import time
 from typing import List, Optional, Dict, Any
-from uuid import NAMESPACE_OID, uuid5, UUID # Added UUID for type hints if needed
-from cognee.low_level import DataPoint # Direct import
+from uuid import NAMESPACE_OID, uuid5, UUID # Import UUID
+from cognee.low_level import DataPoint
 
 # --- Entity Definitions ---
+
+# Helper to create metadata dict, ensuring required fields exist
+def _create_metadata(entity_specific_type: str, index_fields: List[str] = [], **kwargs) -> Dict[str, Any]:
+    """Creates the metadata dict, ensuring required fields and removing None values."""
+    meta = {
+        "type": entity_specific_type, # Required field
+        "index_fields": index_fields, # Required field
+        **kwargs # Add other custom metadata
+    }
+    # Remove None values from optional metadata fields passed via kwargs
+    return {k: v for k, v in meta.items() if v is not None}
 
 class Repository(DataPoint):
     """Represents the root repository."""
     def __init__(self, repo_path: str):
-        repo_id = str(uuid5(NAMESPACE_OID, os.path.abspath(repo_path)))
+        abs_path = os.path.abspath(repo_path)
+        repo_id = str(uuid5(NAMESPACE_OID, abs_path))
         payload = dict(
             id=repo_id,
             type="Repository", # Top-level type for DataPoint system
-            metadata=dict(
-                type="Repository", # Type within metadata (required)
-                path=os.path.abspath(repo_path), # Store absolute path
-                index_fields=[], # Required, but maybe none to index here
+            # Custom fields directly in payload
+            path=abs_path,
+            # Required metadata
+            metadata=_create_metadata(
+                entity_specific_type="Repository",
+                # No specific fields to index for Repository itself
+                index_fields=[],
             ),
-            timestamp=time.time(),
+            # timestamp is likely added by DataPoint base, check if needed here
+            # timestamp=time.time(),
         )
         super().__init__(**payload)
 
 class SourceFile(DataPoint):
     """Represents a discovered source file."""
     def __init__(self, file_path: str, relative_path: str, repo_id: str, file_type: str):
-        file_id = str(uuid5(NAMESPACE_OID, os.path.abspath(file_path)))
+        abs_path = os.path.abspath(file_path)
+        file_id = str(uuid5(NAMESPACE_OID, abs_path))
         payload = dict(
             id=file_id,
             type="SourceFile",
-            metadata=dict(
-                type="SourceFile", # Required
-                name=os.path.basename(file_path),
-                file_path=file_path,
-                relative_path=relative_path,
-                file_type=file_type,
-                part_of_repository=repo_id,
-                index_fields=[], # Required
+            # Custom fields directly in payload
+            name=os.path.basename(file_path),
+            file_path=file_path, # Keep original path if useful
+            relative_path=relative_path,
+            file_type=file_type,
+            part_of_repository=repo_id,
+            # Required metadata
+            metadata=_create_metadata(
+                entity_specific_type="SourceFile",
+                # Index name and path? Or leave empty?
+                index_fields=["name", "relative_path"],
             ),
-            timestamp=time.time(),
+            # timestamp=time.time(),
         )
         super().__init__(**payload)
 
@@ -51,18 +71,20 @@ class CodeEntity(DataPoint):
          entity_id = str(uuid5(NAMESPACE_OID, entity_id_str))
          payload = dict(
              id=entity_id,
-             type=entity_type, # Use specific type (e.g., FunctionDefinition)
-             text_content=source_code, # Store main content here
-             metadata=dict(
-                 type=entity_type, # Required
-                 name=name,
-                 defined_in_file=source_file_id,
-                 start_line=start_line,
-                 end_line=end_line,
-                 source_code_snippet_field="text_content", # Point to main content field
-                 index_fields=["text_content", "name"], # Index content and name
+             type=entity_type, # Use specific type like FunctionDefinition
+             # Custom fields directly in payload
+             name=name,
+             defined_in_file=source_file_id,
+             start_line=start_line,
+             end_line=end_line,
+             text_content=source_code, # Assume base DataPoint has text_content field
+             # Required metadata
+             metadata=_create_metadata(
+                 entity_specific_type=entity_type,
+                 # Indicate which field holds the primary text for indexing
+                 index_fields=["text_content", "name"],
              ),
-             timestamp=time.time(),
+             # timestamp=time.time(),
          )
          super().__init__(**payload)
 
@@ -73,16 +95,17 @@ class Dependency(DataPoint):
         payload = dict(
             id=dep_id,
             type="Dependency",
-            text_content=source_code_snippet, # Store snippet as main content
-            metadata=dict(
-                type="Dependency", # Required
-                target_module=target,
-                used_in_file=source_file_id,
-                start_line=start_line,
-                end_line=end_line,
-                index_fields=["text_content", "target_module"], # Index snippet and target
+            # Custom fields directly in payload
+            target_module=target,
+            used_in_file=source_file_id,
+            start_line=start_line,
+            end_line=end_line,
+            text_content=source_code_snippet, # Snippet as main content?
+            metadata=_create_metadata(
+                entity_specific_type="Dependency",
+                index_fields=["text_content", "target_module"],
             ),
-            timestamp=time.time(),
+            # timestamp=time.time(),
         )
         super().__init__(**payload)
 
@@ -93,22 +116,25 @@ class TextChunk(DataPoint):
         payload = dict(
             id=chunk_id,
             type="TextChunk", # Top-level type
+            # Custom fields directly in payload
+            chunk_of=parent_id,
+            chunk_index=chunk_index,
+            start_line=start_line, # Keep optional fields here
+            end_line=end_line,
             text_content=text, # Main content field
-            metadata=dict(
-                type="TextChunk", # Required nested type
-                chunk_of=parent_id,
-                chunk_index=chunk_index,
+            # Required metadata
+            metadata=_create_metadata(
+                entity_specific_type="TextChunk",
+                index_fields=["text_content"], # Index the text
+                # Pass optional fields to helper so they are removed if None
                 start_line=start_line,
                 end_line=end_line,
-                index_fields=["text_content"], # Required, index the text
             ),
-            timestamp=time.time(),
+            # timestamp=time.time(),
         )
-         # Remove None values from metadata before passing (optional fields)
-        payload["metadata"] = {k: v for k, v in payload["metadata"].items() if v is not None}
         super().__init__(**payload)
 
-# Optional: Rebuild models if using Pydantic features within Cognee's DataPoint
+# Optional: Rebuild models (keep as is)
 if hasattr(DataPoint, 'model_rebuild'):
     try:
         Repository.model_rebuild()

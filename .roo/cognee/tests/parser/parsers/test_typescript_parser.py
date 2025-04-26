@@ -43,17 +43,17 @@ def parser() -> TypescriptParser:
 
 # --- Test Cases ---
 
-async def test_parse_empty_ts_file(parser: TypescriptParser, tmp_path: Path):
+async def test_parse_empty_ts_file(parser: TypescriptParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty TypeScript file."""
     empty_file = tmp_path / "empty.ts"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty file should yield no DataPoints"
 
-async def test_parse_simple_function_file(parser: TypescriptParser, tmp_path: Path):
+async def test_parse_simple_function_file(parser: TypescriptParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing simple_function.ts from test_data."""
     test_file = TEST_DATA_DIR / "simple_function.ts"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from non-empty file"
     payloads = [dp.model_dump(mode='json') for dp in results]
@@ -110,10 +110,10 @@ async def test_parse_simple_function_file(parser: TypescriptParser, tmp_path: Pa
     assert "import { type Logger } from \"./logger\"; // Type-only import" in dep.get("text_content","") # Check main content
 
 
-async def test_parse_class_with_interfaces_file(parser: TypescriptParser, tmp_path: Path):
+async def test_parse_class_with_interfaces_file(parser: TypescriptParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing class_with_interfaces.tsx from test_data."""
     test_file = TEST_DATA_DIR / "class_with_interfaces.tsx" # Note .tsx extension
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from .tsx file"
     payloads = [dp.model_dump(mode='json') for dp in results]

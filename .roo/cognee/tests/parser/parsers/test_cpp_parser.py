@@ -43,24 +43,24 @@ def parser() -> CppParser:
 
 # --- Test Cases ---
 
-async def test_parse_empty_cpp_file(parser: CppParser, tmp_path: Path):
+async def test_parse_empty_cpp_file(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty C++ file."""
     empty_file = tmp_path / "empty.cpp"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .cpp file should yield no DataPoints"
 
-async def test_parse_empty_hpp_file(parser: CppParser, tmp_path: Path):
+async def test_parse_empty_hpp_file(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty C++ header file."""
     empty_file = tmp_path / "empty.hpp"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .hpp file should yield no DataPoints"
 
-async def test_parse_simple_class_file(parser: CppParser, tmp_path: Path):
+async def test_parse_simple_class_file(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing simple_class.cpp from test_data."""
     test_file = TEST_DATA_DIR / "simple_class.cpp"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from non-empty file"
     payloads = [dp.model_dump(mode='json') for dp in results]
@@ -123,10 +123,10 @@ async def test_parse_simple_class_file(parser: CppParser, tmp_path: Path):
     assert dep4_meta.get("start_line") == 7
     assert deps[4].get("text_content") == "using namespace std;" # Check main content
 
-async def test_parse_header_file(parser: CppParser, tmp_path: Path):
+async def test_parse_header_file(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing my_class.hpp from test_data."""
     test_file = TEST_DATA_DIR / "my_class.hpp"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from non-empty header"
     payloads = [dp.model_dump(mode='json') for dp in results]
@@ -182,7 +182,7 @@ async def test_parse_header_file(parser: CppParser, tmp_path: Path):
     assert dep1_meta.get("target_module") == "vector" and dep1_meta.get("start_line") == 4
 
 
-async def test_parse_file_with_enums_structs(parser: CppParser, tmp_path: Path):
+async def test_parse_file_with_enums_structs(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing C++ file with enums and structs within a namespace."""
     content = """
 #include <string> // Include dep
@@ -209,7 +209,7 @@ struct GlobalStruct { float val; }; // Global struct def
 """
     test_file = tmp_path / "types.cpp"
     test_file.write_text(content, encoding="utf-8")
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     payloads = [dp.model_dump(mode='json') for dp in results]
 

@@ -36,24 +36,24 @@ def parser() -> MarkdownParser:
 
 # --- Test Cases ---
 
-async def test_parse_empty_md_file(parser: MarkdownParser, tmp_path: Path):
+async def test_parse_empty_md_file(parser: MarkdownParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty Markdown file."""
     empty_file = tmp_path / "empty.md"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .md file should yield no DataPoints"
 
-async def test_parse_empty_mdx_file(parser: MarkdownParser, tmp_path: Path):
+async def test_parse_empty_mdx_file(parser: MarkdownParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty MDX file."""
     empty_file = tmp_path / "empty.mdx"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .mdx file should yield no DataPoints"
 
-async def test_parse_standard_markdown_document(parser: MarkdownParser, tmp_path: Path):
+async def test_parse_standard_markdown_document(parser: MarkdownParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing document.md from test_data."""
     test_file = TEST_DATA_DIR / "document.md"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     # Expect only TextChunk results from basic chunker
     assert len(results) > 0, "Expected DataPoints from document.md"
@@ -82,10 +82,10 @@ async def test_parse_standard_markdown_document(parser: MarkdownParser, tmp_path
     assert "python main_script.py" in full_text, "Missing Bash code content"
     assert "### Subsection 2.1: Advanced Options" in full_text, "Missing H3 Subsection"
 
-async def test_parse_mdx_document(parser: MarkdownParser, tmp_path: Path):
+async def test_parse_mdx_document(parser: MarkdownParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing component_doc.mdx (contains imports and JSX) from test_data."""
     test_file = TEST_DATA_DIR / "component_doc.mdx"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     # Expect only TextChunk results, no special handling of imports/JSX yet
     assert len(results) > 0, "Expected DataPoints from component_doc.mdx"
@@ -107,7 +107,7 @@ async def test_parse_mdx_document(parser: MarkdownParser, tmp_path: Path):
     assert "<MyComponent data={[5, 10, 15]}" in full_text, "Live demo JSX missing"
     assert "label=\"Live Demo Data\" />" in full_text, "JSX attribute missing"
 
-async def test_parse_markdown_with_frontmatter(parser: MarkdownParser, tmp_path: Path):
+async def test_parse_markdown_with_frontmatter(parser: MarkdownParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing markdown with YAML frontmatter."""
     content = """---
 title: Test Document
@@ -124,7 +124,7 @@ More text here.
 """
     test_file = tmp_path / "frontmatter.md"
     test_file.write_text(content, encoding="utf-8")
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     # Expect only TextChunks, frontmatter should be included in the text
     assert len(results) > 0, "Expected DataPoints from frontmatter file"

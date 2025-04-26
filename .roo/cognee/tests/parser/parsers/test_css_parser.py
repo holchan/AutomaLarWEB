@@ -41,13 +41,13 @@ async def test_parse_empty_css_file(parser: CssParser, tmp_path: Path):
     """Test parsing an empty CSS file."""
     empty_file = tmp_path / "empty.css"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .css file should yield no DataPoints"
 
 async def test_parse_style_css_file(parser: CssParser, tmp_path: Path):
     """Test parsing style.css from test_data."""
     test_file = TEST_DATA_DIR / "style.css"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     # Expect only TextChunk results currently
     assert len(results) > 0, "Expected DataPoints from style.css"
@@ -81,7 +81,7 @@ async def test_parse_style_css_file(parser: CssParser, tmp_path: Path):
     # Rough length check (can be unreliable with chunking/overlap)
     # assert len(full_text) >= len(original_content) # Comparing reconstructed vs original
 
-async def test_parse_css_with_media_query(parser: CssParser, tmp_path: Path):
+async def test_parse_css_with_media_query(parser: CssParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing CSS containing a media query and pseudo-elements."""
     content = """
 /* Comment */
@@ -104,7 +104,7 @@ p { font-size: 16px; }
 """
     test_file = tmp_path / "media.css"
     test_file.write_text(content, encoding="utf-8")
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     # Expect only TextChunk results currently
     assert len(results) > 0, "Expected DataPoints from media query CSS file"

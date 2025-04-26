@@ -11,10 +11,8 @@ from .treesitter_setup import get_parser, get_language
 PYTHON_QUERIES = {
     "imports": """
         [
-            (import_statement (aliased_import name: (dotted_name) @import alias: (identifier) @alias)) @import_statement ;; import foo as bar  # Removed '.' after aliased_import
-            (import_statement name: (dotted_name) @import) @import_statement ;; import foo
-            (import_from_statement module_name: (dotted_name)? @import_from name: (dotted_name) @import) @import_statement ;; from foo import bar
-            (import_from_statement module_name: (dotted_name)? @import_from name: (wildcard_import) @import) @import_statement ;; from foo import *
+            (import_statement) @import_statement ;; Capture the whole import statement
+            (import_from_statement) @import_statement ;; Capture the whole import from statement
         ]
         """,
     "functions": """

@@ -41,17 +41,17 @@ def parser() -> JavascriptParser:
 
 # --- Test Cases ---
 
-async def test_parse_empty_js_file(parser: JavascriptParser, tmp_path: Path):
+async def test_parse_empty_js_file(parser: JavascriptParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty JavaScript file."""
     empty_file = tmp_path / "empty.js"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty file should yield no DataPoints"
 
-async def test_parse_simple_function_file(parser: JavascriptParser, tmp_path: Path):
+async def test_parse_simple_function_file(parser: JavascriptParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing simple_function.js from test_data."""
     test_file = TEST_DATA_DIR / "simple_function.js"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from non-empty file"
     payloads = [dp.model_dump(mode='json') for dp in results]
@@ -99,10 +99,10 @@ async def test_parse_simple_function_file(parser: JavascriptParser, tmp_path: Pa
     assert dep_utils_meta.get("start_line") == 3
     assert dep_utils.get("text_content") == 'import { utils } from "./utils"; // ES6 import' # Check main content
 
-async def test_parse_class_with_imports_file(parser: JavascriptParser, tmp_path: Path):
+async def test_parse_class_with_imports_file(parser: JavascriptParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing class_with_imports.js from test_data."""
     test_file = TEST_DATA_DIR / "class_with_imports.js"
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from non-empty file"
     payloads = [dp.model_dump(mode='json') for dp in results]
@@ -167,7 +167,7 @@ async def test_parse_class_with_imports_file(parser: JavascriptParser, tmp_path:
     # if inner_require: assert inner_require[0].get("metadata", {}).get("target_module") == "fs"
 
 
-async def test_parse_file_with_jsx(parser: JavascriptParser, tmp_path: Path):
+async def test_parse_file_with_jsx(parser: JavascriptParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing a JS file containing basic JSX."""
     content = """
 import React from 'react';
@@ -186,7 +186,7 @@ export default MyComponent;
 """
     test_file = tmp_path / "component.jsx" # Use .jsx extension
     test_file.write_text(content, encoding="utf-8")
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     assert len(results) > 0, "Expected DataPoints from JSX file"
     payloads = [dp.model_dump(mode='json') for dp in results]

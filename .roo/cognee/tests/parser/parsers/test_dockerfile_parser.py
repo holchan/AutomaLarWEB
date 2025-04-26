@@ -38,21 +38,21 @@ def parser() -> DockerfileParser:
 
 # --- Test Cases ---
 
-async def test_parse_empty_dockerfile(parser: DockerfileParser, tmp_path: Path):
+async def test_parse_empty_dockerfile(parser: DockerfileParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty Dockerfile (named Dockerfile)."""
     empty_file = tmp_path / "Dockerfile" # Exact name match
     empty_file.touch()
-    results = await run_parser_and_save_output(parser, empty_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty Dockerfile should yield no DataPoints"
 
 # <<< CHANGE: Test now uses the file from test_data >>>
-async def test_parse_dockerfile_from_test_data(parser: DockerfileParser, tmp_path: Path):
+async def test_parse_dockerfile_from_test_data(parser: DockerfileParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing the Dockerfile from the test_data directory."""
     test_file = TEST_DATA_DIR / "Dockerfile" # Use the actual file
     if not test_file.is_file():
         pytest.skip(f"Dockerfile not found in test data: {test_file}")
 
-    results = await run_parser_and_save_output(parser, test_file, tmp_path)
+    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
     # Expect only TextChunk results currently
     assert len(results) > 0, "Expected DataPoints from Dockerfile"
