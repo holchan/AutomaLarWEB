@@ -10,7 +10,8 @@ from .treesitter_setup import get_parser, get_language
 RUST_QUERIES = {
     "imports": """
         [
-            (use_declaration (use_path) @path_node) @use_statement ;; use std::collections::HashMap; use crate::module; - Changed capture name
+            ;; Capture the full path node within use_declaration's argument
+            (use_declaration argument: (_) @path) @use_statement
             (extern_crate_declaration (identifier) @crate_name) @extern_crate ;; extern crate serde;
         ]
         """,
@@ -71,6 +72,7 @@ class RustParser(BaseParser):
                 }
             except Exception as e:
                  logger.error(f"Failed to compile Rust queries: {e}", exc_info=True)
+                 self.queries = {} # Ensure queries dict is empty on failure
         else:
             logger.error("Rust tree-sitter language not loaded. Rust parsing will be limited.")
 
@@ -155,35 +157,45 @@ class RustParser(BaseParser):
             if "imports" in self.queries:
                 import_query = self.queries["imports"]
                 processed_imports = set()
+                logger.debug(f"Rust Parser: Checking Dependencies for {file_path}")
+                # The initial captures() call should be on the root_node
                 for capture in import_query.captures(root_node):
-                    node_type = capture[1] # e.g., use_statement, extern_crate
                     node = capture[0]
+                    outer_capture_name = capture[1] # e.g., use_statement, extern_crate
 
                     target = "unknown_import"
-                    target_node: Optional[TSNODE_TYPE] = None
+                    target_node_for_text: Optional[TSNODE_TYPE] = None # Node to get the text from
 
-                    # Find the specific target node based on capture name
-                    for child_capture in import_query.captures(node):
-                        if child_capture[1] in ["use_path", "crate_name"]:
-                            target_node = child_capture[0]
-                            break
+                    logger.debug(f"Rust Import Capture: Node Type: {node.type}, Capture Name: {outer_capture_name}")
 
-                    if target_node:
-                        target = get_node_text(target_node, content_bytes)
+                    # If the outer capture is the statement itself, find the inner capture for the target text
+                    if outer_capture_name in ["use_statement", "extern_crate"]:
+                        # Run captures *again* but scoped to the current statement node
+                        for inner_capture in import_query.captures(node):
+                            inner_capture_name = inner_capture[1]
+                            logger.debug(f"  Inner Capture: Node Type: {inner_capture[0].type}, Capture Name: {inner_capture_name}")
+                            if inner_capture_name in ["path", "crate_name"]: # Match inner capture names
+                                target_node_for_text = inner_capture[0]
+                                break # Found the target node within the statement
+                    elif outer_capture_name in ["path", "crate_name"]: # Match outer capture names if they are the target directly
+                         target_node_for_text = node # The capture itself is the target node
+
+                    if target_node_for_text:
+                        target = get_node_text(target_node_for_text, content_bytes)
                         # Clean up potential ::<> paths if needed, though full path might be useful
                         # target = target.replace("::", "_") # Example cleaning
 
-                    snippet = get_node_text(node, content_bytes)
-                    start_line = node.start_point[0] + 1
-                    end_line = node.end_point[0] + 1
+                    if target != "unknown_import":
+                        start_line, end_line = node.start_point[0] + 1, node.end_point[0] + 1
+                        snippet = get_node_text(node, content_bytes)
+                        import_key = (target, start_line) # Use target and line to deduplicate
 
-                    import_key = (target, start_line)
-                    if target and snippet and import_key not in processed_imports:
-                        dep_id_str = f"{file_id}:dep:{target}:{start_line}"
-                        yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
-                        processed_imports.add(import_key)
-                    elif not target:
-                         logger.warning(f"Could not determine Rust import/use target at {file_path}:{start_line}")
+                        if target and snippet and import_key not in processed_imports:
+                            dep_id_str = f"{file_id}:dep:{target}:{start_line}"
+                            yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
+                            processed_imports.add(import_key)
+                        elif not target:
+                             logger.warning(f"Could not determine Rust import/use target at {file_path}:{start_line}")
 
 
         except Exception as e:

@@ -13,18 +13,11 @@ CPP_QUERIES = {
         """,
     "functions": """
         [
-          (function_definition
-            declarator: (function_declarator
-                          # Simplified name capture for debugging
-                          declarator: (identifier) @name)) @definition
-          (template_declaration
-            (function_definition
-              declarator: (function_declarator
-                            declarator: (identifier) @name))) @definition
-        ]
-        """,
+            (function_definition declarator: (_ (identifier) @name)?) @definition ;; Simplified function capture
+        ] ;; Add others back later: templates, methods etc.
+      """,
     "classes": """
-        (class_specifier name: [(type_identifier) (identifier)] @name) @definition
+    (class_specifier name: [(type_identifier) (identifier)] @name) @definition
         """,
     "structs": """
         (struct_specifier name: [(type_identifier) (identifier)] @name) @definition
@@ -59,6 +52,7 @@ class CppParser(BaseParser):
                 }
             except Exception as e:
                 logger.error(f"Failed to compile C++ queries: {e}", exc_info=True)
+                self.queries = {} # Ensure queries dict is empty on failure
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
         if not self.parser or not self.language or not self.queries:

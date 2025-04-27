@@ -102,6 +102,7 @@ class CParser(BaseParser):
                 chunk_id_str = f"{file_id}:chunk:{i}"
                 yield TextChunk(chunk_id_str=chunk_id_str, parent_id=file_id, text=chunk_text, chunk_index=i)
 
+            logger.debug(f"C Parser: Checking Code Entities for {file_path}")
             # 2. Yield Code Entities (Functions, Structs, Unions, Enums, Typedefs)
             entity_configs = [
                 ("functions", "FunctionDefinition"),
@@ -114,6 +115,7 @@ class CParser(BaseParser):
             for query_name, entity_class_name in entity_configs:
                 if query_name in self.queries:
                     query = self.queries[query_name]
+                    logger.debug(f"Executing C query '{query_name}'...")
                     for capture in query.captures(root_node):
                         node_type = capture[1]
                         node = capture[0]
@@ -133,6 +135,8 @@ class CParser(BaseParser):
 
                                 if name and entity_text:
                                     entity_id_str = f"{file_id}:{name}:{start_line}"
+                                    logger.debug(f"Yielding C CodeEntity: {entity_class_name} - {name}")
+                                    # Instantiate with string parent_id
                                     yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
                                 else:
                                      logger.warning(f"Could not extract name or text for C {entity_class_name} at {file_path}:{start_line}")
@@ -141,6 +145,7 @@ class CParser(BaseParser):
             if "includes" in self.queries:
                 include_query = self.queries["includes"]
                 processed_includes = set()
+                logger.debug("Executing C query 'includes'...")
                 for capture in include_query.captures(root_node):
                     node_type = capture[1]
                     node = capture[0] # The preproc_include node
@@ -165,6 +170,8 @@ class CParser(BaseParser):
                             include_key = (target, start_line)
                             if target and snippet and include_key not in processed_includes:
                                 dep_id_str = f"{file_id}:dep:{target}:{start_line}"
+                                logger.debug(f"Yielding C Dependency: {target}")
+                                # Instantiate with string parent_id
                                 yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
                                 processed_includes.add(include_key)
                             elif not target:

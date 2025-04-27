@@ -18,17 +18,15 @@ JAVASCRIPT_QUERIES = {
             (import_statement (import_clause (named_imports (import_specifier name: (identifier) @named_import))) source: (string) @import_from) @import_statement ;; import { name } from '...'
             (import_statement (import_clause (named_imports (import_specifier property: (identifier) @property_import name: (identifier) @named_import))) source: (string) @import_from) @import_statement ;; import { name as alias } from '...'
 
+            ;; Capture simple identifier or destructuring pattern like { join }
             (lexical_declaration
-              (variable_declarator
-                name: (_) @variable_name ;; Capture the variable name (identifier or pattern)
-                value: (call_expression
-                         function: (identifier) @require_function ;; Capture the 'require' identifier
-                         arguments: (arguments (string) @import_from)))) @import_statement ;; Basic require('...') pattern
-            (#match? @require_function "^require$") ;; Apply predicate to the function identifier
+                (variable_declarator ;; Simplified require: const name = require('...')
+                    name: (identifier) @require_target
+                    value: (call_expression function: (identifier) @_req arguments: (arguments (string) @import_from)))
+                (#eq? @_req "require")) @import_statement ;; Ensure the called function is 'require' - using #eq?
 
             (call_expression
               # function: (identifier) @_dynamic_import (#match? @_dynamic_import "^import$")) # Temporarily remove predicate
-              function: (identifier) @_dynamic_import
               arguments: (arguments (string) @import_from)) @import_statement ;; dynamic import("module")
         ]
         """,
@@ -79,6 +77,7 @@ class JavascriptParser(BaseParser):
                 }
             except Exception as e:
                  logger.error(f"Failed to compile JavaScript queries: {e}", exc_info=True)
+                 self.queries = {} # Ensure queries dict is empty on failure
         else:
             logger.error("JavaScript tree-sitter language not loaded. JS/JSX parsing will be limited.")
 

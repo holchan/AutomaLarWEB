@@ -96,6 +96,7 @@ class PythonParser(BaseParser):
                 # TODO: Add line number mapping for chunks if possible
                 yield TextChunk(chunk_id_str=chunk_id_str, parent_id=file_id, text=chunk_text, chunk_index=i)
 
+            logger.debug(f"Python Parser: Checking Code Entities for {file_path}")
             # 2. Yield Code Entities (Functions, Classes)
             for entity_type, query_name, entity_class_name in [
                 ("functions", "functions", "FunctionDefinition"),
@@ -103,6 +104,7 @@ class PythonParser(BaseParser):
             ]:
                 if query_name in self.queries:
                     query = self.queries[query_name]
+                    logger.debug(f"Executing Python query '{query_name}'...")
                     for capture in query.captures(root_node):
                         node_type = capture[1]
                         node = capture[0]
@@ -134,12 +136,14 @@ class PythonParser(BaseParser):
 
                                 if name and entity_text:
                                     entity_id_str = f"{file_id}:{name}:{start_line}"
+                                    logger.debug(f"Yielding Python CodeEntity: {entity_class_name} - {name}")
                                     yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
                                 else:
                                      logger.warning(f"Could not extract name or text for {entity_type} at {file_path}:{start_line}")
 
             # 3. Yield Dependencies (Imports)
             if "imports" in self.queries:
+                logger.debug("Executing Python query 'imports'...")
                 import_query = self.queries["imports"]
                 processed_imports = set()
                 for capture in import_query.captures(root_node):
@@ -179,6 +183,7 @@ class PythonParser(BaseParser):
                         import_key = (target, start_line)
                         if target and snippet and import_key not in processed_imports:
                             dep_id_str = f"{file_id}:dep:{target}:{start_line}"
+                            logger.debug(f"Yielding Python Dependency: {target}")
                             yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
                             processed_imports.add(import_key)
                         elif not target:

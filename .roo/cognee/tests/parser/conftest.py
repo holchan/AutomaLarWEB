@@ -20,9 +20,9 @@ if TYPE_CHECKING:
 
 
 # --- Helper Function as Fixture ---
-# Scope="session" means this fixture is created once per test session
-@pytest.fixture(scope="session")
-async def run_parser_and_save_output():
+# Scope="function" means this fixture is created once per test session
+@pytest.fixture(scope="function") # Change scope to function for better isolation if needed
+def run_parser_and_save_output():
     """
     Fixture providing a helper function to run a parser, save results,
     and return DataPoint objects.
