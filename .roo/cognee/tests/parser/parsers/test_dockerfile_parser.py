@@ -29,7 +29,8 @@ if not TEST_DATA_DIR.is_dir():
      pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
 # --- Helper Function (Copied from previous step) ---
-# Helper function `run_parser_and_save_output` is now expected to be in conftest.py
+# Helper fixture `run_parser_and_save_output` is defined in tests/parser/conftest.py
+# and injected by pytest into test functions that request it.
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> DockerfileParser:

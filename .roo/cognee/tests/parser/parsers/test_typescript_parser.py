@@ -27,6 +27,7 @@ if not TEST_DATA_DIR.is_dir():
     pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
 # Helper function `run_parser_and_save_output` is now expected to be in conftest.py
+from ..conftest import run_parser_and_save_output
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> TypescriptParser:
@@ -43,14 +44,14 @@ def parser() -> TypescriptParser:
 
 # --- Test Cases ---
 
-async def test_parse_empty_ts_file(parser: TypescriptParser, tmp_path: Path, run_parser_and_save_output):
+async def test_parse_empty_ts_file(parser: TypescriptParser, tmp_path: Path):
     """Test parsing an empty TypeScript file."""
     empty_file = tmp_path / "empty.ts"
     empty_file.touch()
     results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty file should yield no DataPoints"
 
-async def test_parse_simple_function_file(parser: TypescriptParser, tmp_path: Path, run_parser_and_save_output):
+async def test_parse_simple_function_file(parser: TypescriptParser, tmp_path: Path):
     """Test parsing simple_function.ts from test_data."""
     test_file = TEST_DATA_DIR / "simple_function.ts"
     results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
@@ -110,7 +111,7 @@ async def test_parse_simple_function_file(parser: TypescriptParser, tmp_path: Pa
     assert "import { type Logger } from \"./logger\"; // Type-only import" in dep.get("text_content","") # Check main content
 
 
-async def test_parse_class_with_interfaces_file(parser: TypescriptParser, tmp_path: Path, run_parser_and_save_output):
+async def test_parse_class_with_interfaces_file(parser: TypescriptParser, tmp_path: Path):
     """Test parsing class_with_interfaces.tsx from test_data."""
     test_file = TEST_DATA_DIR / "class_with_interfaces.tsx" # Note .tsx extension
     results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
@@ -151,6 +152,7 @@ async def test_parse_class_with_interfaces_file(parser: TypescriptParser, tmp_pa
     cdm_meta = func_map["componentDidMount"].get("metadata", {})
     assert cdm_meta.get("start_line") == 19
     assert cdm_meta.get("end_line") == 23
+    assert "async componentDidMount()" in func_map["componentDidMount"].get("text_content", "")
 
     assert "componentWillUnmount" in func_map
     cwu_meta = func_map["componentWillUnmount"].get("metadata", {})

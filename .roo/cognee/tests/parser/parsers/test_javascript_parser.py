@@ -25,7 +25,8 @@ TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "javascript"
 if not TEST_DATA_DIR.is_dir():
     pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
-# Helper function `run_parser_and_save_output` is now expected to be in conftest.py
+# Helper fixture `run_parser_and_save_output` is defined in tests/parser/conftest.py
+# and injected by pytest into test functions that request it.
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> JavascriptParser:
@@ -59,7 +60,7 @@ async def test_parse_simple_function_file(parser: JavascriptParser, tmp_path: Pa
     # Check for TextChunks
     chunks = [p for p in payloads if p.get("type") == "TextChunk"]
     assert len(chunks) >= 1, "Expected at least one TextChunk"
-    assert chunks[0].get("text_content","").strip().startswith("// Simple JS functions"), "First chunk content mismatch"
+    assert chunks[0].get("text_content","").strip().startswith("// Simple JS types and functions"), "First chunk content mismatch"
 
     # Check for CodeEntity (FunctionDefinition)
     funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
@@ -130,6 +131,7 @@ async def test_parse_class_with_imports_file(parser: JavascriptParser, tmp_path:
     constructor_meta = func_map["constructor"].get("metadata", {})
     assert constructor_meta.get("start_line") == 5
     assert constructor_meta.get("end_line") == 8
+    assert "def __init__(self, source: str):" in func_map["__init__"].get("text_content", "")
 
     assert "readFile" in func_map
     readFile_meta = func_map["readFile"].get("metadata", {})

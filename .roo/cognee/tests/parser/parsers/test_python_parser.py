@@ -27,7 +27,8 @@ if not TEST_DATA_DIR.is_dir():
     # If the test data directory doesn't exist, skip all tests in this file.
     pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
-# Helper function `run_parser_and_save_output` is now expected to be in conftest.py
+# Helper fixture `run_parser_and_save_output` is defined in tests/parser/conftest.py
+# and injected by pytest into test functions that request it.
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> PythonParser:

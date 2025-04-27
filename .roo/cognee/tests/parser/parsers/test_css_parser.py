@@ -5,6 +5,14 @@ import json
 import hashlib
 from pathlib import Path
 from typing import List, TYPE_CHECKING
+from pathlib import Path # Add Path import
+
+# --- ADD this line ---
+TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "css"
+# --- End Add ---
+
+if not TEST_DATA_DIR.is_dir():
+     pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
 # Use pytest-asyncio for async tests
 pytestmark = pytest.mark.asyncio
@@ -22,12 +30,8 @@ except ImportError as e:
 if TYPE_CHECKING:
     from src.parser.parsers.base_parser import BaseParser
 
-# --- Test Configuration ---
-TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "css"
-if not TEST_DATA_DIR.is_dir():
-    pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
-
-# Helper function `run_parser_and_save_output` is now expected to be in conftest.py
+# Helper fixture `run_parser_and_save_output` is defined in tests/parser/conftest.py
+# and injected by pytest into test functions that request it.
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> CssParser:
@@ -37,14 +41,14 @@ def parser() -> CssParser:
 
 # --- Test Cases ---
 
-async def test_parse_empty_css_file(parser: CssParser, tmp_path: Path):
+async def test_parse_empty_css_file(parser: CssParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty CSS file."""
     empty_file = tmp_path / "empty.css"
     empty_file.touch()
     results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .css file should yield no DataPoints"
 
-async def test_parse_style_css_file(parser: CssParser, tmp_path: Path):
+async def test_parse_style_css_file(parser: CssParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing style.css from test_data."""
     test_file = TEST_DATA_DIR / "style.css"
     results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)

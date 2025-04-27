@@ -111,7 +111,7 @@ async def process_repository(repo_path: str, concurrency_limit: int = 50) -> Asy
     # 1. Yield Repository Node
     repo_node = Repository(repo_path=abs_repo_path)
     yield repo_node
-    repo_id = repo_node.payload['id'] # Access ID safely
+    repo_id = repo_node.id # Access ID directly
     total_yielded = 1
 
     # 2. Discover Files and Prepare Parsing Tasks
@@ -124,7 +124,7 @@ async def process_repository(repo_path: str, concurrency_limit: int = 50) -> Asy
             file_node = SourceFile(file_path=file_path, relative_path=relative_path, repo_id=repo_id, file_type=file_type)
             yield file_node
             total_yielded += 1
-            file_id = file_node.payload['id']
+            file_id = file_node.id # Access ID directly
             logger.debug(f"Created SourceFile node for: {relative_path} (ID: {file_id})")
         except Exception as e:
             logger.error(f"Failed to create SourceFile node for {relative_path}: {e}", exc_info=True)
@@ -198,17 +198,18 @@ async def main():
         count += 1
         # Simple progress indicator
         if count == 1: # First DP is the Repository node
-             print(f"Yielded Repository Node: {data_point.payload.get('path')}")
-        elif data_point.payload.get('type') == 'SourceFile':
-             print(f"Yielded SourceFile Node: {data_point.payload.get('relative_path')}")
+             print(f"Yielded Repository Node: {data_point.path}") # Access attribute directly
+        elif data_point.type == 'SourceFile': # Access attribute directly
+             print(f"Yielded SourceFile Node: {data_point.relative_path}") # Access attribute directly
+
 
         # Optional: Print details of other datapoints for debugging
-        # elif data_point.payload.get('type') == 'TextChunk':
-        #      print(f"  Yielded TextChunk (Index: {data_point.payload.get('chunk_index')})")
-        # elif data_point.payload.get('type') == 'CodeEntity':
-        #      print(f"  Yielded CodeEntity: {data_point.payload.get('type')} - {data_point.payload.get('name')}")
-        # elif data_point.payload.get('type') == 'Dependency':
-        #       print(f"  Yielded Dependency: {data_point.payload.get('target_module')}")
+        # elif data_point.type == 'TextChunk': # Access attribute directly
+        #      print(f"  Yielded TextChunk (Index: {data_point.chunk_index})") # Access attribute directly
+        # elif data_point.type == 'CodeEntity': # Access attribute directly
+        #      print(f"  Yielded CodeEntity: {data_point.type} - {data_point.name}") # Access attributes directly
+        # elif data_point.type == 'Dependency': # Access attribute directly
+        #       print(f"  Yielded Dependency: {data_point.target_module}") # Access attribute directly
 
 
         if count % 200 == 0: # Adjust frequency of progress message

@@ -10,8 +10,8 @@ from .treesitter_setup import get_parser, get_language
 RUST_QUERIES = {
     "imports": """
         [
-            (use_declaration (use_path) @use_path) @use_statement ;; use std::collections::HashMap; use crate::module; - Fixed query syntax
-            (extern_crate_declaration (identifier) @crate_name) @extern_crate ;; extern crate serde; - Fixed query syntax
+            (use_declaration (use_path) @path_node) @use_statement ;; use std::collections::HashMap; use crate::module; - Changed capture name
+            (extern_crate_declaration (identifier) @crate_name) @extern_crate ;; extern crate serde;
         ]
         """,
     "functions": """

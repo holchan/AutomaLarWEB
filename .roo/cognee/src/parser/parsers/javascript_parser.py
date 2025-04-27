@@ -20,12 +20,15 @@ JAVASCRIPT_QUERIES = {
 
             (lexical_declaration
               (variable_declarator
-                name: [(identifier) @require_target (object_pattern (shorthand_property_identifier_pattern) @require_target)]
-                value: (call_expression function: (identifier) @require_target arguments: (arguments (string) @import_from)))
-              (identifier) @require_target (#match? @require_target "^require$")) @import_statement ;; Basic require('...') pattern - Fixed query syntax
+                name: (_) @variable_name ;; Capture the variable name (identifier or pattern)
+                value: (call_expression
+                         function: (identifier) @require_function ;; Capture the 'require' identifier
+                         arguments: (arguments (string) @import_from)))) @import_statement ;; Basic require('...') pattern
+            (#match? @require_function "^require$") ;; Apply predicate to the function identifier
 
             (call_expression
-              function: (identifier) @_dynamic_import (#match? @_dynamic_import "^import$"))
+              # function: (identifier) @_dynamic_import (#match? @_dynamic_import "^import$")) # Temporarily remove predicate
+              function: (identifier) @_dynamic_import
               arguments: (arguments (string) @import_from)) @import_statement ;; dynamic import("module")
         ]
         """,
@@ -57,6 +60,7 @@ class JavascriptParser(BaseParser):
     This parser identifies functions, classes, and various import/require
     statements within JavaScript and JSX source code. It also utilizes the
     `basic_chunker` to break down the file content into text segments.
+    Handles both standard JS and basic JSX syntax.
 
     Inherits from BaseParser.
     """

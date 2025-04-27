@@ -34,22 +34,16 @@ def test_basic_chunker_exact_size():
     assert len(chunks) == 1
     assert chunks[0] == text
 
-def test_basic_chunker_long_string_no_overlap():
+def test_basic_chunker_long_string_no_overlap(): # Updated test
     """Test chunking a long string with zero overlap."""
-    size = 30 # Use a smaller size for easier calculation
-    text = "Chunk1Content..." * size + "Chunk2MoreContent" * size + "End"
-    expected_chunk1_content = "Chunk1Content..." * size
-    expected_chunk2_content = "Chunk2MoreContent" * size
-
-    # Use a chunk size large enough to capture the repeated sections
-    test_chunk_size = size * len("Chunk1Content...")
-    chunks = basic_chunker(text, size=test_chunk_size, overlap=0)
-
-    # Expect 3 chunks: first full, second full, remaining "End"
+    size = 10 # Use a smaller size
+    text = "0123456789ABCDEFGHIJabcdefghij" # 30 chars
+    chunks = basic_chunker(text, size=size, overlap=0)
+    # Expect 3 chunks of size 10
     assert len(chunks) == 3
-    assert chunks[0] == expected_chunk1_content
-    assert chunks[1] == expected_chunk2_content
-    assert chunks[2] == "End"
+    assert chunks[0] == "0123456789"
+    assert chunks[1] == "ABCDEFGHIJ"
+    assert chunks[2] == "abcdefghij"
 
 def test_basic_chunker_long_string_with_overlap():
     """Test chunking with overlap calculation."""

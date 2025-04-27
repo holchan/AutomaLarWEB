@@ -1,3 +1,4 @@
+from typing import AsyncGenerator
 from uuid import uuid5, NAMESPACE_OID
 import pytest
 import asyncio
@@ -5,7 +6,7 @@ import os
 from pathlib import Path
 # Use unittest.mock for its robust patching capabilities, especially with async
 from unittest.mock import AsyncMock, MagicMock, patch, call
-from typing import List, Dict, Any, Optional, Tuple # <<< ADD List and Tuple here >>>
+from typing import List, Dict, Any, Optional, Tuple
 
 # Ensure pytest-asyncio is installed and usable
 pytestmark = pytest.mark.asyncio
@@ -13,19 +14,22 @@ pytestmark = pytest.mark.asyncio
 # Import the function to test and entity types for verification
 try:
     from src.parser.orchestrator import process_repository
-    from src.parser.entities import Repository, SourceFile, DataPoint # Use DataPoint for type hints if needed
+    # Import specific entity types for instantiation in mocks
+    from src.parser.entities import Repository, SourceFile, DataPoint, TextChunk, CodeEntity, Dependency
 except ImportError as e:
      pytest.skip(f"Skipping orchestrator tests: Failed to import dependencies - {e}", allow_module_level=True)
 
 
 # --- Mock Data Setup ---
 
-# Helper to create mock payloads (simpler than full DataPoint objects for mocking)
-def create_mock_payload(id_val: str, type_val: str, parent_id: str = None, **kwargs) -> dict:
-    """Creates a dictionary representing a DataPoint payload for mocking."""
+# Helper to create mock payloads (dictionaries representing entity data)
+# ADD text_content parameter
+def create_mock_payload(id_val: str, type_val: str, parent_id: str = None, text_content: str = "", **kwargs) -> dict:
+    """Creates a dictionary representing DataPoint data for mocking."""
     payload = {
         "id": id_val,
         "type": type_val,
+        "text_content": text_content, # Added text_content
         # Add keys based on type for more realistic mocks if needed by assertions
         "chunk_of": parent_id if type_val == "TextChunk" else None,
         "defined_in_file": parent_id if type_val in ["FunctionDefinition", "ClassDefinition"] else None,
@@ -67,30 +71,70 @@ def setup_expected_outcomes(base_path: Path) -> dict:
         # Define mock outputs *only* for supported types with parsers
         if f_type == "python":
             outcomes["parser_outputs"][file_id] = [
-                create_mock_payload(f"{file_id}:chunk:0", "TextChunk", parent_id=file_id, chunk_index=0, text="mock python text"),
-                create_mock_payload(f"{file_id}:FunctionDefinition:main:10", "FunctionDefinition", parent_id=file_id, name="main", start_line=10),
+                # Pass text_content
+                create_mock_payload(f"{file_id}:chunk:0", "TextChunk", parent_id=file_id, chunk_index=0, text_content="mock python text chunk 1"),
+                create_mock_payload(f"{file_id}:FunctionDefinition:main:10", "FunctionDefinition", parent_id=file_id, name="main", start_line=10, end_line=15, text_content="def main():\n  pass"),
             ]
         elif f_type == "markdown":
              outcomes["parser_outputs"][file_id] = [
-                create_mock_payload(f"{file_id}:chunk:0", "TextChunk", parent_id=file_id, chunk_index=0, text="mock markdown text"),
+                # Pass text_content
+                create_mock_payload(f"{file_id}:chunk:0", "TextChunk", parent_id=file_id, chunk_index=0, text_content="mock markdown text chunk 1"),
              ]
         elif f_type == "javascript":
              outcomes["parser_outputs"][file_id] = [
-                create_mock_payload(f"{file_id}:ClassDefinition:App:5", "ClassDefinition", parent_id=file_id, name="App", start_line=5),
+                # Pass text_content
+                create_mock_payload(f"{file_id}:ClassDefinition:App:5", "ClassDefinition", parent_id=file_id, name="App", start_line=5, end_line=20, text_content="class App {}"),
              ]
         # No output defined for 'xml'
 
     return outcomes
 
-# Async generator helper for mocks - yields mock objects having a 'payload' attribute
-async def async_payload_gen_wrapper(payload_list: List[dict]):
-    """Wraps a list of payloads in an async generator yielding mock objects."""
-    if payload_list is None: payload_list = []
+# Async generator helper - yields actual DataPoint objects
+async def async_payload_gen_wrapper(payload_list: List[dict]) -> AsyncGenerator[DataPoint, None]:
+    """Wraps a list of payload dictionaries in an async generator yielding DataPoint objects."""
+    if payload_list is None:
+        payload_list = []
     for payload in payload_list:
-        mock_dp = MagicMock()
-        # Attach the payload to the mock object
-        mock_dp.payload = payload
-        yield mock_dp
+        dp: DataPoint # Type hint
+        type_val = payload.get("type")
+
+        # Instantiate the correct DataPoint subclass based on type
+        if type_val == "TextChunk":
+            dp = TextChunk(
+                chunk_id_str=payload.get("id"),
+                parent_id=payload.get("chunk_of"),
+                text=payload.get("text_content", ""), # Use text_content
+                chunk_index=payload.get("chunk_index"),
+                start_line=payload.get("start_line"),
+                end_line=payload.get("end_line")
+            )
+        elif type_val in ["FunctionDefinition", "ClassDefinition", "StructDefinition", "EnumDefinition", "TraitDefinition", "Implementation", "MacroDefinition", "ModuleDefinition", "InterfaceDefinition", "TypeDefinition"]:
+             # Assuming CodeEntity covers these for now, adjust if specific entities are needed
+             dp = CodeEntity(
+                 entity_id_str=payload.get("id"),
+                 entity_type=type_val, # Use the specific type
+                 name=payload.get("name"),
+                 source_file_id=payload.get("defined_in_file"),
+                 source_code=payload.get("text_content", ""), # Use text_content
+                 start_line=payload.get("start_line"),
+                 end_line=payload.get("end_line")
+             )
+        elif type_val == "Dependency":
+             dp = Dependency(
+                 dep_id_str=payload.get("id"),
+                 source_file_id=payload.get("used_in_file"),
+                 target=payload.get("target_module"), # Use target_module
+                 source_code_snippet=payload.get("text_content", ""), # Use text_content
+                 start_line=payload.get("start_line"),
+                 end_line=payload.get("end_line")
+             )
+        # Add other entity types as needed
+        else:
+            # Fallback or raise error for unhandled types
+            logger.warning(f"Unhandled DataPoint type in mock generator: {type_val}")
+            continue # Skip this payload
+
+        yield dp
         await asyncio.sleep(0) # Yield control
 
 # Async generator helper for discover_files mock
@@ -145,8 +189,11 @@ async def test_process_repository_basic_flow(mock_parser_map_dict, mock_discover
 
     # Create mocked classes that return the mocked instances when called
     MockPythonParserClass = MagicMock(return_value=mock_python_parser)
+    MockPythonParserClass.__name__ = "MockPythonParser" # Add __name__
     MockMarkdownParserClass = MagicMock(return_value=mock_markdown_parser)
+    MockMarkdownParserClass.__name__ = "MockMarkdownParser" # Add __name__
     MockJSParserClass = MagicMock(return_value=mock_js_parser)
+    MockJSParserClass.__name__ = "MockJSParser" # Add __name__
 
     # Populate the *patched* PARSER_MAP dictionary (mock_parser_map_dict)
     mock_parser_map_dict.update({
@@ -163,40 +210,45 @@ async def test_process_repository_basic_flow(mock_parser_map_dict, mock_discover
         results_dp_objects.append(dp)
 
     # --- Assertions ---
-    # Get payloads for easier checking using model_dump
-    results_payloads = [dp.model_dump(mode='json') for dp in results_dp_objects]
+    # No longer need to convert to payloads for basic checks, access attributes directly
+    # results_payloads = [dp.model_dump(mode='json') for dp in results_dp_objects]
 
     # 1. Check total items yielded
     expected_parser_results_count = sum(len(v) for v in expected_outcomes["parser_outputs"].values())
     expected_total_yields = 1 + len(mock_discovery_data) + expected_parser_results_count
-    assert len(results_payloads) == expected_total_yields, "Incorrect total number of yielded DataPoints"
+    assert len(results_dp_objects) == expected_total_yields, "Incorrect total number of yielded DataPoints"
 
-    # 2. Check Repository node
-    assert results_payloads[0].get("type") == "Repository", "First item should be Repository"
-    assert results_payloads[0].get("id") == expected_outcomes["repo_id"], "Repository ID mismatch"
-    assert results_payloads[0].get("path") == str(repo_path.absolute()), "Repository path mismatch"
+    # 2. Check Repository node (access attributes directly)
+    repo_dp = results_dp_objects[0]
+    assert isinstance(repo_dp, Repository), "First item should be Repository instance"
+    assert repo_dp.type == "Repository", "First item type should be Repository"
+    assert repo_dp.id == expected_outcomes["repo_id"], "Repository ID mismatch"
+    assert repo_dp.path == str(repo_path.absolute()), "Repository path mismatch"
 
-    # 3. Check SourceFile nodes
-    yielded_files = results_payloads[1 : 1 + len(mock_discovery_data)]
+    # 3. Check SourceFile nodes (access attributes directly)
+    yielded_files = results_dp_objects[1 : 1 + len(mock_discovery_data)]
     assert len(yielded_files) == len(mock_discovery_data), "Incorrect number of SourceFile nodes yielded"
-    assert all(f.get("type") == "SourceFile" for f in yielded_files), "Expected only SourceFile nodes after Repository"
+    assert all(isinstance(f, SourceFile) for f in yielded_files), "Expected only SourceFile instances after Repository"
+    assert all(f.type == "SourceFile" for f in yielded_files), "Expected only SourceFile nodes after Repository"
+
     # Check details and IDs
     found_rel_paths = set()
     for i, file_info in enumerate(mock_discovery_data):
         abs_p, rel_p, f_type = file_info
         expected_file_id = expected_outcomes["file_ids"][rel_p]
-        # Find the corresponding yielded file
-        found_file = next((f for f in yielded_files if f.get("relative_path") == rel_p), None)
+        # Find the corresponding yielded file by relative_path (now an attribute)
+        found_file = next((f for f in yielded_files if f.relative_path == rel_p), None)
         assert found_file is not None, f"Did not find yielded SourceFile for {rel_p}"
-        assert found_file.get("id") == expected_file_id, f"SourceFile ID mismatch for {rel_p}"
-        assert found_file.get("file_type") == f_type, f"SourceFile file_type mismatch for {rel_p}"
-        assert found_file.get("part_of_repository") == expected_outcomes["repo_id"], f"SourceFile repo link mismatch for {rel_p}"
+        assert found_file.id == expected_file_id, f"SourceFile ID mismatch for {rel_p}"
+        assert found_file.file_type == f_type, f"SourceFile file_type mismatch for {rel_p}"
+        assert found_file.part_of_repository == expected_outcomes["repo_id"], f"SourceFile repo link mismatch for {rel_p}"
         found_rel_paths.add(rel_p)
     assert len(found_rel_paths) == len(mock_discovery_data), "Duplicate or missing SourceFiles yielded"
 
     # 4. Check Parser Results (order might vary due to asyncio.gather)
-    yielded_parser_results = results_payloads[1 + len(mock_discovery_data):]
-    yielded_parser_ids = {p.get("id") for p in yielded_parser_results}
+    yielded_parser_results = results_dp_objects[1 + len(mock_discovery_data):]
+    # Get IDs directly from DataPoint objects
+    yielded_parser_ids = {dp.id for dp in yielded_parser_results}
 
     expected_parser_payloads_flat = []
     for file_id in expected_outcomes["file_ids"].values():
@@ -204,8 +256,8 @@ async def test_process_repository_basic_flow(mock_parser_map_dict, mock_discover
     expected_parser_ids = {p.get("id") for p in expected_parser_payloads_flat}
 
     assert yielded_parser_ids == expected_parser_ids, "Mismatch in yielded parser result IDs"
-    # Optional deep check: compare sorted lists of dictionaries
-    # assert sorted(yielded_parser_results, key=lambda x: x['id']) == sorted(expected_parser_payloads_flat, key=lambda x: x['id'])
+    # Optional deep check: compare sorted lists of dictionaries (convert yielded DPs to dicts)
+    # assert sorted([dp.model_dump(mode='json') for dp in yielded_parser_results], key=lambda x: x['id']) == sorted(expected_parser_payloads_flat, key=lambda x: x['id'])
 
     # 5. Verify Mock Calls
     mock_discover.assert_called_once_with(str(repo_path.absolute()))
@@ -254,7 +306,8 @@ async def test_process_repository_no_files_found(mock_discover, tmp_path: Path):
     assert len(results) == 1, "Expected only Repository node for empty discovery"
     assert isinstance(results[0], Repository), "First item should be Repository instance"
     # Access attributes directly
-    assert results[0].id == expected_repo_id
+    # --- Corrected Assertion ---
+    assert str(results[0].id) == expected_repo_id # Cast results[0].id to string
     assert results[0].path == abs_repo_path
     mock_discover.assert_called_once_with(abs_repo_path)
 
@@ -291,6 +344,7 @@ async def test_process_repository_parser_error_handling(mock_logger, mock_parser
     # Mock parser instance and class
     mock_python_parser = MagicMock(parser_type="MockPythonParser")
     MockPythonParserClass = MagicMock(return_value=mock_python_parser)
+    MockPythonParserClass.__name__ = "MockPythonParser" # Add __name__
     mock_parser_map_dict["python"] = MockPythonParserClass
 
     # Configure parse: success for ok.py, raise exception for error.py
@@ -318,14 +372,13 @@ async def test_process_repository_parser_error_handling(mock_logger, mock_parser
     # --- Assertions ---
     # Expected: 1 Repo + 2 Files + results from ok.py (1 payload)
     assert len(results_dp) == 1 + 2 + 1, "Incorrect number of yielded items with parser error"
-    # Get payloads for easier checking using model_dump
-    results_payloads = [dp.model_dump(mode='json') for dp in results_dp]
+    # No need to convert to payloads for basic checks
 
-    # Check that results from ok.py are present
-    assert any(p.get("id") == ok_payloads[0]["id"] for p in results_payloads), "Payload from ok.py missing"
+    # Check that results from ok.py are present (check ID directly)
+    assert any(dp.id == ok_payloads[0]["id"] for dp in results_dp), "Payload from ok.py missing"
     # Check that no parser results related to error.py are present
-    # Access parent links directly from the object attributes if possible, or check metadata in dumped payload
-    # Assuming parent links are top-level attributes based on entity definitions
+    # Access parent links directly from the object attributes
+    # The first 3 results are Repo and SourceFiles, parser results start from index 3
     assert not any(dp.defined_in_file == file_err_id or dp.used_in_file == file_err_id or dp.chunk_of == file_err_id for dp in results_dp[3:]), "Results from failed parser should not be yielded"
 
     # Check logs: ensure error was logged for error.py by _process_single_file

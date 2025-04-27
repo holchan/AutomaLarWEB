@@ -27,7 +27,8 @@ TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "cpp"
 if not TEST_DATA_DIR.is_dir():
     pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
-# Helper function `run_parser_and_save_output` is now expected to be in conftest.py
+# Helper fixture `run_parser_and_save_output` is defined in tests/parser/conftest.py
+# and injected by pytest into test functions that request it.
 # --- Parser Fixture ---
 @pytest.fixture(scope="module")
 def parser() -> CppParser:
@@ -180,7 +181,6 @@ async def test_parse_header_file(parser: CppParser, tmp_path: Path, run_parser_a
     assert dep0_meta.get("target_module") == "string" and dep0_meta.get("start_line") == 3
     dep1_meta = deps[1].get("metadata", {})
     assert dep1_meta.get("target_module") == "vector" and dep1_meta.get("start_line") == 4
-
 
 async def test_parse_file_with_enums_structs(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing C++ file with enums and structs within a namespace."""
