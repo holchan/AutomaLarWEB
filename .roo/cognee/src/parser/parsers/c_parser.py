@@ -1,7 +1,9 @@
 # src/parser/parsers/c_parser.py
+from pydantic import BaseModel # Import BaseModel for type hinting
 from typing import AsyncGenerator, Optional
 from .base_parser import BaseParser
-from ..entities import DataPoint, TextChunk, CodeEntity, Dependency
+from pydantic import BaseModel # Import BaseModel for type hinting
+from ..entities import TextChunk, CodeEntity, Dependency # Removed DataPoint import
 from ..chunking import basic_chunker
 from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
 from .treesitter_setup import get_parser, get_language
@@ -63,7 +65,7 @@ class CParser(BaseParser):
         else:
             logger.error("C tree-sitter language not loaded. C parsing will be limited.")
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
         """
         Parses a C file, yielding TextChunks, CodeEntities (functions, structs,
         unions, enums, typedefs), and Dependencies (includes).
@@ -77,7 +79,7 @@ class CParser(BaseParser):
             file_id: The unique ID of the SourceFile entity corresponding to this file.
 
         Yields:
-            DataPoint objects: TextChunk, CodeEntity (FunctionDefinition, StructDefinition,
+            BaseModel objects: TextChunk, CodeEntity (FunctionDefinition, StructDefinition,
             UnionDefinition, EnumDefinition, TypeDefinition), and Dependency entities
             extracted from the file.
         """

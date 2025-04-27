@@ -1,7 +1,9 @@
 # src/parser/parsers/rust_parser.py
+from pydantic import BaseModel # Import BaseModel for type hinting
 from typing import AsyncGenerator, Optional
 from .base_parser import BaseParser
-from ..entities import DataPoint, TextChunk, CodeEntity, Dependency
+from pydantic import BaseModel # Import BaseModel for type hinting
+from ..entities import TextChunk, CodeEntity, Dependency # Removed DataPoint import
 from ..chunking import basic_chunker
 from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
 from .treesitter_setup import get_parser, get_language
@@ -76,7 +78,7 @@ class RustParser(BaseParser):
         else:
             logger.error("Rust tree-sitter language not loaded. Rust parsing will be limited.")
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
         """
         Parses a Rust file, yielding TextChunks, CodeEntities (functions, structs,
         enums, traits, impls, mods, macros), and Dependencies (use, extern crate).
@@ -90,7 +92,7 @@ class RustParser(BaseParser):
             file_id: The unique ID of the SourceFile entity corresponding to this file.
 
         Yields:
-            DataPoint objects: TextChunk, CodeEntity (FunctionDefinition, StructDefinition,
+            BaseModel objects: TextChunk, CodeEntity (FunctionDefinition, StructDefinition,
             EnumDefinition, TraitDefinition, Implementation, MacroDefinition, ModuleDefinition),
             and Dependency entities extracted from the file.
         """
@@ -156,46 +158,73 @@ class RustParser(BaseParser):
             # 3. Yield Dependencies (use, extern crate)
             if "imports" in self.queries:
                 import_query = self.queries["imports"]
-                processed_imports = set()
+                processed_statement_starts = set() # Track start lines of processed statements
                 logger.debug(f"Rust Parser: Checking Dependencies for {file_path}")
-                # The initial captures() call should be on the root_node
-                for capture in import_query.captures(root_node):
-                    node = capture[0]
-                    outer_capture_name = capture[1] # e.g., use_statement, extern_crate
 
-                    target = "unknown_import"
-                    target_node_for_text: Optional[TSNODE_TYPE] = None # Node to get the text from
+                captures = import_query.captures(root_node)
 
-                    logger.debug(f"Rust Import Capture: Node Type: {node.type}, Capture Name: {outer_capture_name}")
+                # Iterate through captures, focusing on statement nodes
+                for node, capture_name in captures:
+                    statement_node: Optional[TSNODE_TYPE] = None
+                    target_node: Optional[TSNODE_TYPE] = None
+                    target_text: Optional[str] = None
 
-                    # If the outer capture is the statement itself, find the inner capture for the target text
-                    if outer_capture_name in ["use_statement", "extern_crate"]:
-                        # Run captures *again* but scoped to the current statement node
-                        for inner_capture in import_query.captures(node):
-                            inner_capture_name = inner_capture[1]
-                            logger.debug(f"  Inner Capture: Node Type: {inner_capture[0].type}, Capture Name: {inner_capture_name}")
-                            if inner_capture_name in ["path", "crate_name"]: # Match inner capture names
-                                target_node_for_text = inner_capture[0]
-                                break # Found the target node within the statement
-                    elif outer_capture_name in ["path", "crate_name"]: # Match outer capture names if they are the target directly
-                         target_node_for_text = node # The capture itself is the target node
+                    # Identify the statement node based on the capture name from the query
+                    if capture_name == "use_statement":
+                        # Ensure the node type matches, although capture name should be reliable
+                        if node.type == "use_declaration":
+                            statement_node = node
+                    elif capture_name == "extern_crate":
+                         if node.type == "extern_crate_declaration":
+                            statement_node = node
+                    else:
+                        # This capture is 'path' or 'crate_name', skip processing here
+                        # We'll find the target via traversal from the statement node
+                        continue
 
-                    if target_node_for_text:
-                        target = get_node_text(target_node_for_text, content_bytes)
-                        # Clean up potential ::<> paths if needed, though full path might be useful
-                        # target = target.replace("::", "_") # Example cleaning
+                    # If not a statement node we care about, skip
+                    if not statement_node:
+                        continue
 
-                    if target != "unknown_import":
-                        start_line, end_line = node.start_point[0] + 1, node.end_point[0] + 1
-                        snippet = get_node_text(node, content_bytes)
-                        import_key = (target, start_line) # Use target and line to deduplicate
+                    # Check if we've already processed this statement via its start line
+                    statement_start_line = statement_node.start_point[0]
+                    if statement_start_line in processed_statement_starts:
+                        continue
+                    processed_statement_starts.add(statement_start_line)
 
-                        if target and snippet and import_key not in processed_imports:
-                            dep_id_str = f"{file_id}:dep:{target}:{start_line}"
-                            yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
-                            processed_imports.add(import_key)
-                        elif not target:
-                             logger.warning(f"Could not determine Rust import/use target at {file_path}:{start_line}")
+                    # --- Find Target Text using Direct Node Traversal ---
+                    if statement_node.type == "use_declaration":
+                        # Find the argument node (could be various types like use_list, scoped_use_list, path, etc.)
+                        arg_node = statement_node.child_by_field_name("argument")
+                        if arg_node:
+                            # Simplification: Get text of the whole argument node.
+                            # More robust: traverse arg_node to find the core path/identifier.
+                            target_node = arg_node # Use the argument node itself for text
+                            target_text = get_node_text(target_node, content_bytes)
+                            logger.debug(f"Found use target: '{target_text}' via argument node")
+
+                    elif statement_node.type == "extern_crate_declaration":
+                        name_node = statement_node.child_by_field_name("name") # Should be 'identifier' type
+                        if name_node:
+                            target_node = name_node
+                            target_text = get_node_text(target_node, content_bytes)
+                            logger.debug(f"Found extern crate target: '{target_text}' via name node")
+
+                    # --- Yield Dependency ---
+                    if target_text and statement_node:
+                        start_line = statement_node.start_point[0] + 1
+                        end_line = statement_node.end_point[0] + 1
+                        snippet = get_node_text(statement_node, content_bytes)
+
+                        if snippet: # Ensure snippet is not empty
+                            dep_id_str = f"{file_id}:dep:{target_text}:{start_line}"
+                            logger.debug(f"Yielding Rust Dependency: {dep_id_str} (Target: {target_text}, Snippet: '{snippet[:50]}...')")
+                            yield Dependency(dep_id_str, file_id, target_text, snippet, start_line, end_line)
+                            # Note: processed_statement_starts handles deduplication
+                        else:
+                             logger.warning(f"Could not extract snippet for Rust import/use target '{target_text}' at {file_path}:{start_line}")
+                    else:
+                         logger.warning(f"Could not determine Rust import/use target or statement node at {file_path}:{statement_node.start_point[0] + 1 if statement_node else 'unknown line'}")
 
 
         except Exception as e:

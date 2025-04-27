@@ -1,7 +1,9 @@
 # src/parser/parsers/cpp_parser.py
+from pydantic import BaseModel # Import BaseModel for type hinting
 from typing import AsyncGenerator, Optional
 from .base_parser import BaseParser
-from ..entities import DataPoint, TextChunk, CodeEntity, Dependency
+from pydantic import BaseModel # Import BaseModel for type hinting
+from ..entities import TextChunk, CodeEntity, Dependency # Removed DataPoint import
 from ..chunking import basic_chunker
 from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
 from .treesitter_setup import get_parser, get_language
@@ -54,7 +56,7 @@ class CppParser(BaseParser):
                 logger.error(f"Failed to compile C++ queries: {e}", exc_info=True)
                 self.queries = {} # Ensure queries dict is empty on failure
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
         if not self.parser or not self.language or not self.queries:
             logger.error("C++ parser not available")
             return

@@ -1,7 +1,9 @@
 # src/parser/parsers/python_parser.py
+from pydantic import BaseModel # Import BaseModel for type hinting
 from typing import AsyncGenerator, Optional
 from .base_parser import BaseParser
-from ..entities import DataPoint, TextChunk, CodeEntity, Dependency
+from pydantic import BaseModel # Import BaseModel for type hinting
+from ..entities import TextChunk, CodeEntity, Dependency # Removed DataPoint import
 from ..chunking import basic_chunker
 from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
 from .treesitter_setup import get_parser, get_language
@@ -57,7 +59,7 @@ class PythonParser(BaseParser):
         else:
             logger.error("Python tree-sitter language not loaded. Python parsing will be limited.")
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
         """
         Parses a Python file, yielding TextChunks, CodeEntities (functions, classes),
         and Dependencies (imports).
@@ -71,7 +73,7 @@ class PythonParser(BaseParser):
             file_id: The unique ID of the SourceFile entity corresponding to this file.
 
         Yields:
-            DataPoint objects: TextChunk, CodeEntity (FunctionDefinition, ClassDefinition),
+            BaseModel objects: TextChunk, CodeEntity (FunctionDefinition, ClassDefinition),
             and Dependency entities extracted from the file.
         """
         if not self.parser or not self.language or not self.queries:

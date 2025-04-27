@@ -1,7 +1,7 @@
 # src/parser/parsers/base_parser.py
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator
-from ..entities import DataPoint
+from pydantic import BaseModel # Import BaseModel for type hinting
 from ..utils import logger # Import shared logger
 
 class BaseParser(ABC):
@@ -19,18 +19,18 @@ class BaseParser(ABC):
         logger.debug(f"Initialized parser: {self.parser_type}")
 
     @abstractmethod
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]:
         """
         Parses the content of the given file path asynchronously and yields
-        DataPoint objects representing extracted information (e.g., TextChunks,
+        Pydantic BaseModel objects representing extracted information (e.g., TextChunks,
         CodeEntity, Dependency).
 
         Args:
             file_path: The absolute path to the file to be parsed.
-            file_id: The unique ID assigned to the SourceFile DataPoint representing this file.
+            file_id: The unique ID assigned to the SourceFile entity representing this file.
 
         Yields:
-            DataPoint objects extracted from the file.
+            Pydantic BaseModel objects extracted from the file.
         """
         # This is an abstract method, the implementation must be provided by subclasses.
         # The 'yield' keyword here ensures Python recognizes this as an async generator method signature.

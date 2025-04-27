@@ -1,8 +1,10 @@
 # src/parser/parsers/dockerfile_parser.py
+from pydantic import BaseModel # Import BaseModel for type hinting
 from typing import AsyncGenerator
 import re # For potential future instruction parsing
 from .base_parser import BaseParser
-from ..entities import DataPoint, TextChunk # Potentially DockerfileInstruction later
+from pydantic import BaseModel # Import BaseModel for type hinting
+from ..entities import TextChunk # Potentially DockerfileInstruction later, Removed DataPoint import
 from ..chunking import basic_chunker
 from ..utils import read_file_content, logger
 
@@ -26,20 +28,20 @@ class DockerfileParser(BaseParser):
         super().__init__()
         # No specific setup needed for basic chunking
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
         """
         Parses a Dockerfile, yielding TextChunk entities.
 
         Reads the file content, chunks it using `basic_chunker`, and yields
-        a `TextChunk` DataPoint for each non-empty chunk.
+        a `TextChunk` entity for each non-empty chunk.
 
         Args:
             file_path: The absolute path to the Dockerfile to be parsed.
             file_id: The unique ID of the SourceFile entity corresponding to this file.
 
         Yields:
-            TextChunk objects representing segments of the Dockerfile content.
-            May yield other DataPoint types (like DockerfileInstruction) in the
+            BaseModel objects (specifically TextChunk) representing segments of the Dockerfile content.
+            May yield other BaseModel types (like DockerfileInstruction) in the
             future if advanced parsing is enabled.
         """
         logger.debug(f"Parsing Dockerfile: {file_path}")

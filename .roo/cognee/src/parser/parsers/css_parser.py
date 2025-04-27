@@ -1,7 +1,9 @@
 # src/parser/parsers/css_parser.py
+from pydantic import BaseModel # Import BaseModel for type hinting
 from typing import AsyncGenerator
 from .base_parser import BaseParser
-from ..entities import DataPoint, TextChunk
+from pydantic import BaseModel # Import BaseModel for type hinting
+from ..entities import TextChunk # Removed DataPoint import
 from ..chunking import basic_chunker
 from ..utils import read_file_content, logger
 
@@ -25,20 +27,20 @@ class CssParser(BaseParser):
         super().__init__()
         # No specific setup needed for basic chunking
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[DataPoint, None]:
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
         """
         Parses a CSS file, yielding TextChunk entities.
 
         Reads the file content, chunks it using `basic_chunker`, and yields
-        a `TextChunk` DataPoint for each non-empty chunk.
+        a `TextChunk` entity for each non-empty chunk.
 
         Args:
             file_path: The absolute path to the CSS file to be parsed.
             file_id: The unique ID of the SourceFile entity corresponding to this file.
 
         Yields:
-            TextChunk objects representing segments of the CSS content.
-            May yield other DataPoint types in the future if advanced parsing is enabled.
+            BaseModel objects (specifically TextChunk) representing segments of the CSS content.
+            May yield other BaseModel types in the future if advanced parsing is enabled.
         """
         logger.debug(f"Parsing CSS file: {file_path}")
         content = await read_file_content(file_path)
