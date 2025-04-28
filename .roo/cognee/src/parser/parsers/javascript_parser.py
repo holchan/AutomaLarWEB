@@ -22,9 +22,10 @@ JAVASCRIPT_QUERIES = {
 
             ;; Capture simple assignments like: const name = require('...')
             (lexical_declaration (variable_declarator
-                    name: (identifier) @require_target
-                    value: (call_expression function: (identifier) @_req arguments: (arguments (string)@import_from)))) @require_statement ;; Capture the whole statement
-            (#match? @_req "^require$") ;; Match the function name using regex predicate
+                  name: (identifier) @require_target
+                  value: (call_expression function: (identifier) @_req arguments: (arguments (string)@import_from))
+                  (#match? @_req "^require$") ;; Predicate attached to call_expression
+            )) @require_statement ;; Capture the whole statement
 
             (call_expression
               # function: (identifier) @_dynamic_import (#match? @_dynamic_import "^import$")) # Temporarily remove predicate
