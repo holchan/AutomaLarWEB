@@ -14,9 +14,10 @@ CPP_QUERIES = {
         (preproc_include [(string_literal) (system_lib_string)] @include) @include_statement
         """,
     "functions": """
-        [
-            (function_definition declarator: (_ (identifier) @name)?) @definition ;; Simplified function capture
-        ] ;; Add others back later: templates, methods etc.
+(function_definition declarator: (function_declarator declarator: (identifier) @name) ) @definition ;; Basic function def
+        """,
+      "classes": """
+      (class_specifier name: [(type_identifier) (identifier)] @name) @definition
       """,
     "classes": """
     (class_specifier name: [(type_identifier) (identifier)] @name) @definition

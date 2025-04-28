@@ -15,8 +15,8 @@ try:
     # Assuming C++ entities map to these generic types
     from src.parser.entities import DataPoint, TextChunk, CodeEntity, Dependency
 except ImportError as e:
-    pytest.skip(f"Skipping C++ parser tests: Failed to import dependencies - {e}", allow_module_level=True)
-
+    # pytest.skip(f"Skipping C++ parser tests: Failed to import dependencies - {e}", allow_module_level=True)
+    pass # Allow test collection even if imports fail, fixture will skip
 
 # Avoid runtime import errors if BaseParser isn't directly used
 if TYPE_CHECKING:

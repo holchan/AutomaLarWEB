@@ -76,7 +76,7 @@ class CodeEntity(BaseModel):
     timestamp: float = Field(default_factory=time.time)
 
     def __init__(self, entity_id_str: str, entity_type: str, name: str, source_file_id: str, source_code: str, start_line: int, end_line: int):
-          entity_id = str(uuid5(NAMESPACE_OID, str(entity_id_str))) # Ensure base str is string
+          entity_id = str(entity_id_str) # Use the passed string directly as ID
           payload = dict(
               id=entity_id,
               type=entity_type, # Use specific type like FunctionDefinition for the base type
@@ -100,7 +100,7 @@ class Dependency(BaseModel):
     timestamp: float = Field(default_factory=time.time)
 
     def __init__(self, dep_id_str: str, source_file_id: str, target: str, source_code_snippet: str, start_line: int, end_line: int):
-        dep_id = str(uuid5(NAMESPACE_OID, str(dep_id_str))) # Ensure base str is string
+        dep_id = str(dep_id_str) # Use the passed string directly as ID
         payload: Dict[str, Any] = dict(
             id=dep_id,
             target_module=target,
@@ -124,7 +124,7 @@ class TextChunk(BaseModel):
     timestamp: float = Field(default_factory=time.time)
 
     def __init__(self, chunk_id_str: str, parent_id: str, text: str, chunk_index: int, start_line: Optional[int] = None, end_line: Optional[int] = None):
-        chunk_id = str(uuid5(NAMESPACE_OID, str(chunk_id_str)))
+        chunk_id = str(chunk_id_str) # Use the passed string directly as ID
         payload: Dict[str, Any] = dict(
             id=chunk_id,
             text_content=text,

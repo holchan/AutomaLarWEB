@@ -63,9 +63,11 @@ async def _process_single_file(parser_instance: BaseParser, file_path: str, file
         async for dp in parser_instance.parse(file_path, file_id):
             datapoints.append(dp)
         logger.debug(f"Parser {parser_instance.parser_type} yielded {len(datapoints)} DataPoints for {os.path.basename(file_path)}")
+        logger.debug(f"_process_single_file returning list of length {len(datapoints)} for {os.path.basename(file_path)}") # DEBUG LOG
     except Exception as e:
         logger.error(f"Error executing parser {parser_instance.parser_type} on file {file_path}: {e}", exc_info=True)
-    return datapoints
+        return [] # Return empty list on error
+    return datapoints # Return the list of collected datapoints
 
 
 async def process_repository(repo_path: str, concurrency_limit: int = 50) -> AsyncGenerator[BaseModel, None]:
@@ -166,11 +168,14 @@ async def process_repository(repo_path: str, concurrency_limit: int = 50) -> Asy
         processed_files += len(batch)
 
         # Yield datapoints from successful results in the batch
-        for result in batch_results:
+        logger.debug(f"Batch Results Raw: {batch_results}")  # DEBUG LOG
+        for idx, result in enumerate(batch_results):
+            logger.debug(f"Processing Batch Result {idx}: Type={type(result)}, Value={result}")  # DEBUG LOG - Added value
             if isinstance(result, list): # Successful result is a list of DataPoints
-                for data_point in result:
+                logger.info(f"  Result is list, length={len(result)}. Items: {[getattr(dp, 'id', 'N/A') for dp in result]}") # Log IDs in the list
+                for data_point in result: # << SHOULD YIELD ok_entity HERE
+                    logger.info(f"    Yielding DP: {getattr(data_point, 'id', 'N/A')}")
                     yield data_point
-                    total_yielded += 1
             elif isinstance(result, Exception):
                  # Error was already logged in _process_single_file or gather caught it
                  logger.error(f"A file processing task failed: {result}")

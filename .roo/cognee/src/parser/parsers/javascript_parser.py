@@ -20,12 +20,11 @@ JAVASCRIPT_QUERIES = {
             (import_statement (import_clause (named_imports (import_specifier name: (identifier) @named_import))) source: (string) @import_from) @import_statement ;; import { name } from '...'
             (import_statement (import_clause (named_imports (import_specifier property: (identifier) @property_import name: (identifier) @named_import))) source: (string) @import_from) @import_statement ;; import { name as alias } from '...'
 
-            ;; Capture simple identifier or destructuring pattern like { join }
-            (lexical_declaration
-                (variable_declarator ;; Simplified require: const name = require('...')
+            ;; Capture simple assignments like: const name = require('...')
+            (lexical_declaration (variable_declarator
                     name: (identifier) @require_target
-                    value: (call_expression function: (identifier) @_req arguments: (arguments (string) @import_from)))
-                (#eq? @_req "require")) @import_statement ;; Ensure the called function is 'require' - using #eq?
+                    value: (call_expression function: (identifier) @_req arguments: (arguments (string)@import_from)))) @require_statement ;; Capture the whole statement
+            (#match? @_req "^require$") ;; Match the function name using regex predicate
 
             (call_expression
               # function: (identifier) @_dynamic_import (#match? @_dynamic_import "^import$")) # Temporarily remove predicate
