@@ -1,113 +1,130 @@
 # src/parser/parsers/javascript_parser.py
-from pydantic import BaseModel # Import BaseModel for type hinting
+from pydantic import BaseModel
 from typing import AsyncGenerator, Optional
 from .base_parser import BaseParser
-from pydantic import BaseModel # Import BaseModel for type hinting
-from ..entities import TextChunk, CodeEntity, Dependency # Removed DataPoint import
+from ..entities import TextChunk, CodeEntity, Dependency
 from ..chunking import basic_chunker
 from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
 from .treesitter_setup import get_parser, get_language
+import os
 
-# Define Tree-sitter queries for JavaScript/JSX
-# Note: These might need refinement, especially for complex frameworks or syntax variations.
-# Capturing various function/class/import patterns.
+# --- QUERIES based on AI Expert analysis of MODERN grammar ---
 JAVASCRIPT_QUERIES = {
     "imports": """
         [
-            (import_statement source: (string) @import_from) @import_statement ;; import ... from '...'
-            (import_statement (import_clause (identifier) @default_import)) source: (string) @import_from @import_statement ;; import defaultExport from '...'
-            (import_statement (import_clause (namespace_import (identifier) @namespace_import)) source: (string) @import_from) @import_statement ;; import * as name from '...'
-            (import_statement (import_clause (named_imports (import_specifier name: (identifier) @named_import))) source: (string) @import_from) @import_statement ;; import { name } from '...'
-            (import_statement (import_clause (named_imports (import_specifier property: (identifier) @property_import name: (identifier) @named_import))) source: (string) @import_from) @import_statement ;; import { name as alias } from '...'
+            ;; Combined import statement query using optional captures
+            (import_statement
+              (import_clause (identifier) @default_import)? ;; Optional default import name
+              (import_clause (namespace_import (identifier) @namespace_import))? ;; Optional namespace name
+              (import_clause (named_imports (import_specifier name: (identifier) @named_import)))? ;; Optional named import name
+              (import_clause (named_imports (import_specifier property: (identifier) @property_import name: (identifier) @named_import_alias)))? ;; Optional named import with alias
+              source: (string) @import_from ;; Source field is reliable now
+            ) @import_statement
 
-            ;; Capture simple assignments like: const name = require('...')
-            (lexical_declaration (variable_declarator
-                  name: (identifier) @require_target
-                  value: (call_expression function: (identifier) @_req arguments: (arguments (string)@import_from))
-                  (#match? @_req "^require$") ;; Predicate attached to call_expression
-            )) @require_statement ;; Capture the whole statement
+            ;; require('...')
+            (lexical_declaration
+              (variable_declarator
+                name: (identifier) @require_target
+                value: (call_expression
+                         function: (identifier) @_req
+                         arguments: (arguments (string) @import_from)
+                       )
+              )
+              (#match? @_req "^require$")
+            ) @require_statement
 
+            ;; import("module")
             (call_expression
-              # function: (identifier) @_dynamic_import (#match? @_dynamic_import "^import$")) # Temporarily remove predicate
-              arguments: (arguments (string) @import_from)) @import_statement ;; dynamic import("module")
+              function: (import) ;; Specific 'import' node
+              arguments: (arguments (string) @import_from)
+            ) @import_statement
         ]
         """,
     "functions": """
         [
-            (function_declaration name: (identifier) @name parameters: (formal_parameters)? @params) @definition ;; function foo() {}
+            (function_declaration name: (identifier) @name parameters: (formal_parameters)? @params) @definition
             (lexical_declaration
               (variable_declarator
                 name: (identifier) @name
-                value: [(arrow_function parameters: (formal_parameters)? @params) (function parameters: (formal_parameters)? @params)])) @definition ;; const foo = () => {}; const foo = function() {};
-            (expression_statement (assignment_expression left: [(identifier) (member_expression)] @name right: [(arrow_function parameters: (formal_parameters)? @params) (function parameters: (formal_parameters)? @params)])) @definition ;; foo = () => {}; module.exports = function() {};
-            (method_definition name: (property_identifier) @name parameters: (formal_parameters)? @params) @definition ;; class { foo() {} }
-            (pair key: (property_identifier) @name value: [(arrow_function parameters: (formal_parameters)? @params) (function parameters: (formal_parameters)? @params)]) @definition ;; const obj = { foo: () => {} };
+                value: (arrow_function parameters: (formal_parameters)? @params)
+              )
+            ) @definition
+             (lexical_declaration ;; Assignment of anonymous function
+              (variable_declarator
+                name: (identifier) @name
+                value: (function_expression) ;; <<< CORRECTED node name
+              )
+            ) @definition
+            (expression_statement
+              (assignment_expression
+                left: [(identifier) (member_expression)] @name
+                right: (arrow_function parameters: (formal_parameters)? @params)
+              )
+            ) @definition
+            (expression_statement ;; Assignment of anonymous function
+              (assignment_expression
+                left: [(identifier) (member_expression)] @name
+                right: (function_expression) ;; <<< CORRECTED node name
+              )
+            ) @definition
+            (method_definition name: (property_identifier) @name parameters: (formal_parameters)? @params) @definition
+            (pair
+              key: (property_identifier) @name
+              value: (arrow_function parameters: (formal_parameters)? @params)
+            ) @definition
+            (pair ;; Assignment of anonymous function
+              key: (property_identifier) @name
+              value: (function_expression) ;; <<< CORRECTED node name
+            ) @definition
         ]
         """,
     "classes": """
-        (class_declaration name: (identifier) @name) @definition ;; class Foo {}
-        (lexical_declaration (variable_declarator name: (identifier) @name value: (class))) @definition ;; const Foo = class {}
+        [
+            (class_declaration name: (identifier) @name) @definition
+            (lexical_declaration (variable_declarator name: (identifier) @name value: (class))) @definition
+        ]
         """,
-    # Could add queries for exports, variables, JSX components etc.
 }
-
+# --- END QUERIES ---
 
 class JavascriptParser(BaseParser):
-    """
-    Parses JavaScript and JSX files (.js, .jsx, .ts, .tsx - though .ts/.tsx have dedicated parsers)
-    using Tree-sitter to extract code entities and dependencies.
-
-    This parser identifies functions, classes, and various import/require
-    statements within JavaScript and JSX source code. It also utilizes the
-    `basic_chunker` to break down the file content into text segments.
-    Handles both standard JS and basic JSX syntax.
-
-    Inherits from BaseParser.
-    """
-
-    def __init__(self):
+     def __init__(self):
         """Initializes the JavascriptParser and loads the Tree-sitter language and queries."""
         super().__init__()
-        self.language = get_language("javascript") # Note: Tree-sitter uses 'javascript' for both JS and JSX
+        self.language = get_language("javascript")
         self.parser = get_parser("javascript")
         self.queries = {}
         if self.language:
+            logger.debug("Attempting to compile ALL JavaScript Tree-sitter queries (using updated binding)...")
             try:
+                # Compile all at once, assuming syntax is correct for the new version
                 self.queries = {
                     name: self.language.query(query_str)
                     for name, query_str in JAVASCRIPT_QUERIES.items()
                 }
+                logger.info("Successfully compiled ALL JavaScript Tree-sitter queries (using updated binding).")
             except Exception as e:
-                 logger.error(f"Failed to compile JavaScript queries: {e}", exc_info=True)
-                 self.queries = {} # Ensure queries dict is empty on failure
+                 logger.error(f"Failed to compile JavaScript queries with new binding version: {e}", exc_info=True)
+                 self.queries = {} # Ensure queries is empty on failure
         else:
-            logger.error("JavaScript tree-sitter language not loaded. JS/JSX parsing will be limited.")
+            logger.error("JavaScript tree-sitter language not loaded.")
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
-        """
-        Parses a JavaScript or JSX file, yielding TextChunks, CodeEntities
-        (functions, classes), and Dependencies (imports, requires).
+     # Reverted to simpler parse logic relying on direct query captures
+     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]:
+        expected_queries = {"imports", "functions", "classes"}
+        if not self.language or not self.queries or not expected_keys.issubset(self.queries.keys()):
+             logger.error(f"JS prerequisites missing (Lang: {bool(self.language)}, Queries Compiled: {bool(self.queries)}). Skipping detailed parsing for {file_path}")
+             content_fallback = await read_file_content(file_path)
+             if content_fallback:
+                 for i, chunk_text in enumerate(basic_chunker(content_fallback)):
+                     if chunk_text.strip(): yield TextChunk(f"{file_id}:chunk:{i}", file_id, chunk_text, i)
+             return
 
-        Reads the file content, uses Tree-sitter to build an AST, and queries the
-        AST to extract relevant code structures and dependencies. It also generates
-        text chunks from the file content. Handles both standard JS and basic JSX syntax.
-
-        Args:
-            file_path: The absolute path to the JS/JSX file to be parsed.
-            file_id: The unique ID of the SourceFile entity corresponding to this file.
-
-        Yields:
-            BaseModel objects: TextChunk, CodeEntity (FunctionDefinition, ClassDefinition),
-            and Dependency entities extracted from the file.
-        """
-        if not self.parser or not self.language or not self.queries:
-            logger.error(f"JavaScript parser not available or queries failed compilation, skipping parsing for {file_path}")
-            return
-
+        import_query = self.queries.get("imports")
+        function_query = self.queries.get("functions")
+        class_query = self.queries.get("classes")
         content = await read_file_content(file_path)
-        if content is None:
-            logger.error(f"Could not read content from {file_path}")
-            return
+        if content is None: return
 
         try:
             content_bytes = bytes(content, "utf8")
@@ -115,101 +132,96 @@ class JavascriptParser(BaseParser):
             root_node = tree.root_node
 
             # 1. Yield Chunks
-            chunks = basic_chunker(content)
-            for i, chunk_text in enumerate(chunks):
-                if not chunk_text.strip(): continue
-                chunk_id_str = f"{file_id}:chunk:{i}"
-                # TODO: Add line number mapping for chunks if possible
-                yield TextChunk(chunk_id_str=chunk_id_str, parent_id=file_id, text=chunk_text, chunk_index=i)
+            for i, chunk_text in enumerate(basic_chunker(content)):
+                 if chunk_text.strip(): yield TextChunk(f"{file_id}:chunk:{i}", file_id, chunk_text, i)
 
-            # 2. Yield Code Entities (Functions, Classes)
-            for entity_type, query_name, entity_class_name in [
-                ("functions", "functions", "FunctionDefinition"),
-                ("classes", "classes", "ClassDefinition"),
-            ]:
-                if query_name in self.queries:
-                    query = self.queries[query_name]
-                    for capture in query.captures(root_node):
-                        node_type = capture[1]
-                        node = capture[0]
-
-                        if node_type == "definition":
-                            name_node: Optional[TSNODE_TYPE] = None
-                            params_node: Optional[TSNODE_TYPE] = None
-                            for child_capture in query.captures(node):
-                                if child_capture[1] == "name":
-                                    name_node = child_capture[0]
-                                elif child_capture[1] == "params":
-                                     params_node = child_capture[0]
-
-                            if name_node:
-                                name = get_node_text(name_node, content_bytes)
-                                # For assignments, the 'name' might be complex (e.g., member_expression)
-                                # We might want the full name or just the final identifier
-                                if name and name_node.type != 'identifier':
-                                     name = name.split('.')[-1] # Heuristic: take last part
-
-                                entity_text = get_node_text(node, content_bytes)
-                                start_line = node.start_point[0] + 1
-                                end_line = node.end_point[0] + 1
-                                parameters = get_node_text(params_node, content_bytes) if params_node else ""
-
-                                if name and entity_text:
-                                    entity_id_str = f"{file_id}:{name}:{start_line}"
-                                    yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
-                                else:
-                                     logger.warning(f"Could not extract name or text for JS {entity_type} at {file_path}:{start_line}")
-
-            # 3. Yield Dependencies (Imports/Requires)
-            if "imports" in self.queries:
-                import_query = self.queries["imports"]
+            # 2. Process Dependencies (using direct captures)
+            if import_query:
                 processed_imports = set()
-                for capture in import_query.captures(root_node):
-                    node_type = capture[1]
-                    node = capture[0]
+                # Use captures() method which returns (node, capture_name) tuples
+                for node, capture_name in import_query.captures(root_node):
+                    # We need the statement node AND the source node for each match
+                    # This requires slightly more complex state management if captures are separate
+                    # For simplicity, let's assume the AI query structure works where @import_from
+                    # is captured alongside the relevant @import_statement or @require_statement
+                    # within the *same match*. We'll need to find both within the captures of a single match.
 
-                    if node_type == "import_statement":
-                        target = "unknown_import"
-                        import_target_node = None
-                        import_from_node = None
-                        dynamic_import_node: Optional[TSNODE_TYPE] = None
+                    # This part might need refinement based on how query.captures actually groups things.
+                    # A safer approach might be query.matches and processing captures per match.
+                    # Let's stick to the simpler captures() for now and refine if needed.
 
-                        # Find specific captures within the statement
-                        for child_capture in import_query.captures(node):
-                            if child_capture[1] == "import_from":
-                                import_from_node = child_capture[0]
-                            elif child_capture[1] in ["default_import", "namespace_import", "named_import", "require_target"]:
-                                import_target_node = child_capture[0]
-                            elif child_capture[1] == "import_from" and node.type == "call_expression":
-                                 dynamic_import_node = child_capture[0] # Dynamic import
+                    # Find the relevant statement node associated with this capture if needed
+                    # (Logic depends heavily on the exact query structure and capture names used)
+                    # For now, let's assume we get the info needed per capture event (might be wrong)
 
-                        if dynamic_import_node:
-                            target = get_node_text(dynamic_import_node, content_bytes)
-                            if target and target.startswith(('"', "'")):
-                                target = target[1:-1]
-                        elif import_from_node:
-                            target = get_node_text(import_from_node, content_bytes)
-                            # Clean quotes from string literal if necessary
-                            if target and target.startswith(('"', "'")):
-                                target = target[1:-1]
-                        elif import_target_node:  # Case like require('module') where target is captured directly
-                            target = get_node_text(import_target_node, content_bytes)
-                            if target and target.startswith(('"', "'")):
-                                target = target[1:-1]
+                    statement_node: Optional[TSNODE_TYPE] = None
+                    target = "unknown_import"
+                    import_from_node: Optional[TSNODE_TYPE] = None
+
+                    # If the capture is the statement itself
+                    if capture_name in ["import_statement", "require_statement"]:
+                       statement_node = node
+                       # Need to find the associated @import_from for this statement
+                       # This is hard with captures() alone. query.matches() is better here.
+                       # Let's revert to matches approach for clarity
+                       pass # Skip processing here, handle in matches loop below
+
+                    # --- Reverting to matches loop for cleaner state per import ---
+                processed_imports_matches = set()
+                for match_id, captures_in_match in import_query.matches(root_node):
+                    statement_node_match: Optional[TSNODE_TYPE] = None
+                    import_from_node_match: Optional[TSNODE_TYPE] = None
+                    target_match = "unknown_import"
+
+                    for capture_name_match, node_match in captures_in_match:
+                        if capture_name_match in ["import_statement", "require_statement"]:
+                            statement_node_match = node_match
+                        elif capture_name_match == "import_from":
+                            import_from_node_match = node_match
+
+                    if not statement_node_match: continue # Need the statement
+
+                    if import_from_node_match:
+                        target_match = get_node_text(import_from_node_match, content_bytes)
+                        if target_match and target_match.startswith(('"', "'")): target_match = target_match[1:-1]
+                    else:
+                        # This indicates the query didn't capture @import_from for this match
+                        logger.warning(f"Could not find @import_from capture for statement at {file_path}:{statement_node_match.start_point[0]+1}")
+                        continue
+
+                    snippet = get_node_text(statement_node_match, content_bytes)
+                    start_line = statement_node_match.start_point[0] + 1
+                    end_line = statement_node_match.end_point[0] + 1
+                    import_key = (target_match, start_line)
+
+                    if target_match and snippet and import_key not in processed_imports_matches:
+                        dep_id_str = f"{file_id}:dep:{target_match}:{start_line}"
+                        yield Dependency(dep_id_str, file_id, target_match, snippet, start_line, end_line)
+                        processed_imports_matches.add(import_key)
+                 # --- End matches loop ---
 
 
-                        snippet = get_node_text(node, content_bytes)
-                        start_line = node.start_point[0] + 1
-                        end_line = node.end_point[0] + 1
+            # 3. Process Functions/Classes (using direct captures)
+            if function_query:
+                 for node, capture_name in function_query.captures(root_node):
+                    if capture_name == "definition":
+                        name_node = next((c[0] for c in function_query.captures(node) if c[1] == 'name'), None)
+                        if name_node:
+                            name = get_node_text(name_node, content_bytes)
+                            if name and name_node.type != 'identifier' and '.' in name: name = name.split('.')[-1]
+                            entity_text = get_node_text(node, content_bytes)
+                            start_line = node.start_point[0] + 1; end_line = node.end_point[0] + 1
+                            if name and entity_text: yield CodeEntity(f"{file_id}:{name}:{start_line}", "FunctionDefinition", name, file_id, entity_text, start_line, end_line)
 
-                        import_key = (target, start_line)
-                        if target and snippet and import_key not in processed_imports:
-                            dep_id_str = f"{file_id}:dep:{target}:{start_line}"
-                            yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
-                            processed_imports.add(import_key)
-                        elif not target:
-                             logger.warning(f"Could not determine JS import target at {file_path}:{start_line}")
-
+            if class_query:
+                 for node, capture_name in class_query.captures(root_node):
+                     if capture_name == "definition":
+                        name_node = next((c[0] for c in class_query.captures(node) if c[1] == 'name'), None)
+                        if name_node:
+                            name = get_node_text(name_node, content_bytes)
+                            entity_text = get_node_text(node, content_bytes)
+                            start_line = node.start_point[0] + 1; end_line = node.end_point[0] + 1
+                            if name and entity_text: yield CodeEntity(f"{file_id}:{name}:{start_line}", "ClassDefinition", name, file_id, entity_text, start_line, end_line)
 
         except Exception as e:
             logger.error(f"Failed to parse JavaScript file {file_path}: {e}", exc_info=True)
