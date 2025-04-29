@@ -95,17 +95,26 @@ class JavascriptParser(BaseParser):
         self.parser = get_parser("javascript")
         self.queries = {}
         if self.language:
-            logger.debug("Attempting to compile ALL JavaScript Tree-sitter queries (using updated binding)...")
-            try:
-                # Compile all at once, assuming syntax is correct for the new version
-                self.queries = {
-                    name: self.language.query(query_str)
-                    for name, query_str in JAVASCRIPT_QUERIES.items()
-                }
-                logger.info("Successfully compiled ALL JavaScript Tree-sitter queries (using updated binding).")
-            except Exception as e:
-                 logger.error(f"Failed to compile JavaScript queries with new binding version: {e}", exc_info=True)
-                 self.queries = {} # Ensure queries is empty on failure
+            logger.info("Attempting to compile JavaScript Tree-sitter queries one by one...") # Changed log
+            # --- MODIFIED: Compile one by one for better error reporting ---
+            failed_queries = []
+            for name, query_str in JAVASCRIPT_QUERIES.items():
+                print(f"DEBUG: Compiling JS query: {name}") # FORCE PRINT
+                try:
+                    self.queries[name] = self.language.query(query_str)
+                    logger.debug(f"Successfully compiled JavaScript query: {name}")
+                    print(f"DEBUG: Successfully compiled JS query: {name}") # FORCE PRINT
+                except Exception as e:
+                    logger.error(f"Failed to compile JavaScript query '{name}': {e}", exc_info=True)
+                    print(f"DEBUG: FAILED to compile JS query '{name}': {e}") # FORCE PRINT
+                    failed_queries.append(name)
+
+            if not failed_queries:
+                logger.info("Successfully compiled ALL JavaScript queries.")
+            else:
+                logger.error(f"Failed to compile the following JavaScript queries: {', '.join(failed_queries)}. JavaScript parsing will be limited.")
+                self.queries = {} # Clear queries if ANY failed
+             # --- END MODIFICATION ---
         else:
             logger.error("JavaScript tree-sitter language not loaded.")
 

@@ -48,59 +48,89 @@ PARSERS: Dict[str, Parser] = {}
 # Define a type hint for the input
 LanguageModuleInput = Optional[Any] # Simpler hint for module
 
-def _load_language(lang_name: str, lang_module: LanguageModuleInput): # Simplified param name
+def _load_language(lang_name: str, lang_module: LanguageModuleInput):
     """Helper function to load a single tree-sitter language."""
-    if not TS_CORE_AVAILABLE:
-         logger.warning(f"Skipping load for '{lang_name}': Core library not available.")
-         return
-    if lang_module is None:
-         logger.warning(f"Skipping load for '{lang_name}': Language binding module not provided or import failed.")
-         return
+    logger.info(f"Attempting to load language '{lang_name}'...") # Add entry log
 
-    logger.debug(f"Attempting to load tree-sitter language: {lang_name}")
+    if not TS_CORE_AVAILABLE:
+        logger.warning(f"Skipping load for '{lang_name}': Core library not available.")
+        print(f"DEBUG: EXITING _load_language for '{lang_name}' because TS_CORE_AVAILABLE is False") # FORCE PRINT
+        return # EXIT POINT 1
+
+    if lang_module is None:
+        logger.warning(f"Skipping load for '{lang_name}': Language binding module not provided or import failed.")
+        print(f"DEBUG: EXITING _load_language for '{lang_name}' because lang_module is None") # FORCE PRINT
+        return # EXIT POINT 2
+
+    logger.debug(f"Proceeding with loading tree-sitter language: {lang_name}")
     try:
         language_callable = None
-        # --- Standard way to find the callable ---
-        # Most bindings expose '.language()' directly on the module
+        # ... (logic to find callable remains the same) ...
         if hasattr(lang_module, 'language') and callable(lang_module.language):
             language_callable = lang_module.language
             logger.debug(f"Found language callable via attribute '.language' for {lang_name}")
-        # --- Check for TypeScript's specific attribute ---
         elif lang_name == "typescript" and hasattr(lang_module, 'language_typescript') and callable(lang_module.language_typescript):
-             language_callable = lang_module.language_typescript # Use the specific 'language_typescript' attribute
+             language_callable = lang_module.language_typescript
              logger.debug(f"Found language callable via attribute '.language_typescript' for {lang_name}")
         else:
-            # If neither common pattern works, log error and exit for this lang
-            logger.error(f"Could not find language callable for {lang_name} using known patterns (.language or .language_typescript). Module type: {type(lang_module)}")
-            return # Stop processing this language
+             logger.error(f"Could not find language callable for {lang_name} using known patterns. Module type: {type(lang_module)}")
+             print(f"DEBUG: EXITING _load_language for '{lang_name}' because language callable not found") # FORCE PRINT
+             return # EXIT POINT 3
 
         if not language_callable:
-             # This path shouldn't be reached if the checks above are exhaustive, but added defensively
              logger.error(f"Unexpected: Failed to resolve language callable for {lang_name} after checks.")
-             return
+             print(f"DEBUG: EXITING _load_language for '{lang_name}' because language callable resolved to None") # FORCE PRINT
+             return # EXIT POINT 4
 
-        # --- Use Language() constructor CONSISTENTLY for ALL languages ---
+        # --- Call the language function ---
+        logger.debug(f"Calling language function for {lang_name}...")
         language_raw = language_callable()
+        logger.debug(f"Called language function for {lang_name}, type of result: {type(language_raw)}")
+
+        # --- Use Language() constructor ---
         language_obj = Language(language_raw) # This might trigger DeprecationWarning
-        # --- END CONSISTENT HANDLING ---
+        logger.debug(f"Created Language object for {lang_name}, type: {type(language_obj)}")
 
-        # Add type check before storing
+
         if not isinstance(language_obj, Language):
-            logger.error(f"CRITICAL TYPE MISMATCH for '{lang_name}': Expected tree_sitter.Language, but got {type(language_obj)}. Raw value was {type(language_raw)}. Storing failed.")
-            return # Exit the function for this language
+            logger.error(f"CRITICAL TYPE MISMATCH for '{lang_name}': Expected tree_sitter.Language, but got {type(language_obj)}. Storing failed.")
+            print(f"DEBUG: EXITING _load_language for '{lang_name}' due to Language object type mismatch") # FORCE PRINT
+            return # EXIT POINT 5
 
+        # --- Store Language and Parser ---
         LANGUAGES[lang_name] = language_obj
         parser = Parser()
-        parser.language = language_obj
+        # --- MODIFIED: Add try-except around set_language ---
+        try:
+            parser.set_language(language_obj) # Use the recommended way
+            logger.debug(f"Set language for {lang_name} parser successfully.")
+        except AttributeError:
+             logger.error(f"Parser object for {lang_name} does not have 'set_language'. Trying assignment.")
+             try:
+                 parser.language = language_obj # Fallback assignment (older API?)
+                 logger.debug(f"Assigned language for {lang_name} parser successfully.")
+             except Exception as assign_e:
+                 logger.error(f"Failed to assign language for {lang_name} parser: {assign_e}", exc_info=True)
+                 # Decide if you should clear LANGUAGES entry or not? Maybe remove it.
+                 del LANGUAGES[lang_name]
+                 print(f"DEBUG: EXITING _load_language for '{lang_name}' because failed to assign language to parser") # FORCE PRINT
+                 return # EXIT POINT 6 (Failed to set language)
+
         PARSERS[lang_name] = parser
-        logger.info(f"Successfully created and stored Language/Parser for: {lang_name}")
+        logger.info(f"Successfully created and stored Language/Parser for: {lang_name}") # Changed level to INFO
+        print(f"DEBUG: SUCCESS loading language '{lang_name}'") # FORCE PRINT <<< Added success print
 
     except AttributeError as ae:
-         # This might catch issues if the assumed callable structure is wrong
-         logger.error(f"AttributeError processing language binding for '{lang_name}': {ae}.", exc_info=True)
+        logger.error(f"AttributeError processing language binding for '{lang_name}': {ae}.", exc_info=True)
+        if lang_name in LANGUAGES: del LANGUAGES[lang_name] # Clean up on error
+        print(f"DEBUG: EXITING _load_language for '{lang_name}' due to AttributeError: {ae}") # FORCE PRINT
+        return # EXIT POINT 7
     except Exception as e:
         tb_str = traceback.format_exc()
         logger.error(f"Detailed error loading language '{lang_name}': {e}\n{tb_str}")
+        if lang_name in LANGUAGES: del LANGUAGES[lang_name] # Clean up on error
+        print(f"DEBUG: EXITING _load_language for '{lang_name}' due to Exception: {e}") # FORCE PRINT
+        return # EXIT POINT 8
 
 
 # --- Load all potentially supported languages ---

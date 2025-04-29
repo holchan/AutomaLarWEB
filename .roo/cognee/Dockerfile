@@ -9,6 +9,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     git \
     gcc \
+    rustc \
+    cargo \
     libpq-dev && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*

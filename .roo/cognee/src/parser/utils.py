@@ -18,9 +18,11 @@ except ImportError:
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-        logger.setLevel(logging.INFO) # Default level, can be configured
+        # --- TEMPORARILY CHANGE LEVEL ---
+        logger.setLevel(logging.DEBUG) # Set to DEBUG
+        # --- END CHANGE ---
         logger.propagate = False # Prevent duplicate logs if root logger is configured
-    logger.info("Cognee logger not found. Using standard Python logging for parser module.")
+    logger.info("Cognee logger not found. Using standard Python logging for parser module (DEBUG LEVEL).") # Update msg
 
 
 # --- Tree-sitter Node Type Hint ---

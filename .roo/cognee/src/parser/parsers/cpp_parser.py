@@ -48,14 +48,28 @@ class CppParser(BaseParser):
         self.parser = get_parser("cpp")
         self.queries = {}
         if self.language:
-            try:
-                self.queries = {
-                    name: self.language.query(query_str)
-                    for name, query_str in CPP_QUERIES.items()
-                }
-            except Exception as e:
-                logger.error(f"Failed to compile C++ queries: {e}", exc_info=True)
-                self.queries = {} # Ensure queries dict is empty on failure
+            logger.info("Attempting to compile C++ queries one by one...") # Changed log
+            # --- MODIFIED: Compile one by one for better error reporting ---
+            failed_queries = []
+            for name, query_str in CPP_QUERIES.items():
+                print(f"DEBUG: Compiling C++ query: {name}") # FORCE PRINT
+                try:
+                    self.queries[name] = self.language.query(query_str)
+                    logger.debug(f"Successfully compiled C++ query: {name}")
+                    print(f"DEBUG: Successfully compiled C++ query: {name}") # FORCE PRINT
+                except Exception as e:
+                    logger.error(f"Failed to compile C++ query '{name}': {e}", exc_info=True)
+                    print(f"DEBUG: FAILED to compile C++ query '{name}': {e}") # FORCE PRINT
+                    failed_queries.append(name)
+
+            if not failed_queries:
+                logger.info("Successfully compiled ALL C++ queries.")
+            else:
+                logger.error(f"Failed to compile the following C++ queries: {', '.join(failed_queries)}. C++ parsing will be limited.")
+                self.queries = {} # Clear queries if ANY failed to ensure parse() skips detail
+            # --- END MODIFICATION ---
+        else:
+            logger.error("C++ tree-sitter language not loaded. C++ parsing will be limited.")
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
         if not self.parser or not self.language or not self.queries:

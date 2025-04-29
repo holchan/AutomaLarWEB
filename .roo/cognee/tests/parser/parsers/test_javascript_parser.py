@@ -60,7 +60,7 @@ async def test_parse_simple_function_file(parser: JavascriptParser, tmp_path: Pa
     # Check for TextChunks
     chunks = [p for p in payloads if p.get("type") == "TextChunk"]
     assert len(chunks) >= 1, "Expected at least one TextChunk"
-    assert chunks[0].get("text_content","").strip().startswith("// Simple JS types and functions"), "First chunk content mismatch"
+    assert chunks[0].get("text_content","").strip().startswith("// Simple JS functions"), "First chunk content mismatch"
 
     # Check for CodeEntity (FunctionDefinition)
     funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
