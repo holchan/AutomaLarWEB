@@ -96,6 +96,7 @@ async def process_repository(repo_path: str, repo_id: str, concurrency_limit: in
             file_node = SourceFile(
                 id=file_id,
                 file_path=file_path,
+                relative_path=relative_path,
                 file_type=file_type
             )
             file_rel = Relationship(source_id=repo_id, target_id=file_id, type="CONTAINS_FILE")
@@ -166,10 +167,8 @@ async def process_repository(repo_path: str, repo_id: str, concurrency_limit: in
 
 
 async def _orchestrator_test_main():
-    # Replace with the actual path to the repository you want to parse
-    # repo_to_parse = "/path/to/your/repository"
-    script_dir = Path(__file__).parent.parent.parent # Should be .roo/cognee/
-    repo_to_parse = str(script_dir / "tests" / "parser" / "test_data") # Use test data dir
+    script_dir = Path(__file__).parent.parent.parent
+    repo_to_parse = str(script_dir / "tests" / "parser" / "test_data")
     test_repo_id = "local/test_repo"
     print(f"Starting parsing process via orchestrator for repository: {os.path.abspath(repo_to_parse)} with ID: {test_repo_id}")
 
@@ -189,6 +188,4 @@ async def _orchestrator_test_main():
     print(f"\nOrchestrator finished. Yielded {count} items in {end_time - start_time:.2f} seconds.")
 
 if __name__ == "__main__":
-    # To run this parser standalone for testing: python -m src.parser.orchestrator
-    # Run from .roo/cognee/
     asyncio.run(_orchestrator_test_main())

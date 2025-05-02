@@ -1,196 +1,206 @@
 # src/parser/parsers/python_parser.py
-from pydantic import BaseModel # Import BaseModel for type hinting
-from typing import AsyncGenerator, Optional
+from pydantic import BaseModel
+from typing import AsyncGenerator, Optional, List, Dict
+from collections import defaultdict
+
 from .base_parser import BaseParser
-from pydantic import BaseModel # Import BaseModel for type hinting
-from ..entities import TextChunk, CodeEntity, Dependency # Removed DataPoint import
+from ..entities import TextChunk, CodeEntity, Relationship, ParserOutput
 from ..chunking import basic_chunker
 from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
 from .treesitter_setup import get_parser, get_language
 
-# Define Tree-sitter queries for Python
-# These capture function/class definitions and imports
 PYTHON_QUERIES = {
     "imports": """
         [
-            (import_statement) @import_statement ;; Capture the whole import statement
-            (import_from_statement) @import_statement ;; Capture the whole import from statement
+            (import_statement name: (dotted_name) @module_name) @import_statement
+            (import_from_statement
+                module_name: (dotted_name)? @from_module
+                name: (dotted_name) @imported_name
+            ) @import_statement
+            (import_from_statement
+                module_name: (dotted_name)? @from_module
+                name: (wildcard_import) @imported_name ;; For 'from x import *'
+            ) @import_statement
         ]
         """,
     "functions": """
-        (function_definition
-            name: (identifier) @name
-            parameters: (parameters)? @params
-            body: (block)? @body
-        ) @definition
+        (function_definition name: (identifier) @name) @definition
         """,
     "classes": """
         (class_definition
-            name: (identifier) @name) @definition
+            name: (identifier) @name
+            superclasses: (argument_list)? @superclasses
+        ) @definition
         """,
-    # Could add queries for decorators, variables, etc. if needed
+    "superclass_names": """
+        (argument_list (identifier) @name)
+        """
 }
 
 class PythonParser(BaseParser):
     """
-    Parses Python files (.py) using Tree-sitter to extract code entities and dependencies.
-
-    This parser identifies functions, classes, and import statements within Python
-    source code. It also utilizes the `basic_chunker` to break down the file
-    content into text segments.
-
-    Inherits from BaseParser.
+    Parses Python files (.py), yielding TextChunk, CodeEntity, and Relationship objects.
     """
 
     def __init__(self):
-        """Initializes the PythonParser and loads the Tree-sitter language and queries."""
+        """Initializes the PythonParser."""
         super().__init__()
         self.language = get_language("python")
         self.parser = get_parser("python")
         self.queries = {}
         if self.language:
+            logger.info("Compiling Python Tree-sitter queries...")
             try:
-                self.queries = {
-                    name: self.language.query(query_str)
-                    for name, query_str in PYTHON_QUERIES.items()
-                }
+                for name, query_str in PYTHON_QUERIES.items():
+                    self.queries[name] = self.language.query(query_str)
+                logger.info("Python queries compiled successfully.")
             except Exception as e:
-                 logger.error(f"Failed to compile Python queries: {e}", exc_info=True)
+                logger.error(f"Failed to compile Python queries: {e}", exc_info=True)
+                self.queries = {}
         else:
-            logger.error("Python tree-sitter language not loaded. Python parsing will be limited.")
+            logger.error("Python tree-sitter language not loaded.")
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
-        """
-        Parses a Python file, yielding TextChunks, CodeEntities (functions, classes),
-        and Dependencies (imports).
-
-        Reads the file content, uses Tree-sitter to build an AST, and queries the
-        AST to extract relevant code structures and dependencies. It also generates
-        text chunks from the file content.
-
-        Args:
-            file_path: The absolute path to the Python file to be parsed.
-            file_id: The unique ID of the SourceFile entity corresponding to this file.
-
-        Yields:
-            BaseModel objects: TextChunk, CodeEntity (FunctionDefinition, ClassDefinition),
-            and Dependency entities extracted from the file.
-        """
-        if not self.parser or not self.language or not self.queries:
-            logger.error(f"Python parser not available or queries failed compilation, skipping parsing for {file_path}")
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[ParserOutput, None]:
+        """Parses a Python file."""
+        required_queries = {"imports", "functions", "classes", "superclass_names"}
+        if not self.parser or not self.language or not self.queries or not required_queries.issubset(self.queries.keys()):
+            logger.error(f"Python parser prerequisites missing for {file_path}. Skipping detailed parsing.")
             return
 
         content = await read_file_content(file_path)
-        if content is None:
-            logger.error(f"Could not read content from {file_path}")
-            return
+        if content is None: return
 
         try:
             content_bytes = bytes(content, "utf8")
             tree = self.parser.parse(content_bytes)
             root_node = tree.root_node
 
-            # 1. Yield Chunks
-            chunks = basic_chunker(content)
-            for i, chunk_text in enumerate(chunks):
-                if not chunk_text.strip(): continue
-                chunk_id_str = f"{file_id}:chunk:{i}"
-                # TODO: Add line number mapping for chunks if possible
-                yield TextChunk(chunk_id_str=chunk_id_str, parent_id=file_id, text=chunk_text, chunk_index=i)
+            chunks_data = basic_chunker(content)
+            chunk_nodes: List[TextChunk] = []
+            current_line = 1
+            for i, chunk_text in enumerate(chunks_data):
+                if not chunk_text.strip():
+                    num_newlines = chunk_text.count('\n')
+                    current_line += num_newlines
+                    continue
 
-            logger.debug(f"Python Parser: Checking Code Entities for {file_path}")
-            # 2. Yield Code Entities (Functions, Classes)
-            for entity_type, query_name, entity_class_name in [
-                ("functions", "functions", "FunctionDefinition"),
-                ("classes", "classes", "ClassDefinition"),
-            ]:
-                if query_name in self.queries:
-                    query = self.queries[query_name]
-                    logger.debug(f"Executing Python query '{query_name}'...")
-                    for capture in query.captures(root_node):
-                        node_type = capture[1]
-                        node = capture[0]
+                chunk_start_line = current_line
+                num_newlines = chunk_text.count('\n')
+                chunk_end_line = chunk_start_line + num_newlines
 
-                        if node_type == "definition":
-                            name_node: Optional[TSNODE_TYPE] = None
-                            # Find the @name capture within the definition node
-                            for child_capture in query.captures(node):
-                                if child_capture[1] == "name":
-                                    name_node = child_capture[0]
-                                    break
+                chunk_id = f"{file_id}:{i}"
+                chunk_node = TextChunk(
+                    id=chunk_id,
+                    start_line=chunk_start_line,
+                    end_line=chunk_end_line,
+                    chunk_content=chunk_text
+                )
+                yield chunk_node
+                chunk_nodes.append(chunk_node)
+                yield Relationship(source_id=file_id, target_id=chunk_id, type="CONTAINS_CHUNK")
+                current_line = chunk_end_line + 1
 
-                            if name_node:
-                                name = get_node_text(name_node, content_bytes)
-                                entity_text = get_node_text(node, content_bytes)
-                                start_line = node.start_point[0] + 1 # 1-based
-                                end_line = node.end_point[0] + 1
+            logger.debug(f"[{file_path}] Yielded {len(chunk_nodes)} TextChunk nodes.")
 
-                                params_node: Optional[TSNODE_TYPE] = None
-                                body_node: Optional[TSNODE_TYPE] = None
-                                for child_capture in query.captures(node):
-                                    if child_capture[1] == "params":
-                                        params_node = child_capture[0]
-                                    elif child_capture[1] == "body":
-                                        body_node = child_capture[0]
+            def find_chunk_for_node(node: TSNODE_TYPE) -> Optional[TextChunk]:
+                node_start_line = node.start_point[0] + 1
+                node_end_line = node.end_point[0] + 1
+                for chunk in chunk_nodes:
+                    if chunk.start_line <= node_start_line and chunk.end_line >= node_end_line:
+                        return chunk
+                logger.warning(f"[{file_path}] Could not find containing chunk for node at lines {node_start_line}-{node_end_line}")
+                return None
 
-                                parameters = get_node_text(params_node, content_bytes) if params_node else ""
-                                body = get_node_text(body_node, content_bytes) if body_node else ""
+            entity_configs = [
+                ("functions", "FunctionDefinition"),
+                ("classes", "ClassDefinition"),
+            ]
+            chunk_entity_counters = defaultdict(lambda: defaultdict(int))
+            superclass_query = self.queries.get("superclass_names")
 
-                                if name and entity_text:
-                                    entity_id_str = f"{file_id}:{name}:{start_line}"
-                                    logger.debug(f"Yielding Python CodeEntity: {entity_class_name} - {name}")
-                                    yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
-                                else:
-                                     logger.warning(f"Could not extract name or text for {entity_type} at {file_path}:{start_line}")
+            for query_name, entity_type_str in entity_configs:
+                query = self.queries.get(query_name)
+                if not query: continue
 
-            # 3. Yield Dependencies (Imports)
-            if "imports" in self.queries:
-                logger.debug("Executing Python query 'imports'...")
-                import_query = self.queries["imports"]
+                logger.debug(f"[{file_path}] Running query '{query_name}'...")
+                for match_id, captures_in_match in query.matches(root_node):
+                    definition_node: Optional[TSNODE_TYPE] = None
+                    name_node: Optional[TSNODE_TYPE] = None
+                    superclasses_node: Optional[TSNODE_TYPE] = None
+
+                    for capture_name, node in captures_in_match:
+                        if capture_name == "definition": definition_node = node
+                        elif capture_name == "name": name_node = node
+                        elif capture_name == "superclasses": superclasses_node = node
+
+                    if definition_node and name_node:
+                        name = get_node_text(name_node, content_bytes)
+                        if not name: continue
+                        snippet_content = get_node_text(definition_node, content_bytes)
+                        if not snippet_content: continue
+
+                        start_line = definition_node.start_point[0] + 1
+                        parent_chunk = find_chunk_for_node(definition_node)
+                        if not parent_chunk: continue
+
+                        chunk_id = parent_chunk.id
+                        index_in_chunk = chunk_entity_counters[chunk_id][(entity_type_str, name)]
+                        chunk_entity_counters[chunk_id][(entity_type_str, name)] += 1
+                        code_entity_id = f"{chunk_id}:{entity_type_str}:{name}:{index_in_chunk}"
+
+                        code_entity = CodeEntity(
+                            id=code_entity_id,
+                            type=entity_type_str,
+                            snippet_content=snippet_content
+                        )
+                        yield code_entity
+                        yield Relationship(source_id=chunk_id, target_id=code_entity_id, type="CONTAINS_ENTITY")
+
+                        if entity_type_str == "ClassDefinition" and superclasses_node and superclass_query:
+                            for sc_node, sc_capture_name in superclass_query.captures(superclasses_node):
+                                if sc_capture_name == "name":
+                                    superclass_name = get_node_text(sc_node, content_bytes)
+                                    if superclass_name:
+                                        yield Relationship(source_id=code_entity_id, target_id=superclass_name, type="EXTENDS")
+                                        logger.debug(f"[{file_path}] Yielded EXTENDS: {name} -> {superclass_name}")
+
+            import_query = self.queries.get("imports")
+            if import_query:
                 processed_imports = set()
-                for capture in import_query.captures(root_node):
-                    node_type = capture[1]
-                    node = capture[0]
+                logger.debug(f"[{file_path}] Running query 'imports'...")
+                for match_id, captures_in_match in import_query.matches(root_node):
+                    statement_node: Optional[TSNODE_TYPE] = None
+                    target_module_string: Optional[str] = None
 
-                    if node_type == "import_statement":
-                        target = "unknown_import"
-                        # Find specific @import or @import_from captures
-                        import_target_node = None
-                        import_from_node = None
-                        alias_node: Optional[TSNODE_TYPE] = None # Capture alias
-                        for child_capture in import_query.captures(node):
-                            if child_capture[1] == "import":
-                                import_target_node = child_capture[0]
-                            elif child_capture[1] == "import_from":
-                                import_from_node = child_capture[0]
-                            elif child_capture[1] == "alias":
-                                alias_node = child_capture[0]
+                    module_name_node: Optional[TSNODE_TYPE] = None
+                    from_module_node: Optional[TSNODE_TYPE] = None
+                    imported_name_node: Optional[TSNODE_TYPE] = None
 
-                        if import_target_node:
-                            target_name = get_node_text(import_target_node, content_bytes)
-                            if alias_node:
-                                target = get_node_text(alias_node, content_bytes)
-                            elif import_from_node:
-                                from_module = get_node_text(import_from_node, content_bytes)
-                                target = f"{from_module}.{target_name}" if from_module else target_name
-                            else:
-                                target = target_name
-                        elif import_from_node:  # Handle 'from x import *' or cases where only module is captured
-                            target = get_node_text(import_from_node, content_bytes)
+                    for capture_name, node in captures_in_match:
+                        if capture_name == "import_statement": statement_node = node
+                        elif capture_name == "module_name": module_name_node = node
+                        elif capture_name == "from_module": from_module_node = node
+                        elif capture_name == "imported_name": imported_name_node = node
 
-                        snippet = get_node_text(node, content_bytes)
-                        start_line = node.start_point[0] + 1
-                        end_line = node.end_point[0] + 1
+                    if not statement_node: continue
 
-                        import_key = (target, start_line)
-                        if target and snippet and import_key not in processed_imports:
-                            dep_id_str = f"{file_id}:dep:{target}:{start_line}"
-                            logger.debug(f"Yielding Python Dependency: {target}")
-                            yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
+                    start_line = statement_node.start_point[0] + 1
+
+                    if from_module_node:
+                        from_module = get_node_text(from_module_node, content_bytes) or ""
+                        imported_name = get_node_text(imported_name_node, content_bytes) if imported_name_node else ""
+                        target_module_string = from_module
+                    elif module_name_node:
+                        target_module_string = get_node_text(module_name_node, content_bytes)
+
+                    if target_module_string:
+                        import_key = (target_module_string, start_line)
+                        if import_key not in processed_imports:
+                            yield Relationship(source_id=file_id, target_id=target_module_string, type="IMPORTS")
                             processed_imports.add(import_key)
-                        elif not target:
-                             logger.warning(f"Could not determine Python import target at {file_path}:{start_line}")
-
+                            logger.debug(f"[{file_path}] Yielded IMPORTS relationship: {file_id} -> {target_module_string}")
+                    else:
+                        logger.warning(f"[{file_path}] Could not extract target module string from import statement at line {start_line}")
 
         except Exception as e:
             logger.error(f"Failed to parse Python file {file_path}: {e}", exc_info=True)
