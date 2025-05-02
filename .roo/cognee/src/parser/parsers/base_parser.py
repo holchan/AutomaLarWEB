@@ -1,38 +1,34 @@
 # src/parser/parsers/base_parser.py
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator
-from pydantic import BaseModel # Import BaseModel for type hinting
-from ..utils import logger # Import shared logger
+from pydantic import BaseModel
+from ..utils import logger
 
 class BaseParser(ABC):
     """
     Abstract base class for all file parsers.
 
-    Each specific parser (e.g., PythonParser, MarkdownParser) should inherit
-    from this class and implement the `parse` method.
+    Defines the interface that language-specific parsers must implement.
     """
 
     def __init__(self):
         """Initializes the base parser."""
-        # Common initialization for all parsers can go here if needed
-        self.parser_type = self.__class__.__name__ # e.g., "PythonParser"
+        self.parser_type = self.__class__.__name__
         logger.debug(f"Initialized parser: {self.parser_type}")
 
     @abstractmethod
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]:
         """
-        Parses the content of the given file path asynchronously and yields
-        Pydantic BaseModel objects representing extracted information (e.g., TextChunks,
-        CodeEntity, Dependency).
+        Parses the content of the given file path asynchronously.
 
         Args:
             file_path: The absolute path to the file to be parsed.
             file_id: The unique ID assigned to the SourceFile entity representing this file.
 
         Yields:
-            Pydantic BaseModel objects extracted from the file.
+            Pydantic BaseModel objects (TextChunk, CodeEntity, Relationship)
+            extracted from the file according to the defined entities.py.
         """
-        # This is an abstract method, the implementation must be provided by subclasses.
-        # The 'yield' keyword here ensures Python recognizes this as an async generator method signature.
+
         raise NotImplementedError(f"{self.parser_type} must implement the 'parse' method.")
-        yield # pragma: no cover
+        yield

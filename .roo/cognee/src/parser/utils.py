@@ -1,41 +1,33 @@
 # src/parser/utils.py
 import aiofiles
 import logging
-from typing import Optional
+from typing import Optional, Any
 
-# --- Logger Setup ---
-# Attempt to use Cognee's logger if available, otherwise use standard logging
 try:
     from cognee.shared.logging_utils import get_logger
-    # Assuming get_logger configures the logger appropriately
     logger = get_logger(__name__)
     logger.info("Using Cognee logger for parser module.")
 except ImportError:
-    logger = logging.getLogger("cognee_parser") # Use a specific name
-    # Basic config if running standalone or Cognee logger isn't setup
+    logger = logging.getLogger("standalone_parser")
     if not logger.hasHandlers():
         handler = logging.StreamHandler()
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-        # --- TEMPORARILY CHANGE LEVEL ---
-        logger.setLevel(logging.DEBUG) # Set to DEBUG
-        # --- END CHANGE ---
-        logger.propagate = False # Prevent duplicate logs if root logger is configured
-    logger.info("Cognee logger not found. Using standard Python logging for parser module (DEBUG LEVEL).") # Update msg
+        logger.setLevel(logging.INFO)
+        if os.environ.get("PARSER_LOG_LEVEL", "").lower() == "debug":
+            logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+    logger.info(f"Cognee logger not found. Using standard Python logging for parser module (Level: {logger.getLevelName(logger.level)}).")
 
-
-# --- Tree-sitter Node Type Hint ---
-# Define a placeholder type for tree_sitter.Node if the library isn't installed
-# This helps with type hinting without making tree-sitter a hard dependency for basic checks
 try:
     from tree_sitter import Node as TSNODE_TYPE
     TS_AVAILABLE = True
+    logger.debug("Tree-sitter Node type imported successfully.")
 except ImportError:
-    TSNODE_TYPE = type(None) # type: ignore
+    logger.debug("Tree-sitter library not found, using 'Any' for TSNODE_TYPE hint.")
+    TSNODE_TYPE = Any
     TS_AVAILABLE = False
-
-# --- Helper Functions ---
 
 async def read_file_content(file_path: str) -> Optional[str]:
     """
@@ -47,10 +39,11 @@ async def read_file_content(file_path: str) -> Optional[str]:
     Returns:
         The file content as a string, or None if an error occurs.
     """
+
     try:
         async with aiofiles.open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = await f.read()
-            logger.debug(f"Successfully read {len(content)} characters from {file_path}")
+            logger.debug(f"Successfully read {len(content)} characters from {file_path} using aiofiles.")
             return content
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
@@ -67,21 +60,28 @@ def get_node_text(node: TSNODE_TYPE, content_bytes: bytes) -> Optional[str]:
     Extracts text from a tree-sitter node safely.
 
     Args:
-        node: The tree_sitter.Node object.
+        node: The tree_sitter.Node object (or Any if library not present).
         content_bytes: The byte representation of the source file content.
 
     Returns:
         The decoded text of the node, or None if an error occurs or tree-sitter is unavailable.
     """
-    if not TS_AVAILABLE or not isinstance(node, TSNODE_TYPE):
+
+    if not TS_AVAILABLE or not hasattr(node, 'start_byte') or not hasattr(node, 'end_byte'):
         logger.debug("Tree-sitter not available or invalid node type passed to get_node_text.")
         return None
     try:
-        text = content_bytes[node.start_byte:node.end_byte].decode("utf-8", "ignore")
+        start = max(0, node.start_byte)
+        end = min(len(content_bytes), node.end_byte)
+        if start >= end:
+            logger.warning(f"Node {node.type} at {node.start_point}-{node.end_point} has invalid byte range: start={start}, end={end}. Returning empty string.")
+            return ""
+
+        text = content_bytes[start:end].decode("utf-8", "ignore")
         return text
-    except IndexError:
-        logger.error(f"IndexError getting text for node type {node.type} at {node.start_point}-{node.end_point}")
+    except IndexError as e:
+        logger.error(f"IndexError getting text for node type {getattr(node, 'type', 'unknown')} at {getattr(node, 'start_point', '?')}-{getattr(node, 'end_point', '?')}: {e}")
         return None
     except Exception as e:
-        logger.error(f"Error getting node text for node type {node.type}: {e}", exc_info=True)
+        logger.error(f"Error getting node text for node type {getattr(node, 'type', 'unknown')}: {e}", exc_info=True)
         return None

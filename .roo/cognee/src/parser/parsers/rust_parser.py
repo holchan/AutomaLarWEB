@@ -1,20 +1,30 @@
-# src/parser/parsers/rust_parser.py
-from pydantic import BaseModel # Import BaseModel for type hinting
+import re # Import re if needed for fallback parsing
 from typing import AsyncGenerator, Optional
+from pydantic import BaseModel # Assuming BaseModel is used for type hinting
+from tree_sitter import Node as TSNODE_TYPE # Assuming TSNODE_TYPE is Node
+
+from cognee.infrastructure.files.utils.async_read_file import read_file_content
+from cognee.modules.code.models.code_chunk import TextChunk
+from cognee.modules.code.models.code_dependency import Dependency
+from cognee.modules.code.models.code_entity import CodeEntity
+from cognee.modules.code.parsers.languages import get_language, get_parser
+from cognee.modules.code.parsers.utils.chunking import basic_chunker
+from cognee.modules.code.parsers.utils.extraction import get_node_text
 from .base_parser import BaseParser
-from pydantic import BaseModel # Import BaseModel for type hinting
-from ..entities import TextChunk, CodeEntity, Dependency # Removed DataPoint import
-from ..chunking import basic_chunker
-from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
-from .treesitter_setup import get_parser, get_language
+from cognee.root_dir import get_absolute_path
+from cognee.config import Config
+config = Config()
+config.load()
+
+import logging
+logger = logging.getLogger(__name__)
 
 # Define Tree-sitter queries for Rust
 RUST_QUERIES = {
     "imports": """
         [
-            ;; Capture the full path node within use_declaration's argument
-            (use_declaration argument: (_) @path) @use_statement
-            (extern_crate_declaration (identifier) @crate_name) @extern_crate ;; extern crate serde;
+            (use_declaration) @use_statement @definition
+            (extern_crate_declaration) @extern_crate @definition
         ]
         """,
     "functions": """
@@ -30,36 +40,18 @@ RUST_QUERIES = {
         (trait_item name: (type_identifier) @name) @definition
         """,
     "impls": """
-        (impl_item
-            trait: [(type_identifier) (generic_type)]? ;; Optional trait being implemented
-            type: [(type_identifier) (generic_type)] @name ;; The type the impl is for
-        ) @definition
+        (impl_item type: [(type_identifier) (generic_type)] @type) @definition ;; Capture the type being implemented for
         """,
     "macros": """
-        [
-            (macro_definition name: (identifier) @name) @definition ;; macro_rules! my_macro { ... }
-            ;; Capturing macro invocations might be noisy, focus on definitions for now
-            ;; (macro_invocation macro: (identifier) @macro_name)
-        ]
+        (macro_definition name: (identifier) @name) @definition
         """,
     "mods": """
-        (mod_item name: (identifier) @name) @definition ;; mod my_module;
-        """,
-    # Could add consts, statics, type aliases
+        (mod_item name: (identifier) @name) @definition
+        """
 }
 
+
 class RustParser(BaseParser):
-    """
-    Parses Rust files (.rs) using Tree-sitter to extract code entities and dependencies.
-
-    This parser identifies functions, structs, enums, traits, implementation blocks,
-    macros, module declarations, and use/extern crate statements within Rust
-    source code. It also utilizes the `basic_chunker` to break down the file
-    content into text segments.
-
-    Inherits from BaseParser.
-    """
-
     def __init__(self):
         """Initializes the RustParser and loads the Tree-sitter language and queries."""
         super().__init__()
@@ -67,37 +59,35 @@ class RustParser(BaseParser):
         self.parser = get_parser("rust")
         self.queries = {}
         if self.language:
-            try:
-                self.queries = {
-                    name: self.language.query(query_str)
-                    for name, query_str in RUST_QUERIES.items()
-                }
-            except Exception as e:
-                 logger.error(f"Failed to compile Rust queries: {e}", exc_info=True)
-                 self.queries = {} # Ensure queries dict is empty on failure
+            logger.info("Attempting to compile Rust Tree-sitter queries one by one...")
+            failed_queries = []
+            for name, query_str in RUST_QUERIES.items():
+                try:
+                    self.queries[name] = self.language.query(query_str)
+                    logger.debug(f"Successfully compiled Rust query: {name}")
+                except Exception as e:
+                    logger.error(f"Failed to compile Rust query '{name}': {e}", exc_info=True)
+                    failed_queries.append(name)
+
+            if not failed_queries:
+                logger.info("Successfully compiled ALL Rust queries.")
+            else:
+                logger.error(f"Failed to compile the following Rust queries: {', '.join(failed_queries)}. Rust parsing will be limited.")
+                # Decide if clearing queries is necessary based on which failed
+                # For now, clear if any fail to ensure consistent behavior if core parsing fails
+                self.queries = {}
         else:
-            logger.error("Rust tree-sitter language not loaded. Rust parsing will be limited.")
+            logger.error("Rust tree-sitter language not loaded.")
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
-        """
-        Parses a Rust file, yielding TextChunks, CodeEntities (functions, structs,
-        enums, traits, impls, mods, macros), and Dependencies (use, extern crate).
 
-        Reads the file content, uses Tree-sitter to build an AST, and queries the
-        AST to extract relevant code structures and dependencies. It also generates
-        text chunks from the file content.
-
-        Args:
-            file_path: The absolute path to the Rust file to be parsed.
-            file_id: The unique ID of the SourceFile entity corresponding to this file.
-
-        Yields:
-            BaseModel objects: TextChunk, CodeEntity (FunctionDefinition, StructDefinition,
-            EnumDefinition, TraitDefinition, Implementation, MacroDefinition, ModuleDefinition),
-            and Dependency entities extracted from the file.
-        """
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]:
         if not self.parser or not self.language or not self.queries:
             logger.error(f"Rust parser not available or queries failed compilation, skipping parsing for {file_path}")
+            # Optional: Fallback to chunking only
+            # content_fallback = await read_file_content(file_path)
+            # if content_fallback:
+            #    for i, chunk_text in enumerate(basic_chunker(content_fallback)):
+            #        if chunk_text.strip(): yield TextChunk(f"{file_id}:chunk:{i}", file_id, chunk_text, i)
             return
 
         content = await read_file_content(file_path)
@@ -117,7 +107,7 @@ class RustParser(BaseParser):
                 chunk_id_str = f"{file_id}:chunk:{i}"
                 yield TextChunk(chunk_id_str=chunk_id_str, parent_id=file_id, text=chunk_text, chunk_index=i)
 
-            # 2. Yield Code Entities
+            # 2. Yield Code Entities (using matches)
             entity_configs = [
                 ("functions", "FunctionDefinition"),
                 ("structs", "StructDefinition"),
@@ -128,162 +118,155 @@ class RustParser(BaseParser):
                 ("mods", "ModuleDefinition"),
             ]
 
-            # --- IMPORTANT: Apply similar logic to ENTITY loops ---
-            # The loops for functions, structs, etc., also use captures()
-            # They likely need the same adaptation (iterate by 2, check types)
-
             for query_name, entity_class_name in entity_configs:
                 if query_name in self.queries:
                     query = self.queries[query_name]
                     logger.debug(f"Rust Parser: Checking {entity_class_name} for {file_path}")
                     try:
-                        captures_iterable = query.captures(root_node)
-                        captures_list = list(captures_iterable)
-                        logger.debug(f" Rust {query_name} captures list length: {len(captures_list)}")
+                         # --- Use query.matches() ---
+                         for match_id, captures_in_match in query.matches(root_node):
+                             definition_node: Optional[TSNODE_TYPE] = None
+                             name_node: Optional[TSNODE_TYPE] = None
+                             # Find the definition and name nodes within this specific match
+                             for capture_name, node in captures_in_match:
+                                 if capture_name == "definition":
+                                     definition_node = node
+                                 elif capture_name == "name":
+                                     name_node = node
+                                 # Break early if both found? Optional optimization
 
-                        ent_i = 0
-                        while ent_i < len(captures_list) - 1:
-                            node_candidate = captures_list[ent_i]
-                            name_candidate = captures_list[ent_i+1]
+                             if definition_node and name_node:
+                                 name = get_node_text(name_node, content_bytes)
+                                 entity_text = get_node_text(definition_node, content_bytes)
+                                 start_line = definition_node.start_point[0] + 1
+                                 end_line = definition_node.end_point[0] + 1
 
-                            # Corrected Check: Node followed by string capture name
-                            if hasattr(node_candidate, 'type') and isinstance(name_candidate, str):
-                                node = node_candidate
-                                capture_name = name_candidate
-                                logger.debug(f" Processing entity pair: capture_name='{capture_name}', node_type='{node.type}'")
-
-
-                                if capture_name == "definition": # Found a definition node
-                                    # Now find the 'name' capture *within* this definition node's range
-                                    # Assume the @name follows @definition immediately in the flat list
-                                    name_node: Optional[TSNODE_TYPE] = None
-                                    if ent_i + 3 < len(captures_list): # Check if there are enough items for name node/name capture
-                                         potential_name_node = captures_list[ent_i + 2]
-                                         potential_name_capture = captures_list[ent_i + 3]
-                                         if potential_name_capture == 'name' and hasattr(potential_name_node, 'type'):
-                                             # Check if the name node is actually a child of the definition node (more robust)
-                                             # This check might be complex/slow, skipping for now based on assumption
-                                             name_node = potential_name_node
-                                             logger.debug(f"  Found potential name node for {entity_class_name} definition.")
+                                 if name and entity_text:
+                                     entity_id_str = f"{file_id}:{entity_class_name}:{name}:{start_line}"
+                                     yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
+                                     logger.debug(f"  Yielded Rust Entity: {entity_class_name} - {name}")
+                                 else:
+                                     logger.warning(f" Could not extract name or text for Rust {entity_class_name} at {file_path}:{start_line}")
+                             elif definition_node and not name_node:
+                                 # Handle cases like impl blocks where the @name capture might be the type, not a separate identifier
+                                 if entity_class_name == "Implementation":
+                                     impl_type_node = None
+                                     # Check captures for 'type' instead of 'name' based on the impl query
+                                     for cn, n in captures_in_match:
+                                         if cn == 'type': # Query uses @type for the impl target
+                                             impl_type_node = n
+                                             break
+                                     if impl_type_node:
+                                         name = get_node_text(impl_type_node, content_bytes) # Use type as 'name'
+                                         entity_text = get_node_text(definition_node, content_bytes)
+                                         start_line = definition_node.start_point[0] + 1
+                                         end_line = definition_node.end_point[0] + 1
+                                         if name and entity_text:
+                                             entity_id_str = f"{file_id}:{entity_class_name}:{name}:{start_line}"
+                                             yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
+                                             logger.debug(f"  Yielded Rust Entity: {entity_class_name} - {name} (from impl type)")
                                          else:
-                                             logger.debug(f"  Name capture ('{potential_name_capture}') did not follow definition capture ('{capture_name}') as expected.")
-                                    else:
-                                        logger.debug(f"  Not enough items remaining in captures list to find name node after definition.")
+                                             logger.warning(f" Could not extract name(type) or text for Rust {entity_class_name} at {file_path}:{start_line}")
+                                     else:
+                                          logger.warning(f" Could not extract name/type node for Rust {entity_class_name} definition at {file_path}:{definition_node.start_point[0]+1}")
+                                 else:
+                                    logger.warning(f" Could not extract name node for Rust {entity_class_name} definition at {file_path}:{definition_node.start_point[0]+1}")
 
-
-                                    # --- [ Original name extraction and yielding logic ] ---
-                                    if name_node:
-                                        name = get_node_text(name_node, content_bytes)
-                                        entity_text = get_node_text(node, content_bytes) # Use the 'definition' node for full text
-                                        start_line = node.start_point[0] + 1
-                                        end_line = node.end_point[0] + 1
-
-                                        if name and entity_text:
-                                            entity_id_str = f"{file_id}:{entity_class_name}:{name}:{start_line}"
-                                            yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
-                                            logger.debug(f"  Yielded Rust Entity: {entity_class_name} - {name}")
-                                        else:
-                                            logger.warning(f" Could not extract name or text for Rust {entity_class_name} at {file_path}:{start_line}")
-                                    else:
-                                        logger.warning(f" Could not extract name node for Rust {entity_class_name} definition at {file_path}:{node.start_point[0]+1}")
-                                    # --- [ End original logic ] ---
-
-                                ent_i += 2 # Move past the definition node/name pair regardless of finding name
-                            else:
-                                # If the first item of the pair wasn't 'definition', just move past it
-                                ent_i += 2
-                        else:
-                            logger.warning(f"Skipping unexpected entity item structure at index {ent_i}: item={node_candidate}, next_item={name_candidate}")
-                            ent_i += 1 # Move one step forward, hoping the next item aligns
                     except Exception as entity_err:
-                         logger.error(f"Error processing entities for query '{query_name}': {entity_err}", exc_info=True)
-            # --- END ENTITY LOOP MODIFICATION ---
+                         logger.error(f"Error processing entities for query '{query_name}' in {file_path}: {entity_err}", exc_info=True)
 
-            # 3. Yield Dependencies (use, extern crate)
+
+            # 3. Yield Dependencies (use, extern crate) (using matches)
             if "imports" in self.queries:
                 import_query = self.queries["imports"]
-                processed_statement_starts = set() # Track start lines of processed statements
+                processed_statement_starts = set() # Track start lines to avoid duplicates
                 logger.debug(f"Rust Parser: Checking Dependencies for {file_path}")
+                try:
+                     # --- Use query.matches() ---
+                     for match_id, captures_in_match in import_query.matches(root_node):
+                         statement_node: Optional[TSNODE_TYPE] = None
+                         target_node: Optional[TSNODE_TYPE] = None
+                         target_text: Optional[str] = None
 
-            try:
-                captures_iterable = import_query.captures(root_node)
-                logger.debug(f"Rust import captures type: {type(captures_iterable)}")
+                         # Find the statement node and target node within this match
+                         for capture_name, node in captures_in_match:
+                             # The 'imports' query captures the whole statement as @definition
+                             # We need to refine this to get the specific target path/crate
+                             if capture_name == "definition": # This is the whole statement node
+                                 statement_node = node
+                                 # Now, try to find the specific target within this statement's children/captures
+                                 if node.type == "use_declaration":
+                                     # Look for 'scoped_use_list', 'use_wildcard', 'identifier', 'scoped_identifier' etc.
+                                     # This requires knowing the Rust grammar structure well.
+                                     # A simpler approach might be to add specific captures to the query.
+                                     # Let's add @path to the query for use_declaration
+                                     # RUST_QUERIES["imports"] = "[ (use_declaration path: [(_) (scoped_identifier)] @path) @use_statement (extern_crate_declaration name: (identifier) @crate_name) @extern_crate ]"
+                                     # Assuming the query is updated like above:
+                                     path_node = next((n for cn, n in captures_in_match if cn == "path"), None)
+                                     if path_node: target_node = path_node
+                                     else: logger.warning(f"Rust 'use' statement found at {file_path}:{node.start_point[0]+1}, but couldn't find @path capture.")
 
-                # --- MODIFIED: Iterate assuming alternating node/name structure ---
-                captures_list = list(captures_iterable) # Convert to list first for easier indexing
-                logger.debug(f"Rust captures list length: {len(captures_list)}")
+                                 elif node.type == "extern_crate_declaration":
+                                     # Assuming query is updated with @crate_name:
+                                     crate_name_node = next((n for cn, n in captures_in_match if cn == "crate_name"), None)
+                                     if crate_name_node: target_node = crate_name_node
+                                     else: logger.warning(f"Rust 'extern crate' statement found at {file_path}:{node.start_point[0]+1}, but couldn't find @crate_name capture.")
 
-                i = 0
-                while i < len(captures_list) - 1: # Need at least two items (node, name)
-                    node_candidate = captures_list[i]
-                    name_candidate = captures_list[i+1]
+                             # --- Fallback/Alternative if query isn't updated ---
+                             # This part is less reliable as it assumes structure based on node type only
+                             elif capture_name == "use_statement": # If query uses @use_statement
+                                 statement_node = node
+                                 # Try finding the path node by traversing children (less robust)
+                                 # path_node = find_child_node_by_type(node, ["scoped_identifier", "identifier", ...])
+                                 # if path_node: target_node = path_node
+                             elif capture_name == "extern_crate": # If query uses @extern_crate
+                                 statement_node = node
+                                 # Try finding the identifier child
+                                 # crate_name_node = find_child_node_by_type(node, ["identifier"])
+                                 # if crate_name_node: target_node = crate_name_node
 
-                    # Check if the types seem right (Node followed by str)
-                    # Corrected Check: Node followed by string capture name
-                    if hasattr(node_candidate, 'type') and isinstance(name_candidate, str):
-                        node = node_candidate
-                        capture_name = name_candidate
-                        logger.debug(f" Processing pair: capture_name='{capture_name}', node_type='{node.type}'")
 
-                        # --- Now the original logic to check capture_name and process ---
-                        statement_node: Optional[TSNODE_TYPE] = None
-                        # ... (rest of the logic: finding statement_node, target, yielding) ...
-                        # Identify the statement node based on the capture name from the query
-                        if capture_name == "use_statement":
-                           if node.type == "use_declaration": statement_node = node
-                        elif capture_name == "extern_crate":
-                           if node.type == "extern_crate_declaration": statement_node = node
-                        # If it's not a capture name we use to identify the *statement*, skip pair
-                        else:
-                            logger.debug(f"  Skipping pair starting with non-statement capture '{capture_name}'")
-                            i += 2 # Move past this pair
-                            continue
+                         if not statement_node: continue # Skip if no statement identified
 
-                        if not statement_node:
-                            logger.debug(f"  Capture '{capture_name}' did not yield expected statement node.")
-                            i += 2 # Move past this pair
-                            continue
+                         start_line = statement_node.start_point[0] + 1
+                         if start_line in processed_statement_starts: continue # Skip duplicates
 
-                        # --- [Original dependency processing logic here] ---
-                        statement_start_line = statement_node.start_point[0]
-                        if statement_start_line in processed_statement_starts:
-                            logger.debug(f"  Skipping already processed statement at line {statement_start_line+1}")
-                            i += 2 # Move past this pair
-                            continue
-                        processed_statement_starts.add(statement_start_line)
+                         if target_node:
+                             target_text = get_node_text(target_node, content_bytes)
+                         # Fallback: If target_node wasn't found, try extracting from snippet (brittle)
+                         elif statement_node:
+                             snippet_fallback = get_node_text(statement_node, content_bytes)
+                             if snippet_fallback and snippet_fallback.startswith("use"):
+                                 match = re.match(r"use\s+((?:[\w:]+::)*[\w*]+|\{.*\});?", snippet_fallback.strip())
+                                 if match: target_text = match.group(1)
+                             elif snippet_fallback and snippet_fallback.startswith("extern crate"):
+                                  match = re.match(r"extern crate\s+(\w+);?", snippet_fallback.strip())
+                                  if match: target_text = match.group(1)
+                             if not target_text: logger.warning(f"Could not reliably extract target from Rust dependency statement at {file_path}:{start_line}. Snippet: {snippet_fallback}")
 
-                        # Find Target Text... yield Dependency... etc.
-                        target_node: Optional[TSNODE_TYPE] = None
-                        target_text: Optional[str] = None
-                        # (Find target logic...)
-                        if statement_node.type == "use_declaration":
-                            arg_node = statement_node.child_by_field_name("argument")
-                            if arg_node: target_node = arg_node; target_text = get_node_text(target_node, content_bytes)
-                        elif statement_node.type == "extern_crate_declaration":
-                            name_node = statement_node.child_by_field_name("name")
-                            if name_node: target_node = name_node; target_text = get_node_text(target_node, content_bytes)
 
-                        if target_text and statement_node:
-                            start_line = statement_node.start_point[0] + 1; end_line = statement_node.end_point[0] + 1
-                            snippet = get_node_text(statement_node, content_bytes)
-                            if snippet:
-                                dep_id_str = f"{file_id}:dep:{target_text}:{start_line}"
-                                yield Dependency(dep_id_str, file_id, target_text, snippet, start_line, end_line)
-                                logger.debug(f"  Yielded Rust Dependency: {target_text}")
-                            else: logger.warning(f"  Could not extract snippet for Rust import/use target '{target_text}'")
-                        else: logger.warning(f"  Could not determine Rust import/use target or statement node")
-                        # --- [End of original dependency processing logic] ---
+                         if target_text and statement_node:
+                             end_line = statement_node.end_point[0] + 1
+                             snippet = get_node_text(statement_node, content_bytes)
+                             if snippet:
+                                 dep_id_str = f"{file_id}:dep:{target_text}:{start_line}"
+                                 yield Dependency(dep_id_str, file_id, target_text, snippet, start_line, end_line)
+                                 logger.debug(f"  Yielded Rust Dependency: {target_text}")
+                                 processed_statement_starts.add(start_line)
+                             else:
+                                 logger.warning(f"  Could not extract snippet for Rust import/use target '{target_text}' at {file_path}:{start_line}")
+                         elif statement_node: # Log even if target extraction failed
+                             logger.warning(f"  Could not determine Rust import/use target node for statement at {file_path}:{start_line}")
 
-                        i += 2 # Move past the processed pair
-                    else:
-                        logger.warning(f"Skipping unexpected item structure at index {i}: item={node_candidate}, next_item={name_candidate}")
-                        i += 1 # Move one step forward, hoping the next item aligns
-
-                # --- END MODIFIED ---
-
-            except Exception as e_outer:
-                logger.error(f"Error setting up or iterating Rust import captures: {e_outer}", exc_info=True)
-
+                except Exception as dep_err:
+                    logger.error(f"Error processing dependencies for query 'imports' in {file_path}: {dep_err}", exc_info=True)
 
         except Exception as e:
             logger.error(f"Failed to parse Rust file {file_path}: {e}", exc_info=True)
+
+# Helper function (optional, if needed for fallback)
+def find_child_node_by_type(node: TSNODE_TYPE, types: list[str]) -> Optional[TSNODE_TYPE]:
+    for child in node.children:
+        if child.type in types:
+            return child
+    return None

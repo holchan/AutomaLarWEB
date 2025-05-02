@@ -1,12 +1,9 @@
 # src/parser/config.py
 import os
 
-# --- Chunking Configuration ---
-CHUNK_SIZE = 100
-CHUNK_OVERLAP = 15
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 100
 
-# --- File Discovery Configuration ---
-# Files/Dirs to ignore completely
 IGNORED_DIRS = {
     ".git",
     "__pycache__",
@@ -15,38 +12,38 @@ IGNORED_DIRS = {
     "build",
     "venv",
     ".venv",
-    "target", # For Rust
-    ".next", # For Next.js builds
-    ".vscode", # VSCode specific files
-    ".idea", # JetBrains specific files
-    "coverage", # Coverage reports
+    "target",
+    ".next",
+    ".vscode",
+    ".idea",
+    "coverage",
     "logs",
     "tmp",
     "temp",
+    "data",
+    ".ruff_cache",
+    ".mypy_cache",
 }
 IGNORED_FILES = {
     ".DS_Store",
     "*.pyc",
     "*.pyo",
     "*.pyd",
-    "*.so", # Shared objects
-    "*.dll", # Windows dynamic libraries
-    "*.o", # Object files
-    "*.a", # Static libraries
-    "*.swp", # Vim swap files
-    "*.swo", # Vim swap files
-    "*.log", # Log files (can be noisy)
-    "package-lock.json", # Often very large and less useful for parsing
-    "yarn.lock", # Often very large and less useful for parsing
-    "pnpm-lock.yaml", # Often very large and less useful for parsing
-    "poetry.lock", # Often very large and less useful for parsing
-    "uv.lock", # Often very large and less useful for parsing
+    "*.so",
+    "*.dll",
+    "*.o",
+    "*.a",
+    "*.swp",
+    "*.swo",
+    "*.log",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "uv.lock",
 }
 
-# Supported extensions and their assigned parser type keys
-# These keys MUST match the keys used in the PARSER_MAP in orchestrator.py
 SUPPORTED_EXTENSIONS = {
-    # Code (Mapped to specific language keys)
     ".py": "python",
     ".js": "javascript",
     ".jsx": "javascript",
@@ -57,14 +54,9 @@ SUPPORTED_EXTENSIONS = {
     ".cpp": "cpp",
     ".hpp": "cpp",
     ".rs": "rust",
-    # Styles (Mapped to 'css' key)
     ".css": "css",
-    # Config/Infra (Mapped to 'dockerfile' key)
-    "Dockerfile": "dockerfile", # Match exact filename
+    "Dockerfile": "dockerfile",
     ".dockerfile": "dockerfile",
-    # Docs (Mapped to 'markdown' key)
     ".md": "markdown",
     ".mdx": "markdown",
-    # Add others and map to unique keys matching parser classes
-    # e.g., ".java": "java", ".go": "go", ".rb": "ruby", ".html": "html"
 }

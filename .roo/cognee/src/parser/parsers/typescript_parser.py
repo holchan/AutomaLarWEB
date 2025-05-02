@@ -1,128 +1,134 @@
-# src/parser/parsers/typescript_parser.py
-from pydantic import BaseModel # Import BaseModel for type hinting
-from typing import AsyncGenerator, Optional
-from .base_parser import BaseParser
-from pydantic import BaseModel # Import BaseModel for type hinting
-from ..entities import TextChunk, CodeEntity, Dependency # Removed DataPoint import
+from typing import AsyncGenerator, Optional, Dict, List, Any
+from ..entities import TextChunk, CodeEntity, Relationship, ParserOutput # Added ParserOutput for hinting
 from ..chunking import basic_chunker
 from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
 from .treesitter_setup import get_parser, get_language
+from pydantic import BaseModel
 
-# Define Tree-sitter queries for TypeScript/TSX
-# Often similar to JS, but includes types and interfaces.
 TYPESCRIPT_QUERIES = {
     "imports": """
         [
-            (import_statement source: (string) @import_from) @import_statement ;; import ... from '...'
-            (import_statement (import_clause (identifier) @default_import)) source: (string) @import_from @import_statement ;; import defaultExport from '...'
-            (import_statement (import_clause (namespace_import (identifier) @namespace_import)) source: (string) @import_from) @import_statement ;; import * as name from '...'
-            (import_statement (import_clause (named_imports (import_specifier name: [(identifier) (type_identifier)] @named_import))) source: (string) @import_from) @import_statement ;; import { name } from '...'
-            (import_statement (import_clause (named_imports (import_specifier property: [(identifier) (type_identifier)] @property_import name: [(identifier) (type_identifier)] @named_import))) source: (string) @import_from) @import_statement ;; import { name as alias } from '...'
-            ;; Basic require - less common in TS but possible
+            (import_statement source: (string) @import_from) @import_statement
             (lexical_declaration
               (variable_declarator
-                name: [(identifier) @require_target (object_pattern (shorthand_property_identifier_pattern) @require_target)]
                 value: (call_expression function: (identifier) @_req arguments: (arguments (string) @import_from)))
-              (#match? @_req "^require$")) @import_statement
+              (#match? @_req "^require$")
+            ) @import_statement
         ]
         """,
     "functions": """
         [
-            (function_declaration name: (identifier) @name parameters: (formal_parameters)? @params) @definition ;; function foo() {}
-            (function_signature name: (identifier) @name parameters: (formal_parameters)? @params) @definition ;; declare function foo(); (often in .d.ts)
-            (lexical_declaration
-              (variable_declarator
-                name: (identifier) @name
-                value: [(arrow_function parameters: (formal_parameters)? @params) (function parameters: (formal_parameters)? @params)])) @definition ;; const foo = () => {}; const foo = function() {};
-            (method_definition name: (property_identifier) @name parameters: (formal_parameters)? @params) @definition ;; class { foo() {} }
-            (method_signature name: (property_identifier) @name parameters: (formal_parameters)? @params) @definition ;; interface { foo(): void; }
+            (function_declaration name: (identifier) @name) @definition
+            (function_signature name: (identifier) @name) @definition
+            (lexical_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function)])) @definition
+            (method_definition name: (property_identifier) @name) @definition
+            (method_signature name: (property_identifier) @name) @definition
         ]
         """,
     "classes": """
-        (class_declaration name: [(identifier) (type_identifier)] @name) @definition ;; class Foo {}
+        (class_declaration
+            name: [(identifier) (type_identifier)] @name
+            heritage: (class_heritage)? @heritage
+        ) @definition
         """,
     "interfaces": """
-        (interface_declaration name: (type_identifier) @name) @definition ;; interface IFoo {}
+        (interface_declaration
+            name: (type_identifier) @name
+            heritage: (extends_clause)? @heritage
+        ) @definition
         """,
     "types": """
-        (type_alias_declaration name: (type_identifier) @name) @definition ;; type MyType = ...;
+        (type_alias_declaration name: (type_identifier) @name) @definition
         """,
     "enums": """
-        (enum_declaration name: (identifier) @name) @definition ;; enum MyEnum { ... }
+        (enum_declaration name: (identifier) @name) @definition
         """,
-    # Could add queries for exports, modules, namespaces etc.
+    "heritage_details": """
+        [
+          (extends_clause value: [(identifier) (type_identifier) (generic_type)] @extends_name)
+          (implements_clause type: [(identifier) (type_identifier) (generic_type)] @implements_name)
+        ]
+    """
 }
-
 
 class TypescriptParser(BaseParser):
     """
-    Parses TypeScript and TSX files (.ts, .tsx) using Tree-sitter to extract
-    code entities and dependencies.
-
-    This parser identifies functions, classes, interfaces, types, enums, and
-    import statements within TypeScript/TSX source code. It also utilizes the
-    `basic_chunker` to break down the file content into text segments.
-
-    Inherits from BaseParser.
+    Parses TypeScript/TSX files, yielding TextChunk, CodeEntity (minimal),
+    and Relationship objects based on the FINAL entity definitions.
     """
-
     def __init__(self):
-        """Initializes the TypescriptParser and loads the Tree-sitter language and queries."""
         super().__init__()
-        self.language = get_language("typescript") # Note: Tree-sitter uses 'typescript' for both TS and TSX
+        self.language = get_language("typescript")
         self.parser = get_parser("typescript")
         self.queries = {}
         if self.language:
+            logger.info("Compiling TypeScript Tree-sitter queries...")
             try:
-                self.queries = {
-                    name: self.language.query(query_str)
-                    for name, query_str in TYPESCRIPT_QUERIES.items()
-                }
+                for name, query_str in TYPESCRIPT_QUERIES.items():
+                    self.queries[name] = self.language.query(query_str)
+                logger.info("TypeScript queries compiled successfully.")
             except Exception as e:
                  logger.error(f"Failed to compile TypeScript queries: {e}", exc_info=True)
+                 self.queries = {}
         else:
-            logger.error("TypeScript tree-sitter language not loaded. TS/TSX parsing will be limited.")
+            logger.error("TypeScript tree-sitter language not loaded.")
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
-        """
-        Parses a TypeScript or TSX file, yielding TextChunks, CodeEntities
-        (functions, classes, interfaces, types, enums), and Dependencies (imports).
+    def _extract_list_details(self, query: Any, node: TSNODE_TYPE, capture_name: str, content_bytes: bytes) -> List[str]:
+        """Helper to find all instances of a capture within a node."""
+        details = []
+        if not query or not node: return details
+        for child_capture_name, child_node in query.captures(node):
+            if child_capture_name == capture_name:
+                text = get_node_text(child_node, content_bytes)
+                if text:
+                    details.append(text)
+        return details
 
-        Reads the file content, uses Tree-sitter to build an AST, and queries the
-        AST to extract relevant code structures and dependencies. It also generates
-        text chunks from the file content. Handles both standard TS and TSX syntax.
-
-        Args:
-            file_path: The absolute path to the TS/TSX file to be parsed.
-            file_id: The unique ID of the SourceFile entity corresponding to this file.
-
-        Yields:
-            BaseModel objects: TextChunk, CodeEntity (FunctionDefinition, ClassDefinition,
-            InterfaceDefinition, TypeDefinition, EnumDefinition), and Dependency entities
-            extracted from the file.
-        """
-        if not self.parser or not self.language or not self.queries:
-            logger.error(f"TypeScript parser not available or queries failed compilation, skipping parsing for {file_path}")
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[ParserOutput, None]:
+        required_queries = {"imports", "functions", "classes", "interfaces", "types", "enums", "heritage_details"}
+        if not self.parser or not self.language or not self.queries or not required_queries.issubset(self.queries.keys()):
+            logger.error(f"TypeScript parser prerequisites missing. Skipping detailed parsing for {file_path}")
+            content_fallback = await read_file_content(file_path)
+            if content_fallback:
+                for i, chunk_text in enumerate(basic_chunker(content_fallback)):
+                    if chunk_text.strip():
+                        start_line = content_fallback.count('\n', 0, content_fallback.find(chunk_text)) + 1 if chunk_text in content_fallback else 1
+                        end_line = start_line + chunk_text.count('\n')
+                        chunk_id = f"{file_id}:{i}"
+                        yield TextChunk(id=chunk_id, chunk_content=chunk_text, start_line=start_line, end_line=end_line)
+                        yield Relationship(source_id=file_id, target_id=chunk_id, type="CONTAINS_CHUNK")
             return
 
         content = await read_file_content(file_path)
-        if content is None:
-            logger.error(f"Could not read content from {file_path}")
-            return
+        if content is None: return
 
         try:
             content_bytes = bytes(content, "utf8")
             tree = self.parser.parse(content_bytes)
             root_node = tree.root_node
 
-            # 1. Yield Chunks
-            chunks = basic_chunker(content)
-            for i, chunk_text in enumerate(chunks):
-                if not chunk_text.strip(): continue
-                chunk_id_str = f"{file_id}:chunk:{i}"
-                yield TextChunk(chunk_id_str=chunk_id_str, parent_id=file_id, text=chunk_text, chunk_index=i)
+            chunk_nodes = []
+            for i, chunk_text in enumerate(basic_chunker(content)):
+                if chunk_text.strip():
+                    start_line = content[:content.find(chunk_text)].count('\n') + 1 if content.find(chunk_text) != -1 else 1
+                    end_line = start_line + chunk_text.count('\n')
+                    chunk_id = f"{file_id}:{i}"
+                    chunk_node = TextChunk(id=chunk_id, chunk_content=chunk_text, start_line=start_line, end_line=end_line)
+                    chunk_nodes.append(chunk_node)
+                    yield chunk_node
+                    yield Relationship(source_id=file_id, target_id=chunk_id, type="CONTAINS_CHUNK")
 
-            # 2. Yield Code Entities (Functions, Classes, Interfaces, Types, Enums)
+            def find_containing_chunk(entity_start_line: int) -> Optional[TextChunk]:
+                best_chunk = None
+                for chunk in chunk_nodes:
+                    if chunk.start_line <= entity_start_line:
+                        if best_chunk is None or chunk.start_line > best_chunk.start_line:
+                            if entity_start_line <= chunk.end_line:
+                                best_chunk = chunk
+                    elif best_chunk is not None:
+                         break
+                return best_chunk
+
             entity_configs = [
                 ("functions", "FunctionDefinition"),
                 ("classes", "ClassDefinition"),
@@ -130,85 +136,82 @@ class TypescriptParser(BaseParser):
                 ("types", "TypeDefinition"),
                 ("enums", "EnumDefinition"),
             ]
+            entity_counter_in_chunk = {}
+            heritage_detail_query = self.queries.get("heritage_details")
 
-            for query_name, entity_class_name in entity_configs:
+            for query_name, entity_type_str in entity_configs:
                 if query_name in self.queries:
                     query = self.queries[query_name]
-                    for capture in query.captures(root_node):
-                        node_type = capture[1]
-                        node = capture[0]
+                    for match_id, captures_in_match in query.matches(root_node):
+                        definition_node: Optional[TSNODE_TYPE] = None
+                        name_node: Optional[TSNODE_TYPE] = None
+                        heritage_node: Optional[TSNODE_TYPE] = None
 
-                        if node_type == "definition":
-                            name_node: Optional[TSNODE_TYPE] = None
-                            params_node: Optional[TSNODE_TYPE] = None
-                            for child_capture in query.captures(node):
-                                if child_capture[1] == "name":
-                                    name_node = child_capture[0]
-                                elif child_capture[1] == "params":
-                                    params_node = child_capture[0]
+                        for capture_name, node in captures_in_match:
+                            if capture_name == "definition": definition_node = node
+                            elif capture_name == "name": name_node = node
+                            elif capture_name == "heritage": heritage_node = node
 
-                            if name_node:
-                                name = get_node_text(name_node, content_bytes)
-                                entity_text = get_node_text(node, content_bytes)
-                                start_line = node.start_point[0] + 1
-                                end_line = node.end_point[0] + 1
-                                parameters = get_node_text(params_node, content_bytes) if params_node else ""
+                        if definition_node and name_node:
+                            name = get_node_text(name_node, content_bytes)
+                            if not name: continue
+                            snippet_content = get_node_text(definition_node, content_bytes)
+                            if not snippet_content: continue
+                            start_line = definition_node.start_point[0] + 1
 
-                                if name and entity_text:
-                                    entity_id_str = f"{file_id}:{name}:{start_line}"
-                                    yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
-                                else:
-                                     logger.warning(f"Could not extract name or text for TS {entity_class_name} at {file_path}:{start_line}")
+                            containing_chunk = find_containing_chunk(start_line)
+                            if not containing_chunk:
+                                logger.warning(f"No containing chunk for {entity_type_str} '{name}' at line {start_line} in {file_path}")
+                                continue
 
-            # 3. Yield Dependencies (Imports/Requires)
+                            chunk_id = containing_chunk.id
+
+                            entity_key = f"{chunk_id}:{entity_type_str}:{name}"
+                            entity_index = entity_counter_in_chunk.get(entity_key, 0)
+                            entity_counter_in_chunk[entity_key] = entity_index + 1
+                            entity_id = f"{chunk_id}:{entity_type_str}:{name}:{entity_index}"
+
+                            yield CodeEntity(
+                                id=entity_id,
+                                type=entity_type_str,
+                                snippet_content=snippet_content,
+                            )
+                            yield Relationship(source_id=chunk_id, target_id=entity_id, type="CONTAINS_ENTITY")
+
+                            if entity_type_str in ["ClassDefinition", "InterfaceDefinition"] and heritage_node and heritage_detail_query:
+                                extends_names = self._extract_list_details(heritage_detail_query, heritage_node, "extends_name", content_bytes)
+                                for parent_name in extends_names:
+                                    yield Relationship(source_id=entity_id, target_id=parent_name, type="EXTENDS")
+
+                                if entity_type_str == "ClassDefinition":
+                                    implements_names = self._extract_list_details(heritage_detail_query, heritage_node, "implements_name", content_bytes)
+                                    for interface_name in implements_names:
+                                        yield Relationship(source_id=entity_id, target_id=interface_name, type="IMPLEMENTS")
+
             if "imports" in self.queries:
                 import_query = self.queries["imports"]
                 processed_imports = set()
-                for capture in import_query.captures(root_node):
-                    node_type = capture[1]
-                    node = capture[0]
+                for match_id, captures_in_match in import_query.matches(root_node):
+                    statement_node: Optional[TSNODE_TYPE] = None
+                    import_from_node: Optional[TSNODE_TYPE] = None
+                    target_module: Optional[str] = None
+                    for capture_name, node in captures_in_match:
+                        if capture_name == "import_statement": statement_node = node
+                        elif capture_name == "import_from": import_from_node = node
+                    if not statement_node: continue
+                    if import_from_node:
+                        target_module = get_node_text(import_from_node, content_bytes)
+                        if target_module and target_module.startswith(('"', "'")):
+                            target_module = target_module[1:-1]
+                    else:
+                         logger.debug(f"Import statement without explicit source at {file_path}:{statement_node.start_point[0]+1}")
+                         continue
+                    start_line = statement_node.start_point[0] + 1
+                    import_key = (target_module, start_line)
 
-                    if node_type == "import_statement":
-                        target = "unknown_import"
-                        import_target_node = None
-                        import_from_node = None
-                        alias_node: Optional[TSNODE_TYPE] = None
-                        default_import_node: Optional[TSNODE_TYPE] = None
-                        namespace_import_node: Optional[TSNODE_TYPE] = None
-
-                        for child_capture in import_query.captures(node):
-                            if child_capture[1] == "import_from":
-                                import_from_node = child_capture[0]
-                            elif child_capture[1] == "named_import":
-                                import_target_node = child_capture[0]
-                            elif child_capture[1] == "default_import":
-                                import_target_node = child_capture[0]
-                            elif child_capture[1] == "namespace_import":
-                                import_target_node = child_capture[0]
-                            elif child_capture[1] == "alias":
-                                alias_node = child_capture[0]
-
-                        if import_from_node:
-                            target = get_node_text(import_from_node, content_bytes)
-                            if target and target.startswith(('"', "'")):
-                                target = target[1:-1]
-                        elif import_target_node:
-                            target = get_node_text(import_target_node, content_bytes)
-                            if target and target.startswith(('"', "'")):
-                                target = target[1:-1]
-
-                        snippet = get_node_text(node, content_bytes)
-                        start_line = node.start_point[0] + 1
-                        end_line = node.end_point[0] + 1
-
-                        import_key = (target, start_line)
-                        if target and snippet and import_key not in processed_imports:
-                            dep_id_str = f"{file_id}:dep:{target}:{start_line}"
-                            yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
-                            processed_imports.add(import_key)
-                        elif not target:
-                             logger.warning(f"Could not determine TS import target at {file_path}:{start_line}")
-
+                    if target_module and import_key not in processed_imports:
+                        yield Relationship(source_id=file_id, target_id=target_module, type="IMPORTS")
+                        processed_imports.add(import_key)
 
         except Exception as e:
             logger.error(f"Failed to parse TypeScript file {file_path}: {e}", exc_info=True)
