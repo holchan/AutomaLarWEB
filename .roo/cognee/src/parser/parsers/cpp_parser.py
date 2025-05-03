@@ -51,7 +51,7 @@ CPP_QUERIES = {
         (using_declaration "namespace" name: [(identifier)(nested_namespace_specifier)] @name) @using_statement
         """,
     "using_alias": """
-        (alias_declaration name: (type_identifier) @name) @using_statement ;; using MyInt = int;
+        (alias_declaration name: (type_identifier) @name) @using_statement
         """,
     "heritage_details": """
         (base_specifier name: [(identifier)(type_identifier)(qualified_identifier)] @extends_name)
@@ -61,7 +61,7 @@ CPP_QUERIES = {
 class CppParser(BaseParser):
     """
     Parses C++ files (.cpp, .hpp), yielding TextChunk, CodeEntity (minimal),
-    and Relationship objects.
+    and Relationship objects. Skips file if prerequisites fail.
     """
     def __init__(self):
         """Initializes the CppParser."""
@@ -93,22 +93,16 @@ class CppParser(BaseParser):
         return details
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[ParserOutput, None]:
-        """Parses a C++ file."""
+        """Parses a C++ file. Yields nothing if prerequisites fail."""
         required_queries = {"includes", "functions", "classes", "structs", "heritage_details"}
-        if not self.parser or not self.language or not self.queries or not required_queries.issubset(self.queries.keys()):
-            logger.error(f"C++ parser prerequisites missing for {file_path}. Skipping detailed parsing.")
-            content_fallback = await read_file_content(file_path)
-            if content_fallback:
-                current_line = 1
-                for i, chunk_text in enumerate(basic_chunker(content_fallback)):
-                    if chunk_text.strip():
-                        chunk_start_line = current_line
-                        num_newlines = chunk_text.count('\n')
-                        chunk_end_line = chunk_start_line + num_newlines
-                        chunk_id = f"{file_id}:{i}"
-                        yield TextChunk(id=chunk_id, chunk_content=chunk_text, start_line=chunk_start_line, end_line=chunk_end_line)
-                        yield Relationship(source_id=file_id, target_id=chunk_id, type="CONTAINS_CHUNK")
-                        current_line = chunk_end_line + 1
+        prerequisites_met = (
+            self.parser and
+            self.language and
+            self.queries and
+            required_queries.issubset(self.queries.keys())
+        )
+        if not prerequisites_met:
+            logger.error(f"C++ parser prerequisites missing or core queries failed for {file_path}. SKIPPING detailed parsing for this file.")
             return
 
         content = await read_file_content(file_path)
@@ -142,9 +136,15 @@ class CppParser(BaseParser):
             def find_chunk_for_node(node: TSNODE_TYPE) -> Optional[TextChunk]:
                 node_start_line = node.start_point[0] + 1
                 node_end_line = node.end_point[0] + 1
+                best_chunk = None
+                min_diff = float('inf')
                 for chunk in chunk_nodes:
                     if chunk.start_line <= node_start_line and chunk.end_line >= node_end_line:
-                        return chunk
+                        diff = node_start_line - chunk.start_line
+                        if diff < min_diff:
+                            min_diff = diff
+                            best_chunk = chunk
+                if best_chunk: return best_chunk
                 logger.warning(f"[{file_path}] Could not find containing chunk for node at lines {node_start_line}-{node_end_line}")
                 return None
 
@@ -161,8 +161,6 @@ class CppParser(BaseParser):
 
             for query_name, entity_type_str in entity_configs:
                 query = self.queries.get(query_name)
-                if not query: continue
-
                 logger.debug(f"[{file_path}] Running query '{query_name}'...")
                 for match_id, captures_in_match in query.matches(root_node):
                     definition_node: Optional[TSNODE_TYPE] = None
@@ -179,21 +177,13 @@ class CppParser(BaseParser):
                         if not name: continue
                         snippet_content = get_node_text(definition_node, content_bytes)
                         if not snippet_content: continue
-
-                        start_line = definition_node.start_point[0] + 1
                         parent_chunk = find_chunk_for_node(definition_node)
                         if not parent_chunk: continue
-
                         chunk_id = parent_chunk.id
                         index_in_chunk = chunk_entity_counters[chunk_id][(entity_type_str, name)]
                         chunk_entity_counters[chunk_id][(entity_type_str, name)] += 1
                         code_entity_id = f"{chunk_id}:{entity_type_str}:{name}:{index_in_chunk}"
-
-                        code_entity = CodeEntity(
-                            id=code_entity_id,
-                            type=entity_type_str,
-                            snippet_content=snippet_content
-                        )
+                        code_entity = CodeEntity(id=code_entity_id, type=entity_type_str, snippet_content=snippet_content)
                         yield code_entity
                         yield Relationship(source_id=chunk_id, target_id=code_entity_id, type="CONTAINS_ENTITY")
 
@@ -202,30 +192,28 @@ class CppParser(BaseParser):
                             for parent_name in extends_names:
                                 yield Relationship(source_id=code_entity_id, target_id=parent_name, type="EXTENDS")
                                 logger.debug(f"[{file_path}] Yielded EXTENDS: {name} -> {parent_name}")
+
             processed_directives = set()
 
             include_query = self.queries.get("includes")
-            if include_query:
-                logger.debug(f"[{file_path}] Running query 'includes'...")
-                for match_id, captures_in_match in include_query.matches(root_node):
-                    statement_node: Optional[TSNODE_TYPE] = None
-                    target_node: Optional[TSNODE_TYPE] = None
-                    for capture_name, node in captures_in_match:
-                        if capture_name == "include_statement": statement_node = node
-                        elif capture_name == "include": target_node = node
-
-                    if statement_node and target_node:
-                        target_module_string = get_node_text(target_node, content_bytes)
-                        if target_module_string and target_module_string.startswith(('"', '<')):
-                            target_module_string = target_module_string[1:-1]
-
-                        if target_module_string:
-                            start_line = statement_node.start_point[0] + 1
-                            import_key = (target_module_string, start_line)
-                            if import_key not in processed_directives:
-                                yield Relationship(source_id=file_id, target_id=target_module_string, type="IMPORTS")
-                                processed_directives.add(import_key)
-                                logger.debug(f"[{file_path}] Yielded IMPORTS relationship (include): {file_id} -> {target_module_string}")
+            logger.debug(f"[{file_path}] Running query 'includes'...")
+            for match_id, captures_in_match in include_query.matches(root_node):
+                statement_node: Optional[TSNODE_TYPE] = None
+                target_node: Optional[TSNODE_TYPE] = None
+                for capture_name, node in captures_in_match:
+                    if capture_name == "include_statement": statement_node = node
+                    elif capture_name == "include": target_node = node
+                if statement_node and target_node:
+                    target_module_string = get_node_text(target_node, content_bytes)
+                    if target_module_string and target_module_string.startswith(('"', '<')):
+                        target_module_string = target_module_string[1:-1]
+                    if target_module_string:
+                        start_line = statement_node.start_point[0] + 1
+                        import_key = (target_module_string, start_line)
+                        if import_key not in processed_directives:
+                            yield Relationship(source_id=file_id, target_id=target_module_string, type="IMPORTS")
+                            processed_directives.add(import_key)
+                            logger.debug(f"[{file_path}] Yielded IMPORTS relationship (include): {file_id} -> {target_module_string}")
 
             using_ns_query = self.queries.get("using_namespace")
             if using_ns_query:
@@ -236,7 +224,6 @@ class CppParser(BaseParser):
                     for capture_name, node in captures_in_match:
                         if capture_name == "using_statement": statement_node = node
                         elif capture_name == "name": target_node = node
-
                     if statement_node and target_node:
                         target_namespace = get_node_text(target_node, content_bytes)
                         if target_namespace:
@@ -250,7 +237,20 @@ class CppParser(BaseParser):
             using_alias_query = self.queries.get("using_alias")
             if using_alias_query:
                 logger.debug(f"[{file_path}] Running query 'using_alias'...")
-                pass
+                for match_id, captures_in_match in using_alias_query.matches(root_node):
+                    statement_node: Optional[TSNODE_TYPE] = None
+                    target_node: Optional[TSNODE_TYPE] = None
+                    for capture_name, node in captures_in_match:
+                        if capture_name == "using_statement": statement_node = node
+                        elif capture_name == "name": target_node = node
+                    if statement_node and target_node:
+                        alias_name = get_node_text(target_node, content_bytes)
+                        if alias_name:
+                            start_line = statement_node.start_point[0] + 1
+                            alias_key = (alias_name, start_line)
+                            if alias_key not in processed_directives:
+                                processed_directives.add(alias_key)
+                                logger.debug(f"[{file_path}] Processed 'using alias' for: {alias_name} (No relationship yielded)")
 
         except Exception as e:
-            logger.error(f"Failed to parse C++ file {file_path}: {e}", exc_info=True)
+            logger.error(f"Failed during detailed parsing of C++ file {file_path}: {e}", exc_info=True)

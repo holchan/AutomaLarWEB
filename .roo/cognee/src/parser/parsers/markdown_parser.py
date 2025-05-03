@@ -27,8 +27,8 @@ class MarkdownParser(BaseParser):
         super().__init__()
         if not MD_LOADED:
             logger.info("Mistune library not found. Markdown parsing using basic chunker.")
-        else:
-            logger.info("Mistune library found (but not used for entity extraction).")
+        # else: # No need to log if found but not used for entities
+        #     logger.info("Mistune library found (but not used for entity extraction).")
 
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[ParserOutput, None]:
@@ -69,12 +69,14 @@ class MarkdownParser(BaseParser):
 
             logger.debug(f"[{file_path}] Yielded {chunk_count} TextChunk nodes.")
 
-            if MD_LOADED and markdown_parser:
-                try:
-                    tokens = markdown_parser.parse(content)
-                    logger.debug(f"Successfully tokenized Markdown with Mistune for {file_path} (found {len(tokens)} tokens).")
-                except Exception as e:
-                    logger.error(f"Error during Mistune tokenization for {file_path}: {e}", exc_info=True)
+            # if MD_LOADED and markdown_parser:
+            #     try:
+            #         tokens = markdown_parser.parse(content)
+            #         logger.debug(f"Successfully tokenized Markdown with Mistune for {file_path} (found {len(tokens)} tokens).")
+            #     except Exception as e:
+            #         logger.error(f"Error during Mistune tokenization for {file_path}: {e}", exc_info=True)
+
+            # No CodeEntity or other Relationship extraction for Markdown currently
 
         except Exception as e:
             logger.error(f"Failed to parse Markdown file {file_path}: {e}", exc_info=True)

@@ -35,7 +35,7 @@ JAVASCRIPT_QUERIES = {
     "classes": """
         (class_declaration
             name: (identifier) @name
-            heritage: (extends_clause value: (_) @extends_name)? ;; Optional extends capture
+            heritage: (extends_clause value: (_) @extends_name)?
         ) @definition
         """
 }
@@ -43,7 +43,7 @@ JAVASCRIPT_QUERIES = {
 class JavascriptParser(BaseParser):
     """
     Parses JavaScript files (.js, .jsx), yielding TextChunk, CodeEntity (minimal),
-    and Relationship objects.
+    and Relationship objects. Skips file if prerequisites fail.
     """
     def __init__(self):
         """Initializes the JavascriptParser."""
@@ -64,23 +64,18 @@ class JavascriptParser(BaseParser):
             logger.error("JavaScript tree-sitter language not loaded.")
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[ParserOutput, None]:
-        """Parses a JavaScript file."""
+        """Parses a JavaScript file. Yields nothing if prerequisites fail."""
         required_queries = {"imports", "functions", "classes"}
-        if not self.parser or not self.language or not self.queries or not required_queries.issubset(self.queries.keys()):
-            logger.error(f"JavaScript parser prerequisites missing for {file_path}. Skipping detailed parsing.")
-            content_fallback = await read_file_content(file_path)
-            if content_fallback:
-                current_line = 1
-                for i, chunk_text in enumerate(basic_chunker(content_fallback)):
-                    if chunk_text.strip():
-                        chunk_start_line = current_line
-                        num_newlines = chunk_text.count('\n')
-                        chunk_end_line = chunk_start_line + num_newlines
-                        chunk_id = f"{file_id}:{i}"
-                        yield TextChunk(id=chunk_id, chunk_content=chunk_text, start_line=chunk_start_line, end_line=chunk_end_line)
-                        yield Relationship(source_id=file_id, target_id=chunk_id, type="CONTAINS_CHUNK")
-                        current_line = chunk_end_line + 1
+        prerequisites_met = (
+            self.parser and
+            self.language and
+            self.queries and
+            required_queries.issubset(self.queries.keys())
+        )
+        if not prerequisites_met:
+            logger.error(f"JavaScript parser prerequisites missing or core queries failed for {file_path}. SKIPPING detailed parsing for this file.")
             return
+
 
         content = await read_file_content(file_path)
         if content is None: return
@@ -113,9 +108,15 @@ class JavascriptParser(BaseParser):
             def find_chunk_for_node(node: TSNODE_TYPE) -> Optional[TextChunk]:
                 node_start_line = node.start_point[0] + 1
                 node_end_line = node.end_point[0] + 1
+                best_chunk = None
+                min_diff = float('inf')
                 for chunk in chunk_nodes:
                     if chunk.start_line <= node_start_line and chunk.end_line >= node_end_line:
-                        return chunk
+                        diff = node_start_line - chunk.start_line
+                        if diff < min_diff:
+                            min_diff = diff
+                            best_chunk = chunk
+                if best_chunk: return best_chunk
                 logger.warning(f"[{file_path}] Could not find containing chunk for node at lines {node_start_line}-{node_end_line}")
                 return None
 
@@ -127,8 +128,6 @@ class JavascriptParser(BaseParser):
 
             for query_name, entity_type_str in entity_configs:
                 query = self.queries.get(query_name)
-                if not query: continue
-
                 logger.debug(f"[{file_path}] Running query '{query_name}'...")
                 for match_id, captures_in_match in query.matches(root_node):
                     definition_node: Optional[TSNODE_TYPE] = None
@@ -150,25 +149,17 @@ class JavascriptParser(BaseParser):
 
                     if definition_node:
                         name = get_node_text(name_node, content_bytes) if name_node else "anonymous"
-                        if entity_type_str == "ClassDefinition" and not name_node: continue # Classes must have names
+                        if entity_type_str == "ClassDefinition" and not name_node: continue
 
                         snippet_content = get_node_text(definition_node, content_bytes)
                         if not snippet_content: continue
-
-                        start_line = definition_node.start_point[0] + 1
                         parent_chunk = find_chunk_for_node(definition_node)
                         if not parent_chunk: continue
-
                         chunk_id = parent_chunk.id
                         index_in_chunk = chunk_entity_counters[chunk_id][(entity_type_str, name)]
                         chunk_entity_counters[chunk_id][(entity_type_str, name)] += 1
                         code_entity_id = f"{chunk_id}:{entity_type_str}:{name}:{index_in_chunk}"
-
-                        code_entity = CodeEntity(
-                            id=code_entity_id,
-                            type=entity_type_str,
-                            snippet_content=snippet_content
-                        )
+                        code_entity = CodeEntity(id=code_entity_id, type=entity_type_str, snippet_content=snippet_content)
                         yield code_entity
                         yield Relationship(source_id=chunk_id, target_id=code_entity_id, type="CONTAINS_ENTITY")
 
@@ -179,32 +170,28 @@ class JavascriptParser(BaseParser):
                                 logger.debug(f"[{file_path}] Yielded EXTENDS: {name} -> {extends_name_str}")
 
             import_query = self.queries.get("imports")
-            if import_query:
-                processed_imports = set()
-                logger.debug(f"[{file_path}] Running query 'imports'...")
-                for match_id, captures_in_match in import_query.matches(root_node):
-                    statement_node: Optional[TSNODE_TYPE] = None
-                    target_node: Optional[TSNODE_TYPE] = None
+            processed_imports = set()
+            logger.debug(f"[{file_path}] Running query 'imports'...")
+            for match_id, captures_in_match in import_query.matches(root_node):
+                statement_node: Optional[TSNODE_TYPE] = None
+                target_node: Optional[TSNODE_TYPE] = None
+                for capture_name, node in captures_in_match:
+                    if capture_name == "import_statement": statement_node = node
+                    elif capture_name == "import_from": target_node = node
 
-                    for capture_name, node in captures_in_match:
-                        if capture_name == "import_statement": statement_node = node
-                        elif capture_name == "import_from": target_node = node
-
-                    if statement_node and target_node:
-                        target_module_string = get_node_text(target_node, content_bytes)
-                        if target_module_string and target_module_string.startswith(('"', "'")):
-                            target_module_string = target_module_string[1:-1]
-
-                        if target_module_string:
-                            start_line = statement_node.start_point[0] + 1
-                            import_key = (target_module_string, start_line)
-
-                            if import_key not in processed_imports:
-                                yield Relationship(source_id=file_id, target_id=target_module_string, type="IMPORTS")
-                                processed_imports.add(import_key)
-                                logger.debug(f"[{file_path}] Yielded IMPORTS relationship: {file_id} -> {target_module_string}")
-                        else:
-                            logger.warning(f"[{file_path}] Could not extract target module string from import/require statement at line {statement_node.start_point[0]+1}")
+                if statement_node and target_node:
+                    target_module_string = get_node_text(target_node, content_bytes)
+                    if target_module_string and target_module_string.startswith(('"', "'")):
+                        target_module_string = target_module_string[1:-1]
+                    if target_module_string:
+                        start_line = statement_node.start_point[0] + 1
+                        import_key = (target_module_string, start_line)
+                        if import_key not in processed_imports:
+                            yield Relationship(source_id=file_id, target_id=target_module_string, type="IMPORTS")
+                            processed_imports.add(import_key)
+                            logger.debug(f"[{file_path}] Yielded IMPORTS relationship: {file_id} -> {target_module_string}")
+                    else:
+                        logger.warning(f"[{file_path}] Could not extract target module string from import/require statement at line {statement_node.start_point[0]+1}")
 
         except Exception as e:
-            logger.error(f"Failed to parse JavaScript file {file_path}: {e}", exc_info=True)
+            logger.error(f"Failed during detailed parsing of JavaScript file {file_path}: {e}", exc_info=True)
