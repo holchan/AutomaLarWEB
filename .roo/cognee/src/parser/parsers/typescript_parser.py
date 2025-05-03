@@ -1,5 +1,5 @@
 from typing import AsyncGenerator, Optional, Dict, List, Any
-from ..entities import TextChunk, CodeEntity, Relationship, ParserOutput # Added ParserOutput for hinting
+from ..entities import TextChunk, CodeEntity, Relationship, ParserOutput
 from ..chunking import basic_chunker
 from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
 from .treesitter_setup import get_parser, get_language
@@ -10,9 +10,9 @@ TYPESCRIPT_QUERIES = {
         [
             (import_statement source: (string) @import_from) @import_statement
             (lexical_declaration
-              (variable_declarator
+            (variable_declarator
                 value: (call_expression function: (identifier) @_req arguments: (arguments (string) @import_from)))
-              (#match? @_req "^require$")
+            (#match? @_req "^require$")
             ) @import_statement
         ]
         """,
@@ -45,8 +45,8 @@ TYPESCRIPT_QUERIES = {
         """,
     "heritage_details": """
         [
-          (extends_clause value: [(identifier) (type_identifier) (generic_type)] @extends_name)
-          (implements_clause type: [(identifier) (type_identifier) (generic_type)] @implements_name)
+        (extends_clause value: [(identifier) (type_identifier) (generic_type)] @extends_name)
+        (implements_clause type: [(identifier) (type_identifier) (generic_type)] @implements_name)
         ]
     """
 }
@@ -68,8 +68,8 @@ class TypescriptParser(BaseParser):
                     self.queries[name] = self.language.query(query_str)
                 logger.info("TypeScript queries compiled successfully.")
             except Exception as e:
-                 logger.error(f"Failed to compile TypeScript queries: {e}", exc_info=True)
-                 self.queries = {}
+                logger.error(f"Failed to compile TypeScript queries: {e}", exc_info=True)
+                self.queries = {}
         else:
             logger.error("TypeScript tree-sitter language not loaded.")
 
@@ -126,7 +126,7 @@ class TypescriptParser(BaseParser):
                             if entity_start_line <= chunk.end_line:
                                 best_chunk = chunk
                     elif best_chunk is not None:
-                         break
+                        break
                 return best_chunk
 
             entity_configs = [
@@ -204,8 +204,8 @@ class TypescriptParser(BaseParser):
                         if target_module and target_module.startswith(('"', "'")):
                             target_module = target_module[1:-1]
                     else:
-                         logger.debug(f"Import statement without explicit source at {file_path}:{statement_node.start_point[0]+1}")
-                         continue
+                        logger.debug(f"Import statement without explicit source at {file_path}:{statement_node.start_point[0]+1}")
+                        continue
                     start_line = statement_node.start_point[0] + 1
                     import_key = (target_module, start_line)
 

@@ -4,7 +4,7 @@ from typing import AsyncGenerator, List
 import os
 
 from .base_parser import BaseParser
-from ..entities import TextChunk, Relationship, ParserOutput
+from ..entities import TextChunk, CodeEntity, Relationship, ParserOutput
 from ..chunking import basic_chunker
 from ..utils import read_file_content, logger
 
