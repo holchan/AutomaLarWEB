@@ -1,56 +1,38 @@
 # src/parser/parsers/markdown_parser.py
-from pydantic import BaseModel # Import BaseModel for type hinting
-from typing import AsyncGenerator
+from pydantic import BaseModel
+from typing import AsyncGenerator, List
+import os
+
 from .base_parser import BaseParser
-from ..entities import TextChunk # Removed DataPoint import
+from ..entities import TextChunk, Relationship, ParserOutput
 from ..chunking import basic_chunker
 from ..utils import read_file_content, logger
 
-# Attempt to import mistune for more advanced parsing (optional)
 try:
     import mistune
     MD_LOADED = True
-    # You could configure mistune plugins here if needed
-    # markdown_parser = mistune.create_markdown(renderer=None, plugins=[...])
-    markdown_parser = mistune.create_markdown(renderer=None) # Basic block tokenizer
+    markdown_parser = mistune.create_markdown(renderer=None)
 except ImportError:
     MD_LOADED = False
     markdown_parser = None
 
 class MarkdownParser(BaseParser):
     """
-    Parses Markdown files (.md, .mdx) and yields TextChunk entities.
-
-    This parser primarily uses the `basic_chunker` to break down Markdown
-    content into manageable text segments. It includes optional support for
-    the `mistune` library for potential future extraction of structured
-    Markdown elements (like headings, code blocks), although this advanced
-    parsing is not fully implemented yet.
-
-    Inherits from BaseParser.
+    Parses Markdown files (.md, .mdx), yielding TextChunk nodes and
+    CONTAINS_CHUNK relationships. Does not perform detailed AST parsing.
     """
 
     def __init__(self):
         """Initializes the MarkdownParser."""
         super().__init__()
         if not MD_LOADED:
-            logger.info("Mistune library not found. Markdown parsing will rely solely on basic chunking.")
+            logger.info("Mistune library not found. Markdown parsing using basic chunker.")
+        else:
+            logger.info("Mistune library found (but not used for entity extraction).")
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
-        """
-        Parses a Markdown file, yielding TextChunk entities.
 
-        Reads the file content, chunks it using `basic_chunker`, and yields
-        a `TextChunk` entity for each non-empty chunk.
-
-        Args:
-            file_path: The absolute path to the Markdown file to be parsed.
-            file_id: The unique ID of the SourceFile entity corresponding to this file.
-
-        Yields:
-            BaseModel objects (specifically TextChunk) representing segments of the Markdown content.
-            May yield other BaseModel types in the future if advanced parsing is enabled.
-        """
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[ParserOutput, None]:
+        """Parses a Markdown file into TextChunks."""
         logger.debug(f"Parsing Markdown file: {file_path}")
         content = await read_file_content(file_path)
         if content is None:
@@ -58,27 +40,39 @@ class MarkdownParser(BaseParser):
             return
 
         try:
-            # 1. Yield Chunks using the basic chunker
-            chunks = basic_chunker(content)
-            for i, chunk_text in enumerate(chunks):
-                if not chunk_text.strip(): continue
-                chunk_id_str = f"{file_id}:chunk:{i}"
-                yield TextChunk(chunk_id_str=chunk_id_str, parent_id=file_id, text=chunk_text, chunk_index=i)
+            chunks_data = basic_chunker(content)
+            current_line = 1
+            chunk_count = 0
+            for i, chunk_text in enumerate(chunks_data):
+                if not chunk_text.strip():
+                    num_newlines = chunk_text.count('\n')
+                    current_line += num_newlines
+                    continue
 
-            # 2. Optional: Advanced parsing with Mistune (if loaded)
-            # This could yield specific entities like headings, code blocks, tables etc.
-            # For now, we primarily rely on the chunks above.
+                chunk_start_line = current_line
+                num_newlines = chunk_text.count('\n')
+                chunk_end_line = chunk_start_line + num_newlines
+
+                chunk_id = f"{file_id}:{i}"
+                chunk_node = TextChunk(
+                    id=chunk_id,
+                    start_line=chunk_start_line,
+                    end_line=chunk_end_line,
+                    chunk_content=chunk_text
+                )
+                yield chunk_node
+                chunk_count += 1
+
+                yield Relationship(source_id=file_id, target_id=chunk_id, type="CONTAINS_CHUNK")
+
+                current_line = chunk_end_line + 1
+
+            logger.debug(f"[{file_path}] Yielded {chunk_count} TextChunk nodes.")
+
             if MD_LOADED and markdown_parser:
                 try:
                     tokens = markdown_parser.parse(content)
-                    # Example: Iterate tokens and potentially yield structured data
-                    # for token in tokens:
-                    #     if token['type'] == 'heading':
-                    #         # yield HeadingEntity(...)
-                    #     elif token['type'] == 'block_code':
-                    #         # yield CodeBlockEntity(...)
                     logger.debug(f"Successfully tokenized Markdown with Mistune for {file_path} (found {len(tokens)} tokens).")
-                    # Currently not yielding specific entities from tokens, just chunking.
                 except Exception as e:
                     logger.error(f"Error during Mistune tokenization for {file_path}: {e}", exc_info=True)
 

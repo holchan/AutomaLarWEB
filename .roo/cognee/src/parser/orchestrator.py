@@ -96,8 +96,6 @@ async def process_repository(repo_path: str, repo_id: str, concurrency_limit: in
             file_node = SourceFile(
                 id=file_id,
                 file_path=file_path,
-                relative_path=relative_path,
-                file_type=file_type
             )
             file_rel = Relationship(source_id=repo_id, target_id=file_id, type="CONTAINS_FILE")
             file_nodes_to_yield.append((file_node, file_rel))

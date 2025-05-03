@@ -1,14 +1,14 @@
 # src/parser/parsers/c_parser.py
-from pydantic import BaseModel # Import BaseModel for type hinting
-from typing import AsyncGenerator, Optional
+from pydantic import BaseModel
+from typing import AsyncGenerator, Optional, List, Dict
+from collections import defaultdict
+
 from .base_parser import BaseParser
-from pydantic import BaseModel # Import BaseModel for type hinting
-from ..entities import TextChunk, CodeEntity, Dependency # Removed DataPoint import
+from ..entities import TextChunk, CodeEntity, Relationship, ParserOutput
 from ..chunking import basic_chunker
 from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
 from .treesitter_setup import get_parser, get_language
 
-# Define Tree-sitter queries for C
 C_QUERIES = {
     "includes": """
         (preproc_include path: [(string_literal) (system_lib_string)] @include) @include_statement
@@ -27,85 +27,97 @@ C_QUERIES = {
         (enum_specifier name: (type_identifier) @name) @definition
         """,
     "typedefs": """
-        (type_definition type: (_) declarator: (type_identifier) @name) @definition
+        (type_definition declarator: (type_identifier) @name) @definition
         """,
-    # Could add macros, global variables etc.
 }
 
 class CParser(BaseParser):
     """
-    Parses C files (.c, .h) using Tree-sitter to extract code entities and dependencies.
-
-    This parser identifies functions, structs, unions, enums, typedefs, and
-    include directives within C source code. It also utilizes the `basic_chunker`
-    to break down the file content into text segments.
-
-    Inherits from BaseParser.
+    Parses C files (.c, .h), yielding TextChunk, CodeEntity (minimal),
+    and Relationship objects.
     """
 
     def __init__(self):
-        """Initializes the CParser and loads the Tree-sitter language and queries."""
+        """Initializes the CParser."""
         super().__init__()
         self.language = get_language("c")
         self.parser = get_parser("c")
         self.queries = {}
         if self.language:
-            logger.info("Attempting to compile C queries one by one...")
+            logger.info("Compiling C Tree-sitter queries...")
             try:
                 for name, query_str in C_QUERIES.items():
-                    logger.info(f"Compiling C query: {name}")
                     self.queries[name] = self.language.query(query_str)
-                    logger.info(f"Successfully compiled C query: {name}")
-                logger.info("Finished compiling all C queries.")
+                logger.info("C queries compiled successfully.")
             except Exception as e:
-                 # Log error AND potentially stop further compilation if one fails
-                 logger.error(f"Failed to compile C query '{name}': {e}", exc_info=True)
-                 # Optionally re-raise or clear self.queries to indicate failure
-                 # self.queries = {} # Clear queries if any fail
+                logger.error(f"Failed to compile C queries: {e}", exc_info=True)
+                self.queries = {}
         else:
-            logger.error("C tree-sitter language not loaded. C parsing will be limited.")
+            logger.error("C tree-sitter language not loaded.")
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
-        """
-        Parses a C file, yielding TextChunks, CodeEntities (functions, structs,
-        unions, enums, typedefs), and Dependencies (includes).
-
-        Reads the file content, uses Tree-sitter to build an AST, and queries the
-        AST to extract relevant code structures and dependencies. It also generates
-        text chunks from the file content.
-
-        Args:
-            file_path: The absolute path to the C file to be parsed.
-            file_id: The unique ID of the SourceFile entity corresponding to this file.
-
-        Yields:
-            BaseModel objects: TextChunk, CodeEntity (FunctionDefinition, StructDefinition,
-            UnionDefinition, EnumDefinition, TypeDefinition), and Dependency entities
-            extracted from the file.
-        """
-        if not self.parser or not self.language or not self.queries:
-            logger.error(f"C parser not available or queries failed compilation, skipping parsing for {file_path}")
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[ParserOutput, None]:
+        """Parses a C file."""
+        required_queries = {"includes", "functions"}
+        if not self.parser or not self.language or not self.queries or not required_queries.issubset(self.queries.keys()):
+            logger.error(f"C parser prerequisites missing for {file_path}. Skipping detailed parsing.")
+            content_fallback = await read_file_content(file_path)
+            if content_fallback:
+                current_line = 1
+                for i, chunk_text in enumerate(basic_chunker(content_fallback)):
+                    if chunk_text.strip():
+                        chunk_start_line = current_line
+                        num_newlines = chunk_text.count('\n')
+                        chunk_end_line = chunk_start_line + num_newlines
+                        chunk_id = f"{file_id}:{i}"
+                        yield TextChunk(id=chunk_id, chunk_content=chunk_text, start_line=chunk_start_line, end_line=chunk_end_line)
+                        yield Relationship(source_id=file_id, target_id=chunk_id, type="CONTAINS_CHUNK")
+                        current_line = chunk_end_line + 1
             return
 
         content = await read_file_content(file_path)
-        if content is None:
-            logger.error(f"Could not read content from {file_path}")
-            return
+        if content is None: return
 
         try:
             content_bytes = bytes(content, "utf8")
             tree = self.parser.parse(content_bytes)
             root_node = tree.root_node
 
-            # 1. Yield Chunks
-            chunks = basic_chunker(content)
-            for i, chunk_text in enumerate(chunks):
-                if not chunk_text.strip(): continue
-                chunk_id_str = f"{file_id}:chunk:{i}"
-                yield TextChunk(chunk_id_str=chunk_id_str, parent_id=file_id, text=chunk_text, chunk_index=i)
+            chunks_data = basic_chunker(content)
+            chunk_nodes: List[TextChunk] = []
+            current_line = 1
+            for i, chunk_text in enumerate(chunks_data):
+                if not chunk_text.strip():
+                    num_newlines = chunk_text.count('\n')
+                    current_line += num_newlines
+                    continue
 
-            logger.debug(f"C Parser: Checking Code Entities for {file_path}")
-            # 2. Yield Code Entities (Functions, Structs, Unions, Enums, Typedefs)
+                chunk_start_line = current_line
+                num_newlines = chunk_text.count('\n')
+                chunk_end_line = chunk_start_line + num_newlines
+
+                chunk_id = f"{file_id}:{i}"
+                chunk_node = TextChunk(
+                    id=chunk_id,
+                    start_line=chunk_start_line,
+                    end_line=chunk_end_line,
+                    chunk_content=chunk_text
+                )
+                yield chunk_node
+                chunk_nodes.append(chunk_node)
+                yield Relationship(source_id=file_id, target_id=chunk_id, type="CONTAINS_CHUNK")
+                current_line = chunk_end_line + 1
+
+            logger.debug(f"[{file_path}] Yielded {len(chunk_nodes)} TextChunk nodes.")
+
+            def find_chunk_for_node(node: TSNODE_TYPE) -> Optional[TextChunk]:
+                node_start_line = node.start_point[0] + 1
+                node_end_line = node.end_point[0] + 1
+                for chunk in chunk_nodes:
+                    if chunk.start_line <= node_start_line and chunk.end_line >= node_end_line:
+                        return chunk
+                logger.warning(f"[{file_path}] Could not find containing chunk for node at lines {node_start_line}-{node_end_line}")
+                return None
+
             entity_configs = [
                 ("functions", "FunctionDefinition"),
                 ("structs", "StructDefinition"),
@@ -113,72 +125,71 @@ class CParser(BaseParser):
                 ("enums", "EnumDefinition"),
                 ("typedefs", "TypeDefinition"),
             ]
+            chunk_entity_counters = defaultdict(lambda: defaultdict(int))
 
-            for query_name, entity_class_name in entity_configs:
-                if query_name in self.queries:
-                    query = self.queries[query_name]
-                    logger.debug(f"Executing C query '{query_name}'...")
-                    for capture in query.captures(root_node):
-                        node_type = capture[1]
-                        node = capture[0]
+            for query_name, entity_type_str in entity_configs:
+                query = self.queries.get(query_name)
+                if not query: continue
 
-                        if node_type == "definition":
-                            name_node: Optional[TSNODE_TYPE] = None
-                            for child_capture in query.captures(node):
-                                if child_capture[1] == "name":
-                                    name_node = child_capture[0]
-                                    break
+                logger.debug(f"[{file_path}] Running query '{query_name}'...")
+                for match_id, captures_in_match in query.matches(root_node):
+                    definition_node: Optional[TSNODE_TYPE] = None
+                    name_node: Optional[TSNODE_TYPE] = None
 
-                            if name_node:
-                                name = get_node_text(name_node, content_bytes)
-                                entity_text = get_node_text(node, content_bytes)
-                                start_line = node.start_point[0] + 1
-                                end_line = node.end_point[0] + 1
+                    for capture_name, node in captures_in_match:
+                        if capture_name == "definition": definition_node = node
+                        elif capture_name == "name": name_node = node
 
-                                if name and entity_text:
-                                    entity_id_str = f"{file_id}:{name}:{start_line}"
-                                    logger.debug(f"Yielding C CodeEntity: {entity_class_name} - {name}")
-                                    # Instantiate with string parent_id
-                                    yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
-                                else:
-                                     logger.warning(f"Could not extract name or text for C {entity_class_name} at {file_path}:{start_line}")
+                    if definition_node and name_node:
+                        name = get_node_text(name_node, content_bytes)
+                        if not name: continue
+                        snippet_content = get_node_text(definition_node, content_bytes)
+                        if not snippet_content: continue
 
-            # 3. Yield Dependencies (Includes)
-            if "includes" in self.queries:
-                include_query = self.queries["includes"]
-                processed_includes = set()
-                logger.debug("Executing C query 'includes'...")
-                for capture in include_query.captures(root_node):
-                    node_type = capture[1]
-                    node = capture[0] # The preproc_include node
+                        start_line = definition_node.start_point[0] + 1
+                        parent_chunk = find_chunk_for_node(definition_node)
+                        if not parent_chunk: continue
 
-                    if node_type == "include_statement":
-                        target_node: Optional[TSNODE_TYPE] = None
-                        for child_capture in include_query.captures(node):
-                             if child_capture[1] == "include":
-                                 target_node = child_capture[0]
-                                 break
+                        chunk_id = parent_chunk.id
+                        index_in_chunk = chunk_entity_counters[chunk_id][(entity_type_str, name)]
+                        chunk_entity_counters[chunk_id][(entity_type_str, name)] += 1
+                        code_entity_id = f"{chunk_id}:{entity_type_str}:{name}:{index_in_chunk}"
 
-                        if target_node:
-                            target = get_node_text(target_node, content_bytes)
-                            # Clean quotes or angle brackets
-                            if target and target.startswith(('"', '<')):
-                                target = target[1:-1]
+                        code_entity = CodeEntity(
+                            id=code_entity_id,
+                            type=entity_type_str,
+                            snippet_content=snippet_content
+                        )
+                        yield code_entity
+                        yield Relationship(source_id=chunk_id, target_id=code_entity_id, type="CONTAINS_ENTITY")
 
-                            snippet = get_node_text(node, content_bytes)
-                            start_line = node.start_point[0] + 1
-                            end_line = node.end_point[0] + 1
+            include_query = self.queries.get("includes")
+            if include_query:
+                processed_imports = set()
+                logger.debug(f"[{file_path}] Running query 'includes'...")
+                for match_id, captures_in_match in include_query.matches(root_node):
+                    statement_node: Optional[TSNODE_TYPE] = None
+                    target_node: Optional[TSNODE_TYPE] = None
 
-                            include_key = (target, start_line)
-                            if target and snippet and include_key not in processed_includes:
-                                dep_id_str = f"{file_id}:dep:{target}:{start_line}"
-                                logger.debug(f"Yielding C Dependency: {target}")
-                                # Instantiate with string parent_id
-                                yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
-                                processed_includes.add(include_key)
-                            elif not target:
-                                 logger.warning(f"Could not determine C include target at {file_path}:{start_line}")
+                    for capture_name, node in captures_in_match:
+                        if capture_name == "include_statement": statement_node = node
+                        elif capture_name == "include": target_node = node
 
+                    if statement_node and target_node:
+                        target_module_string = get_node_text(target_node, content_bytes)
+                        if target_module_string and target_module_string.startswith(('"', '<')):
+                            target_module_string = target_module_string[1:-1]
+
+                        if target_module_string:
+                            start_line = statement_node.start_point[0] + 1
+                            import_key = (target_module_string, start_line)
+
+                            if import_key not in processed_imports:
+                                yield Relationship(source_id=file_id, target_id=target_module_string, type="IMPORTS")
+                                processed_imports.add(import_key)
+                                logger.debug(f"[{file_path}] Yielded IMPORTS relationship: {file_id} -> {target_module_string}")
+                        else:
+                            logger.warning(f"[{file_path}] Could not extract target module string from include statement at line {statement_node.start_point[0]+1}")
 
         except Exception as e:
             logger.error(f"Failed to parse C file {file_path}: {e}", exc_info=True)

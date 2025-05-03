@@ -1,4 +1,14 @@
-# Define Tree-sitter queries for C++
+# src/parser/parsers/cpp_parser.py
+from pydantic import BaseModel
+from typing import AsyncGenerator, Optional, List, Dict, Any
+from collections import defaultdict
+
+from .base_parser import BaseParser
+from ..entities import TextChunk, CodeEntity, Relationship, ParserOutput
+from ..chunking import basic_chunker
+from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
+from .treesitter_setup import get_parser, get_language
+
 CPP_QUERIES = {
     "includes": """
         (preproc_include path: [(string_literal) (system_lib_string)] @include) @include_statement
@@ -6,105 +16,138 @@ CPP_QUERIES = {
     "functions": """
         (function_definition
             declarator: [
-                (function_declarator declarator: (identifier) @name) ;; Standard function
-                (function_declarator declarator: (field_identifier) @name) ;; Member function
-                (function_declarator declarator: (operator_name) @name) ;; Operator overload
-                (destructor_name) @name ;; Destructor name
+                (function_declarator declarator: (identifier) @name)
+                (function_declarator declarator: (field_identifier) @name)
+                (function_declarator declarator: (operator_name) @name)
+                (destructor_name) @name
             ]
         ) @definition
         """,
     "classes": """
-        (class_specifier name: [(type_identifier) (identifier)] @name) @definition
+        (class_specifier
+            name: [(type_identifier) (identifier)] @name
+            base_clause: (base_clause)? @heritage
+        ) @definition
         """,
     "structs": """
-        (struct_specifier name: [(type_identifier) (identifier)] @name) @definition
+        (struct_specifier
+            name: [(type_identifier) (identifier)] @name
+            base_clause: (base_clause)? @heritage
+        ) @definition
         """,
-    # --- CORRECTED NAMESPACE QUERY ---
     "namespaces": """
         (namespace_definition name: (identifier) @name) @definition
-        ;; Note: Nested namespaces might require additional handling or a different query if just 'identifier' isn't enough.
         """,
-    # --- CORRECTED ENUM QUERY ---
     "enums": """
         [
-         (enum_specifier name: [(type_identifier) (identifier)] @name) @definition ;; Normal enum
-         (enum_specifier class name: [(type_identifier) (identifier)] @name) @definition ;; Enum class
+            (enum_specifier name: [(type_identifier) (identifier)] @name) @definition
+            (enum_specifier class name: [(type_identifier) (identifier)] @name) @definition
         ]
         """,
     "typedefs": """
-        (type_definition type: (_) declarator: [(type_identifier)(identifier)] @name) @definition
+        (type_definition declarator: [(type_identifier)(identifier)] @name) @definition
         """,
-    "using": """
-        (using_declaration) @using_statement
+    "using_namespace": """
+        (using_declaration "namespace" name: [(identifier)(nested_namespace_specifier)] @name) @using_statement
+        """,
+    "using_alias": """
+        (alias_declaration name: (type_identifier) @name) @using_statement ;; using MyInt = int;
+        """,
+    "heritage_details": """
+        (base_specifier name: [(identifier)(type_identifier)(qualified_identifier)] @extends_name)
         """
-    # Add using namespace directive capture if needed:
-    # "using_namespace": """
-    #     (namespace_alias_definition name: (identifier) @name) @using_statement ;; using ns = std;
-    #     (using_declaration "namespace" [(identifier)(nested_namespace_specifier)] @name) @using_statement ;; using namespace std; - needs grammar check
-    # """
 }
 
 class CppParser(BaseParser):
+    """
+    Parses C++ files (.cpp, .hpp), yielding TextChunk, CodeEntity (minimal),
+    and Relationship objects.
+    """
     def __init__(self):
+        """Initializes the CppParser."""
         super().__init__()
         self.language = get_language("cpp")
         self.parser = get_parser("cpp")
         self.queries = {}
         if self.language:
-            logger.info("Attempting to compile C++ queries one by one...") # Changed log
-            failed_queries = []
-            for name, query_str in CPP_QUERIES.items():
-                # print(f"DEBUG: Compiling C++ query: {name}") # Keep for debugging if needed
-                try:
+            logger.info("Compiling C++ Tree-sitter queries...")
+            try:
+                for name, query_str in CPP_QUERIES.items():
                     self.queries[name] = self.language.query(query_str)
-                    logger.debug(f"Successfully compiled C++ query: {name}")
-                    # print(f"DEBUG: Successfully compiled C++ query: {name}") # Keep for debugging
-                except Exception as e:
-                    logger.error(f"Failed to compile C++ query '{name}': {e}", exc_info=True)
-                    # print(f"DEBUG: FAILED to compile C++ query '{name}': {e}") # Keep for debugging
-                    failed_queries.append(name)
-
-            if not failed_queries:
-                logger.info("Successfully compiled ALL C++ queries.")
-            else:
-                logger.error(f"Failed to compile the following C++ queries: {', '.join(failed_queries)}. C++ parsing will be limited.")
-                # --- IMPORTANT: Clear queries ONLY if errors make parsing impossible ---
-                # Decide based on which queries failed. If core queries fail, clear.
-                # If only minor ones fail, maybe allow proceeding with limited parsing.
-                # For now, let's clear if *any* fail, as the tests expect specific entities.
-                self.queries = {} # Clear queries if ANY failed
+                logger.info("C++ queries compiled successfully.")
+            except Exception as e:
+                logger.error(f"Failed to compile C++ queries: {e}", exc_info=True)
+                self.queries = {}
         else:
-            logger.error("C++ tree-sitter language not loaded. C++ parsing will be limited.")
+            logger.error("C++ tree-sitter language not loaded.")
 
-    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[BaseModel, None]: # Use BaseModel hint
-        # -- This guard clause prevents execution if queries failed compilation --
-        if not self.parser or not self.language or not self.queries:
-            logger.error(f"C++ parser not available or core queries failed compilation, skipping parsing for {file_path}")
-            # Optional: Yield basic chunks even if detailed parsing fails
-            # content_fallback = await read_file_content(file_path)
-            # if content_fallback:
-            #    for i, chunk_text in enumerate(basic_chunker(content_fallback)):
-            #        if chunk_text.strip(): yield TextChunk(f"{file_id}:chunk:{i}", file_id, chunk_text, i)
-            return # Exit if queries aren't ready
+    def _extract_list_details(self, query: Any, node: TSNODE_TYPE, capture_name: str, content_bytes: bytes) -> List[str]:
+        """Helper to find all instances of a capture within a node."""
+        details = []
+        if not query or not node: return details
+        for captured_node, captured_node_name in query.captures(node):
+            if captured_node_name == capture_name:
+                text = get_node_text(captured_node, content_bytes)
+                if text:
+                    details.append(text)
+        return details
+
+    async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[ParserOutput, None]:
+        """Parses a C++ file."""
+        required_queries = {"includes", "functions", "classes", "structs", "heritage_details"}
+        if not self.parser or not self.language or not self.queries or not required_queries.issubset(self.queries.keys()):
+            logger.error(f"C++ parser prerequisites missing for {file_path}. Skipping detailed parsing.")
+            content_fallback = await read_file_content(file_path)
+            if content_fallback:
+                current_line = 1
+                for i, chunk_text in enumerate(basic_chunker(content_fallback)):
+                    if chunk_text.strip():
+                        chunk_start_line = current_line
+                        num_newlines = chunk_text.count('\n')
+                        chunk_end_line = chunk_start_line + num_newlines
+                        chunk_id = f"{file_id}:{i}"
+                        yield TextChunk(id=chunk_id, chunk_content=chunk_text, start_line=chunk_start_line, end_line=chunk_end_line)
+                        yield Relationship(source_id=file_id, target_id=chunk_id, type="CONTAINS_CHUNK")
+                        current_line = chunk_end_line + 1
+            return
 
         content = await read_file_content(file_path)
-        if content is None:
-            logger.error(f"Could not read content from {file_path}")
-            return
+        if content is None: return
 
         try:
             content_bytes = bytes(content, "utf8")
             tree = self.parser.parse(content_bytes)
             root_node = tree.root_node
 
-            # 1. Yield Chunks
-            chunks = basic_chunker(content)
-            for i, chunk_text in enumerate(chunks):
-                if not chunk_text.strip(): continue
-                chunk_id_str = f"{file_id}:chunk:{i}"
-                yield TextChunk(chunk_id_str=chunk_id_str, parent_id=file_id, text=chunk_text, chunk_index=i)
+            chunks_data = basic_chunker(content)
+            chunk_nodes: List[TextChunk] = []
+            current_line = 1
+            for i, chunk_text in enumerate(chunks_data):
+                if not chunk_text.strip():
+                    num_newlines = chunk_text.count('\n')
+                    current_line += num_newlines
+                    continue
+                chunk_start_line = current_line
+                num_newlines = chunk_text.count('\n')
+                chunk_end_line = chunk_start_line + num_newlines
+                chunk_id = f"{file_id}:{i}"
+                chunk_node = TextChunk(id=chunk_id, start_line=chunk_start_line, end_line=chunk_end_line, chunk_content=chunk_text)
+                yield chunk_node
+                chunk_nodes.append(chunk_node)
+                yield Relationship(source_id=file_id, target_id=chunk_id, type="CONTAINS_CHUNK")
+                current_line = chunk_end_line + 1
 
-            # 2. Yield Code Entities (Functions, Classes, Structs, Namespaces, Enums, Typedefs)
+            logger.debug(f"[{file_path}] Yielded {len(chunk_nodes)} TextChunk nodes.")
+
+            def find_chunk_for_node(node: TSNODE_TYPE) -> Optional[TextChunk]:
+                node_start_line = node.start_point[0] + 1
+                node_end_line = node.end_point[0] + 1
+                for chunk in chunk_nodes:
+                    if chunk.start_line <= node_start_line and chunk.end_line >= node_end_line:
+                        return chunk
+                logger.warning(f"[{file_path}] Could not find containing chunk for node at lines {node_start_line}-{node_end_line}")
+                return None
+
             entity_configs = [
                 ("functions", "FunctionDefinition"),
                 ("classes", "ClassDefinition"),
@@ -113,108 +156,101 @@ class CppParser(BaseParser):
                 ("enums", "EnumDefinition"),
                 ("typedefs", "TypeDefinition"),
             ]
+            chunk_entity_counters = defaultdict(lambda: defaultdict(int))
+            heritage_detail_query = self.queries.get("heritage_details")
 
-            for query_name, entity_class_name in entity_configs:
-                if query_name in self.queries:
-                    query = self.queries[query_name]
-                    logger.debug(f"Executing C++ query '{query_name}' for {file_path}")
-                    # Use query.matches() for safer capture handling
-                    for match_id, captures_in_match in query.matches(root_node):
-                        definition_node: Optional[TSNODE_TYPE] = None
-                        name_node: Optional[TSNODE_TYPE] = None
+            for query_name, entity_type_str in entity_configs:
+                query = self.queries.get(query_name)
+                if not query: continue
 
-                        for capture_name, node in captures_in_match:
-                            if capture_name == "definition":
-                                definition_node = node
-                            elif capture_name == "name":
-                                name_node = node
-                            # Break early if we found both for efficiency? Optional.
+                logger.debug(f"[{file_path}] Running query '{query_name}'...")
+                for match_id, captures_in_match in query.matches(root_node):
+                    definition_node: Optional[TSNODE_TYPE] = None
+                    name_node: Optional[TSNODE_TYPE] = None
+                    heritage_node: Optional[TSNODE_TYPE] = None
 
-                        if definition_node and name_node:
-                            name = get_node_text(name_node, content_bytes)
-                            entity_text = get_node_text(definition_node, content_bytes)
-                            start_line = definition_node.start_point[0] + 1
-                            end_line = definition_node.end_point[0] + 1
+                    for capture_name, node in captures_in_match:
+                        if capture_name == "definition": definition_node = node
+                        elif capture_name == "name": name_node = node
+                        elif capture_name == "heritage": heritage_node = node
 
-                            if name and entity_text:
-                                entity_id_str = f"{file_id}:{entity_class_name}:{name}:{start_line}"
-                                logger.debug(f"Yielding C++ CodeEntity: {entity_class_name} - {name}")
-                                yield CodeEntity(entity_id_str, entity_class_name, name, file_id, entity_text, start_line, end_line)
-                            else:
-                                 logger.warning(f"Could not extract name or text for C++ {entity_class_name} at {file_path}:{start_line}")
-                        # Log if a definition was found but name wasn't captured in the same match
-                        elif definition_node and not name_node:
-                            logger.warning(f"Found C++ {entity_class_name} definition node but no name node in match at {file_path}:{definition_node.start_point[0]+1}")
+                    if definition_node and name_node:
+                        name = get_node_text(name_node, content_bytes)
+                        if not name: continue
+                        snippet_content = get_node_text(definition_node, content_bytes)
+                        if not snippet_content: continue
 
+                        start_line = definition_node.start_point[0] + 1
+                        parent_chunk = find_chunk_for_node(definition_node)
+                        if not parent_chunk: continue
 
-            # 3. Yield Dependencies (Includes, Using)
-            processed_statements = set() # Use start line to avoid duplicates
+                        chunk_id = parent_chunk.id
+                        index_in_chunk = chunk_entity_counters[chunk_id][(entity_type_str, name)]
+                        chunk_entity_counters[chunk_id][(entity_type_str, name)] += 1
+                        code_entity_id = f"{chunk_id}:{entity_type_str}:{name}:{index_in_chunk}"
 
-            # Includes
-            if "includes" in self.queries:
-                include_query = self.queries["includes"]
-                logger.debug(f"Executing C++ query 'includes' for {file_path}")
+                        code_entity = CodeEntity(
+                            id=code_entity_id,
+                            type=entity_type_str,
+                            snippet_content=snippet_content
+                        )
+                        yield code_entity
+                        yield Relationship(source_id=chunk_id, target_id=code_entity_id, type="CONTAINS_ENTITY")
+
+                        if entity_type_str in ["ClassDefinition", "StructDefinition"] and heritage_node and heritage_detail_query:
+                            extends_names = self._extract_list_details(heritage_detail_query, heritage_node, "extends_name", content_bytes)
+                            for parent_name in extends_names:
+                                yield Relationship(source_id=code_entity_id, target_id=parent_name, type="EXTENDS")
+                                logger.debug(f"[{file_path}] Yielded EXTENDS: {name} -> {parent_name}")
+            processed_directives = set()
+
+            include_query = self.queries.get("includes")
+            if include_query:
+                logger.debug(f"[{file_path}] Running query 'includes'...")
                 for match_id, captures_in_match in include_query.matches(root_node):
                     statement_node: Optional[TSNODE_TYPE] = None
-                    include_node: Optional[TSNODE_TYPE] = None
+                    target_node: Optional[TSNODE_TYPE] = None
                     for capture_name, node in captures_in_match:
                         if capture_name == "include_statement": statement_node = node
-                        elif capture_name == "include": include_node = node
+                        elif capture_name == "include": target_node = node
 
-                    if statement_node and include_node:
-                        start_line = statement_node.start_point[0] + 1
-                        if start_line in processed_statements: continue
+                    if statement_node and target_node:
+                        target_module_string = get_node_text(target_node, content_bytes)
+                        if target_module_string and target_module_string.startswith(('"', '<')):
+                            target_module_string = target_module_string[1:-1]
 
-                        target = get_node_text(include_node, content_bytes)
-                        if target and target.startswith(('"', '<')): target = target[1:-1] # Clean quotes/brackets
-                        snippet = get_node_text(statement_node, content_bytes)
-                        end_line = statement_node.end_point[0] + 1
+                        if target_module_string:
+                            start_line = statement_node.start_point[0] + 1
+                            import_key = (target_module_string, start_line)
+                            if import_key not in processed_directives:
+                                yield Relationship(source_id=file_id, target_id=target_module_string, type="IMPORTS")
+                                processed_directives.add(import_key)
+                                logger.debug(f"[{file_path}] Yielded IMPORTS relationship (include): {file_id} -> {target_module_string}")
 
-                        if target and snippet:
-                            dep_id_str = f"{file_id}:dep:include:{target}:{start_line}"
-                            logger.debug(f"Yielding C++ Include Dependency: {target}")
-                            yield Dependency(dep_id_str, file_id, target, snippet, start_line, end_line)
-                            processed_statements.add(start_line)
-                        else:
-                            logger.warning(f"Could not extract target or snippet for C++ include at {file_path}:{start_line}")
+            using_ns_query = self.queries.get("using_namespace")
+            if using_ns_query:
+                logger.debug(f"[{file_path}] Running query 'using_namespace'...")
+                for match_id, captures_in_match in using_ns_query.matches(root_node):
+                    statement_node: Optional[TSNODE_TYPE] = None
+                    target_node: Optional[TSNODE_TYPE] = None
+                    for capture_name, node in captures_in_match:
+                        if capture_name == "using_statement": statement_node = node
+                        elif capture_name == "name": target_node = node
 
-            # Using directives (add logic if query exists and is compiled)
-            if "using" in self.queries:
-                 using_query = self.queries["using"]
-                 logger.debug(f"Executing C++ query 'using' for {file_path}")
-                 for match_id, captures_in_match in using_query.matches(root_node):
-                     using_statement_node: Optional[TSNODE_TYPE] = None
-                     # Extract target name based on specific captures in the 'using' query if defined
-                     # e.g., capture @name for 'using namespace std;' or 'using MyType = int;'
-                     # For simplicity, let's assume the query @using_statement captures the whole line
-                     target_name = "using_directive" # Placeholder if name isn't captured
-                     for capture_name, node in captures_in_match:
-                         if capture_name == "using_statement": using_statement_node = node
-                         # Add elif capture_name == "name": target_name = get_node_text(...)
+                    if statement_node and target_node:
+                        target_namespace = get_node_text(target_node, content_bytes)
+                        if target_namespace:
+                            start_line = statement_node.start_point[0] + 1
+                            using_key = (target_namespace, start_line)
+                            if using_key not in processed_directives:
+                                yield Relationship(source_id=file_id, target_id=target_namespace, type="IMPORTS")
+                                processed_directives.add(using_key)
+                                logger.debug(f"[{file_path}] Yielded IMPORTS relationship (using namespace): {file_id} -> {target_namespace}")
 
-                     if using_statement_node:
-                         start_line = using_statement_node.start_point[0] + 1
-                         if start_line in processed_statements: continue
-
-                         snippet = get_node_text(using_statement_node, content_bytes)
-                         end_line = using_statement_node.end_point[0] + 1
-
-                         # Determine target (this is tricky without a good query capture)
-                         # Maybe extract from snippet?
-                         if snippet and "using namespace" in snippet:
-                            target_name = snippet.split("namespace")[-1].strip().rstrip(';')
-                         elif snippet and "=" in snippet: # using alias = type;
-                             target_name = snippet.split('=')[0].replace("using",'').strip()
-
-
-                         if snippet:
-                             dep_id_str = f"{file_id}:dep:using:{target_name}:{start_line}"
-                             logger.debug(f"Yielding C++ Using Dependency: {target_name}")
-                             # Using target_name for target_module, adjust if needed
-                             yield Dependency(dep_id_str, file_id, target_name, snippet, start_line, end_line)
-                             processed_statements.add(start_line)
-                         else:
-                             logger.warning(f"Could not extract snippet for C++ using directive at {file_path}:{start_line}")
+            using_alias_query = self.queries.get("using_alias")
+            if using_alias_query:
+                logger.debug(f"[{file_path}] Running query 'using_alias'...")
+                pass
 
         except Exception as e:
             logger.error(f"Failed to parse C++ file {file_path}: {e}", exc_info=True)
