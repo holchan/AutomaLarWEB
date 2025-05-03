@@ -28,8 +28,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "24.0"
-          memory: 24GB
+          cpus: "2.5"
+          memory: 10GB
 
   db:
     image: postgres:15
@@ -56,8 +56,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "8.0"
-          memory: 8GB
+          cpus: "0.5"
+          memory: 2GB
 
   cognee-mcp:
     container_name: cognee-mcp
@@ -96,8 +96,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "8.0"
-          memory: 8GB
+          cpus: "1.0"
+          memory: 4GB
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
