@@ -76,7 +76,6 @@ class JavascriptParser(BaseParser):
             logger.error(f"JavaScript parser prerequisites missing or core queries failed for {file_path}. SKIPPING detailed parsing for this file.")
             return
 
-
         content = await read_file_content(file_path)
         if content is None: return
 

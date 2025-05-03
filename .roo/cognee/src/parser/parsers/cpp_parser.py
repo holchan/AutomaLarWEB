@@ -94,7 +94,7 @@ class CppParser(BaseParser):
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[ParserOutput, None]:
         """Parses a C++ file. Yields nothing if prerequisites fail."""
-        required_queries = {"includes", "functions", "classes", "structs", "heritage_details"}
+        required_queries = set(CPP_QUERIES.keys())
         prerequisites_met = (
             self.parser and
             self.language and

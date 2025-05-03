@@ -8,6 +8,10 @@ from ..entities import TextChunk, Relationship, ParserOutput
 from ..chunking import basic_chunker
 from ..utils import read_file_content, logger
 
+# Optional: Regex for future instruction parsing
+# import re
+# INSTRUCTION_REGEX = re.compile(r"^\s*([A-Z]+)\s+", re.IGNORECASE)
+
 class DockerfileParser(BaseParser):
     """
     Parses Dockerfile files (Dockerfile, *.dockerfile), yielding TextChunk nodes

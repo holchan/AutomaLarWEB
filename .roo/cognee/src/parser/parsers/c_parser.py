@@ -57,7 +57,7 @@ class CParser(BaseParser):
 
     async def parse(self, file_path: str, file_id: str) -> AsyncGenerator[ParserOutput, None]:
         """Parses a C file. Yields nothing if prerequisites fail."""
-        required_queries = {"includes", "functions", "structs", "unions", "enums", "typedefs"}
+        required_queries = set(C_QUERIES.keys())
         prerequisites_met = (
             self.parser and
             self.language and

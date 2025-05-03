@@ -69,6 +69,7 @@ class MarkdownParser(BaseParser):
 
             logger.debug(f"[{file_path}] Yielded {chunk_count} TextChunk nodes.")
 
+            # Optional: Mistune tokenization for logging/debugging if needed
             # if MD_LOADED and markdown_parser:
             #     try:
             #         tokens = markdown_parser.parse(content)
