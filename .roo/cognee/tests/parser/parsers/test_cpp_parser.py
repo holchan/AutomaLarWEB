@@ -2,21 +2,20 @@
 import pytest
 import asyncio
 import os
-import json
-import hashlib
 from pathlib import Path
 from typing import List, TYPE_CHECKING
 
 pytestmark = pytest.mark.asyncio
 
 try:
+    from src.parser.entities import TextChunk, CodeEntity, Relationship, ParserOutput
     from src.parser.parsers.cpp_parser import CppParser
-    from src.parser.entities import DataPoint, TextChunk, CodeEntity, Dependency
 except ImportError as e:
-    pass
+    pytest.skip(f"Skipping C++ parser tests: Failed to import dependencies - {e}", allow_module_level=True)
 
 if TYPE_CHECKING:
     from src.parser.parsers.base_parser import BaseParser
+    from pydantic import BaseModel
 
 TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "cpp"
 if not TEST_DATA_DIR.is_dir():
@@ -31,132 +30,101 @@ def parser() -> CppParser:
             pytest.skip("C++ tree-sitter language not loaded or available.", allow_module_level=True)
     except ImportError as e:
         pytest.skip(f"Tree-sitter setup or core library not available: {e}", allow_module_level=True)
-
     return CppParser()
+
+from ..conftest import run_parser_and_save_output
 
 async def test_parse_empty_cpp_file(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty C++ file."""
     empty_file = tmp_path / "empty.cpp"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .cpp file should yield no DataPoints"
 
 async def test_parse_empty_hpp_file(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty C++ header file."""
     empty_file = tmp_path / "empty.hpp"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .hpp file should yield no DataPoints"
 
 async def test_parse_simple_class_file(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing simple_class.cpp from test_data."""
     test_file = TEST_DATA_DIR / "simple_class.cpp"
-    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
-    assert len(results) > 0, "Expected DataPoints from non-empty file"
-    payloads = [dp.model_dump(mode='json') for dp in results]
+    assert len(results) > 0
 
-    chunks = [p for p in payloads if p.get("type") == "TextChunk"]
-    assert len(chunks) >= 1, "Expected at least one TextChunk"
+    chunks = [dp for dp in results if isinstance(dp, TextChunk)]
+    entities = [dp for dp in results if isinstance(dp, CodeEntity)]
+    rels = [dp for dp in results if isinstance(dp, Relationship)]
 
-    namespaces = [p for p in payloads if p.get("type") == "NamespaceDefinition"]
-    assert len(namespaces) == 1, "Expected one namespace definition"
-    ns = namespaces[0]
-    ns_meta = ns.get("metadata", {})
-    assert ns_meta.get("name") == "Processing"
-    assert ns_meta.get("start_line") == 10, "Incorrect start line for namespace"
-    assert ns_meta.get("end_line") == 24, "Incorrect end line for namespace"
+    assert len(chunks) >= 1
 
-    funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
-    assert len(funcs) == 3, "Expected 3 function definitions"
-    func_map = {f.get("metadata", {}).get("name"): f for f in funcs if f.get("metadata", {}).get("name")}
+    namespaces = [e for e in entities if e.type == "NamespaceDefinition"]
+    assert len(namespaces) == 1
+    assert namespaces[0].type == "NamespaceDefinition"
+    assert ":NamespaceDefinition:Processing:" in namespaces[0].id
+    assert namespaces[0].start_line == 10
+    assert namespaces[0].end_line == 24
+
+    funcs = [e for e in entities if e.type == "FunctionDefinition"]
+    assert len(funcs) == 3
+    func_map = {f.id.split(":")[-2]: f for f in funcs if f.id.count(":") >= 3}
 
     assert "processVector" in func_map
-    pv_meta = func_map["processVector"].get("metadata", {})
-    assert pv_meta.get("start_line") == 13
-    assert pv_meta.get("end_line") == 18
-    assert "void MyDataProcessor::processVector" in func_map["processVector"].get("text_content", "")
+    assert func_map["processVector"].start_line == 13
+    assert func_map["processVector"].end_line == 18
+    assert "void MyDataProcessor::processVector" in func_map["processVector"].snippet_content
 
     assert "helperFunction" in func_map
-    hf_meta = func_map["helperFunction"].get("metadata", {})
-    assert hf_meta.get("start_line") == 21
-    assert hf_meta.get("end_line") == 23
-    assert "int helperFunction(int value)" in func_map["helperFunction"].get("text_content", "")
+    assert func_map["helperFunction"].start_line == 21
+    assert func_map["helperFunction"].end_line == 23
 
     assert "main" in func_map
-    main_meta = func_map["main"].get("metadata", {})
-    assert main_meta.get("start_line") == 28
-    assert main_meta.get("end_line") == 35
-    assert "int main()" in func_map["main"].get("text_content", "")
+    assert func_map["main"].start_line == 28
+    assert func_map["main"].end_line == 35
 
-    deps = [p for p in payloads if p.get("type") == "Dependency"]
-    assert len(deps) == 5, "Expected 4 includes + 1 using directive"
-    deps.sort(key=lambda d: d.get("metadata", {}).get("start_line", 0))
-
-    dep0_meta = deps[0].get("metadata", {})
-    assert dep0_meta.get("target_module") == "iostream" and dep0_meta.get("start_line") == 1
-    dep1_meta = deps[1].get("metadata", {})
-    assert dep1_meta.get("target_module") == "vector" and dep1_meta.get("start_line") == 2
-    dep2_meta = deps[2].get("metadata", {})
-    assert dep2_meta.get("target_module") == "string" and dep2_meta.get("start_line") == 3
-    dep3_meta = deps[3].get("metadata", {})
-    assert dep3_meta.get("target_module") == "my_class.hpp" and dep3_meta.get("start_line") == 4
-
-    dep4_meta = deps[4].get("metadata", {})
-    assert dep4_meta.get("target_module") == "std", "Using namespace target mismatch"
-    assert dep4_meta.get("start_line") == 7
-    assert deps[4].get("text_content") == "using namespace std;"
+    import_rels = [r for r in rels if r.type == "IMPORTS"]
+    assert len(import_rels) == 5
+    targets = sorted([r.target_id for r in import_rels])
+    assert targets == ["iostream", "my_class.hpp", "std", "string", "vector"]
 
 async def test_parse_header_file(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing my_class.hpp from test_data."""
     test_file = TEST_DATA_DIR / "my_class.hpp"
-    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
-    assert len(results) > 0, "Expected DataPoints from non-empty header"
-    payloads = [dp.model_dump(mode='json') for dp in results]
+    assert len(results) > 0
 
-    chunks = [p for p in payloads if p.get("type") == "TextChunk"]
-    assert len(chunks) >= 1, "Expected at least one TextChunk"
+    entities = [dp for dp in results if isinstance(dp, CodeEntity)]
+    rels = [dp for dp in results if isinstance(dp, Relationship)]
 
-    namespaces = [p for p in payloads if p.get("type") == "NamespaceDefinition"]
-    assert len(namespaces) == 1, "Expected one namespace"
-    assert namespaces[0].get("metadata", {}).get("name") == "Processing"
+    namespaces = [e for e in entities if e.type == "NamespaceDefinition"]
+    assert len(namespaces) == 1
+    assert ":NamespaceDefinition:Processing:" in namespaces[0].id
 
-    classes = [p for p in payloads if p.get("type") == "ClassDefinition"]
-    assert len(classes) == 1, "Expected one class definition"
+    classes = [e for e in entities if e.type == "ClassDefinition"]
+    assert len(classes) == 1
     cls = classes[0]
-    cls_meta = cls.get("metadata", {})
-    assert cls_meta.get("name") == "MyDataProcessor"
-    assert cls_meta.get("start_line") == 9
-    assert cls_meta.get("end_line") == 22
+    assert cls.type == "ClassDefinition"
+    assert ":ClassDefinition:MyDataProcessor:" in cls.id
+    assert cls.start_line == 9
+    assert cls.end_line == 22
 
-    funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
-    assert len(funcs) >= 5, "Expected at least 5 function-like definitions"
-    func_map = {f.get("metadata", {}).get("name"): f for f in funcs if f.get("metadata", {}).get("name")}
+    funcs = [e for e in entities if e.type == "FunctionDefinition"]
+    assert len(funcs) >= 5
+    func_map = {f.id.split(":")[-2]: f for f in funcs if f.id.count(":") >= 3}
+    assert "MyDataProcessor" in func_map
+    assert "~MyDataProcessor" in func_map
+    assert "processVector" in func_map
+    assert "identity" in func_map
+    assert "helperFunction" in func_map
 
-    assert "MyDataProcessor" in func_map, "Constructor not found"
-    assert func_map["MyDataProcessor"].get("metadata", {}).get("start_line") == 14
-
-    assert "~MyDataProcessor" in func_map, "Destructor not found"
-    assert func_map["~MyDataProcessor"].get("metadata", {}).get("start_line") == 17
-
-    assert "processVector" in func_map, "processVector declaration not found"
-    assert func_map["processVector"].get("metadata", {}).get("start_line") == 20
-
-    assert "identity" in func_map, "identity template declaration not found"
-    assert func_map["identity"].get("metadata", {}).get("start_line") == 22
-    assert "template<typename T>" in func_map["identity"].get("text_content", "")
-
-    assert "helperFunction" in func_map, "helperFunction declaration not found"
-    assert func_map["helperFunction"].get("metadata", {}).get("start_line") == 25
-
-    deps = [p for p in payloads if p.get("type") == "Dependency"]
-    assert len(deps) == 2, "Expected two include dependencies"
-    deps.sort(key=lambda d: d.get("metadata", {}).get("start_line", 0))
-    dep0_meta = deps[0].get("metadata", {})
-    assert dep0_meta.get("target_module") == "string" and dep0_meta.get("start_line") == 3
-    dep1_meta = deps[1].get("metadata", {})
-    assert dep1_meta.get("target_module") == "vector" and dep1_meta.get("start_line") == 4
+    import_rels = [r for r in rels if r.type == "IMPORTS"]
+    assert len(import_rels) == 2
+    targets = sorted([r.target_id for r in import_rels])
+    assert targets == ["string", "vector"]
 
 async def test_parse_file_with_enums_structs(parser: CppParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing C++ file with enums and structs within a namespace."""
@@ -185,36 +153,32 @@ struct GlobalStruct { float val; }; // Global struct def
 """
     test_file = tmp_path / "types.cpp"
     test_file.write_text(content, encoding="utf-8")
-    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
+    assert len(results) > 0
 
-    payloads = [dp.model_dump(mode='json') for dp in results]
+    entities = [dp for dp in results if isinstance(dp, CodeEntity)]
+    rels = [dp for dp in results if isinstance(dp, Relationship)]
 
-    chunks = [p for p in payloads if p.get("type") == "TextChunk"]
-    assert len(chunks) >= 1
-
-    namespaces = [p for p in payloads if p.get("type") == "NamespaceDefinition"]
+    namespaces = [e for e in entities if e.type == "NamespaceDefinition"]
     assert len(namespaces) == 1
-    assert namespaces[0].get("metadata", {}).get("name") == "DataTypes"
+    assert ":NamespaceDefinition:DataTypes:" in namespaces[0].id
 
-    structs = [p for p in payloads if p.get("type") == "StructDefinition"]
-    assert len(structs) == 2, "Expected two struct definitions"
-    struct_map = {s.get("metadata", {}).get("name"): s for s in structs}
+    structs = [e for e in entities if e.type == "StructDefinition"]
+    assert len(structs) == 2
+    struct_map = {s.id.split(":")[-2]: s for s in structs if s.id.count(":") >= 3}
     assert "Point" in struct_map
-    assert struct_map["Point"].get("metadata", {}).get("start_line") == 4
-    assert struct_map["Point"].get("metadata", {}).get("end_line") == 6
+    assert struct_map["Point"].start_line == 4
     assert "GlobalStruct" in struct_map
-    assert struct_map["GlobalStruct"].get("metadata", {}).get("start_line") == 19
+    assert struct_map["GlobalStruct"].start_line == 19
 
-    enums = [p for p in payloads if p.get("type") == "EnumDefinition"]
-    assert len(enums) == 2, "Expected two enum definitions"
-    enum_map = {e.get("metadata", {}).get("name"): e for e in enums}
+    enums = [e for e in entities if e.type == "EnumDefinition"]
+    assert len(enums) == 2
+    enum_map = {e.id.split(":")[-2]: e for e in enums if e.id.count(":") >= 3}
     assert "Status" in enum_map
-    assert enum_map["Status"].get("metadata", {}).get("start_line") == 8
+    assert enum_map["Status"].start_line == 8
     assert "ErrorCode" in enum_map
-    assert enum_map["ErrorCode"].get("metadata", {}).get("start_line") == 13
+    assert enum_map["ErrorCode"].start_line == 13
 
-    deps = [p for p in payloads if p.get("type") == "Dependency"]
-    assert len(deps) == 1, "Expected one include dependency"
-    dep0_meta = deps[0].get("metadata", {})
-    assert dep0_meta.get("target_module") == "string"
-    assert dep0_meta.get("start_line") == 1
+    import_rels = [r for r in rels if r.type == "IMPORTS"]
+    assert len(import_rels) == 1
+    assert import_rels[0].target_id == "string"

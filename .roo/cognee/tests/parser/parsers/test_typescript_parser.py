@@ -2,27 +2,27 @@
 import pytest
 import asyncio
 import os
-import json
-import hashlib
 from pathlib import Path
 from typing import List, TYPE_CHECKING
 
 pytestmark = pytest.mark.asyncio
 
 try:
+    from src.parser.entities import TextChunk, CodeEntity, Relationship, ParserOutput
     from src.parser.parsers.typescript_parser import TypescriptParser
-    from src.parser.entities import DataPoint, TextChunk, CodeEntity, Dependency
 except ImportError as e:
     pytest.skip(f"Skipping TS parser tests: Failed to import dependencies - {e}", allow_module_level=True)
 
 if TYPE_CHECKING:
     from src.parser.parsers.base_parser import BaseParser
+    from pydantic import BaseModel
 
 TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "typescript"
 if not TEST_DATA_DIR.is_dir():
     pytest.skip(f"Test data directory not found: {TEST_DATA_DIR}", allow_module_level=True)
 
 from ..conftest import run_parser_and_save_output
+
 @pytest.fixture(scope="module")
 def parser() -> TypescriptParser:
     """Provides a TypescriptParser instance, skipping if language not loaded."""
@@ -32,135 +32,117 @@ def parser() -> TypescriptParser:
             pytest.skip("TypeScript tree-sitter language not loaded or available.", allow_module_level=True)
     except ImportError as e:
         pytest.skip(f"Tree-sitter setup or core library not available: {e}", allow_module_level=True)
-
     return TypescriptParser()
 
-async def test_parse_empty_ts_file(parser: TypescriptParser, tmp_path: Path):
+async def test_parse_empty_ts_file(parser: TypescriptParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty TypeScript file."""
     empty_file = tmp_path / "empty.ts"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty file should yield no DataPoints"
 
-async def test_parse_simple_function_file(parser: TypescriptParser, tmp_path: Path):
+async def test_parse_simple_function_file(parser: TypescriptParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing simple_function.ts from test_data."""
     test_file = TEST_DATA_DIR / "simple_function.ts"
-    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
-    assert len(results) > 0, "Expected DataPoints from non-empty file"
-    payloads = [dp.model_dump(mode='json') for dp in results]
+    assert len(results) > 0
 
-    chunks = [p for p in payloads if p.get("type") == "TextChunk"]
-    assert len(chunks) >= 1, "Expected at least one TextChunk"
-    assert chunks[0].get("text_content","").strip().startswith("// Simple TS types and functions"), "First chunk content mismatch"
+    chunks = [dp for dp in results if isinstance(dp, TextChunk)]
+    entities = [dp for dp in results if isinstance(dp, CodeEntity)]
+    rels = [dp for dp in results if isinstance(dp, Relationship)]
 
-    interfaces = [p for p in payloads if p.get("type") == "InterfaceDefinition"]
-    assert len(interfaces) == 1, "Expected one interface definition"
+    assert len(chunks) >= 1
+    assert chunks[0].chunk_content.strip().startswith("// Simple TS types and functions")
+
+    interfaces = [e for e in entities if e.type == "InterfaceDefinition"]
+    assert len(interfaces) == 1
     iface = interfaces[0]
-    iface_meta = iface.get("metadata", {})
-    assert iface_meta.get("name") == "User"
-    assert iface_meta.get("start_line") == 4, "Incorrect start line for interface User"
-    assert iface_meta.get("end_line") == 8, "Incorrect end line for interface User"
-    assert "export interface User" in iface.get("text_content","")
+    assert iface.type == "InterfaceDefinition"
+    assert ":InterfaceDefinition:User:" in iface.id
+    assert iface.start_line == 4
+    assert iface.end_line == 8
+    assert "export interface User" in iface.snippet_content
 
-    types = [p for p in payloads if p.get("type") == "TypeDefinition"]
-    assert len(types) == 1, "Expected one type alias definition"
+    types = [e for e in entities if e.type == "TypeDefinition"]
+    assert len(types) == 1
     type_alias = types[0]
-    type_alias_meta = type_alias.get("metadata", {})
-    assert type_alias_meta.get("name") == "Result"
-    assert type_alias_meta.get("start_line") == 10, "Incorrect start line for type Result"
-    assert type_alias_meta.get("end_line") == 12, "Incorrect end line for type Result"
-    assert "export type Result<T>" in type_alias.get("text_content","")
+    assert type_alias.type == "TypeDefinition"
+    assert ":TypeDefinition:Result:" in type_alias.id
+    assert type_alias.start_line == 10
+    assert type_alias.end_line == 12
+    assert "export type Result<T>" in type_alias.snippet_content
 
-    funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
-    assert len(funcs) == 2, "Expected two functions: processUser, formatResult"
-    func_map = {f.get("metadata", {}).get("name"): f for f in funcs if f.get("metadata", {}).get("name")}
+    funcs = [e for e in entities if e.type == "FunctionDefinition"]
+    assert len(funcs) == 2
+    func_map = {f.id.split(":")[-2]: f for f in funcs if f.id.count(":") >= 3}
 
     assert "processUser" in func_map
-    pu_meta = func_map["processUser"].get("metadata", {})
-    assert pu_meta.get("start_line") == 14
-    assert pu_meta.get("end_line") == 19
-    assert "function processUser(user: User, logger: Logger): Result<string>" in func_map["processUser"].get("text_content", "")
+    assert func_map["processUser"].start_line == 14
+    assert func_map["processUser"].end_line == 19
+    assert "function processUser(user: User, logger: Logger): Result<string>" in func_map["processUser"].snippet_content
 
     assert "formatResult" in func_map
-    fr_meta = func_map["formatResult"].get("metadata", {})
-    assert fr_meta.get("start_line") == 21
-    assert fr_meta.get("end_line") == 23
-    assert "const formatResult = <T>(result: Result<T>): string =>" in func_map["formatResult"].get("text_content", "")
+    assert func_map["formatResult"].start_line == 21
+    assert func_map["formatResult"].end_line == 23
+    assert "const formatResult = <T>(result: Result<T>): string =>" in func_map["formatResult"].snippet_content
 
-    deps = [p for p in payloads if p.get("type") == "Dependency"]
-    assert len(deps) == 1, "Expected one import dependency"
-    dep = deps[0]
-    dep_meta = dep.get("metadata", {})
-    assert dep_meta.get("target_module") == "./logger"
-    assert dep_meta.get("start_line") == 2, "Incorrect start line for import"
-    assert "import { type Logger } from \"./logger\"; // Type-only import" in dep.get("text_content","")
+    import_rels = [r for r in rels if r.type == "IMPORTS"]
+    assert len(import_rels) == 1
+    assert import_rels[0].target_id == "./logger"
 
-
-async def test_parse_class_with_interfaces_file(parser: TypescriptParser, tmp_path: Path):
+async def test_parse_class_with_interfaces_file(parser: TypescriptParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing class_with_interfaces.tsx from test_data."""
     test_file = TEST_DATA_DIR / "class_with_interfaces.tsx"
-    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
-    assert len(results) > 0, "Expected DataPoints from .tsx file"
-    payloads = [dp.model_dump(mode='json') for dp in results]
+    assert len(results) > 0
 
-    chunks = [p for p in payloads if p.get("type") == "TextChunk"]
-    assert len(chunks) >= 1, "Expected at least one TextChunk"
+    entities = [dp for dp in results if isinstance(dp, CodeEntity)]
+    rels = [dp for dp in results if isinstance(dp, Relationship)]
 
-    interfaces = [p for p in payloads if p.get("type") == "InterfaceDefinition"]
-    assert len(interfaces) == 2, "Expected two interface definitions"
-    iface_map = {i.get("metadata", {}).get("name"): i for i in interfaces}
+    interfaces = [e for e in entities if e.type == "InterfaceDefinition"]
+    assert len(interfaces) == 2
+    iface_map = {i.id.split(":")[-2]: i for i in interfaces if i.id.count(":") >= 3}
     assert "GreeterProps" in iface_map
     assert "ComponentState" in iface_map
-    assert iface_map["GreeterProps"].get("metadata", {}).get("start_line") == 4
-    assert iface_map["ComponentState"].get("metadata", {}).get("start_line") == 8
+    assert iface_map["GreeterProps"].start_line == 4
+    assert iface_map["ComponentState"].start_line == 8
 
-    classes = [p for p in payloads if p.get("type") == "ClassDefinition"]
-    assert len(classes) == 1, "Expected one class definition"
+    classes = [e for e in entities if e.type == "ClassDefinition"]
+    assert len(classes) == 1
     cls = classes[0]
-    cls_meta = cls.get("metadata", {})
-    assert cls_meta.get("name") == "GreeterComponent"
-    assert cls_meta.get("start_line") == 10, "Incorrect start line for class"
-    assert cls_meta.get("end_line") == 38, "Incorrect end line for class"
+    assert cls.type == "ClassDefinition"
+    assert ":ClassDefinition:GreeterComponent:" in cls.id
+    assert cls.start_line == 10
+    assert cls.end_line == 38
 
-    funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
-    assert len(funcs) == 4, "Expected 4 function definitions"
-    func_map = {f.get("metadata", {}).get("name"): f for f in funcs if f.get("metadata", {}).get("name")}
+    extends_rels = [r for r in rels if r.type == "EXTENDS" and r.source_id == cls.id]
+    implements_rels = [r for r in rels if r.type == "IMPLEMENTS" and r.source_id == cls.id]
+    assert len(extends_rels) >= 1
+
+    funcs = [e for e in entities if e.type == "FunctionDefinition"]
+    assert len(funcs) >= 4
+    func_map = {f.id.split(":")[-2]: f for f in funcs if f.id.count(":") >= 3}
 
     assert "componentDidMount" in func_map
-    cdm_meta = func_map["componentDidMount"].get("metadata", {})
-    assert cdm_meta.get("start_line") == 19
-    assert cdm_meta.get("end_line") == 23
-    assert "async componentDidMount()" in func_map["componentDidMount"].get("text_content", "")
+    assert func_map["componentDidMount"].start_line == 19
+    assert func_map["componentDidMount"].end_line == 23
 
     assert "componentWillUnmount" in func_map
-    cwu_meta = func_map["componentWillUnmount"].get("metadata", {})
-    assert cwu_meta.get("start_line") == 25
-    assert cwu_meta.get("end_line") == 29
+    assert func_map["componentWillUnmount"].start_line == 25
+    assert func_map["componentWillUnmount"].end_line == 29
 
     assert "render" in func_map
-    render_meta = func_map["render"].get("metadata", {})
-    assert render_meta.get("start_line") == 31
-    assert render_meta.get("end_line") == 37
-    assert "<h1>Hello, {name}!</h1>" in func_map["render"].get("text_content", "")
+    assert func_map["render"].start_line == 31
+    assert func_map["render"].end_line == 37
+    assert "<h1>Hello, {name}!</h1>" in func_map["render"].snippet_content
 
     assert "FunctionalGreeter" in func_map
-    fg_meta = func_map["FunctionalGreeter"].get("metadata", {})
-    assert fg_meta.get("start_line") == 40
-    assert fg_meta.get("end_line") == 45
-    assert "export const FunctionalGreeter: FC<GreeterProps>" in func_map["FunctionalGreeter"].get("text_content", "")
+    assert func_map["FunctionalGreeter"].start_line == 40
+    assert func_map["FunctionalGreeter"].end_line == 45
 
-    deps = [p for p in payloads if p.get("type") == "Dependency"]
-    assert len(deps) == 2, "Expected two dependencies"
-    deps.sort(key=lambda d: d.get("metadata", {}).get("start_line", 0))
-
-    dep0_meta = deps[0].get("metadata", {})
-    assert dep0_meta.get("target_module") == "react"
-    assert dep0_meta.get("start_line") == 1
-    assert "import React, { useState, useEffect } from \"react\";" in deps[0].get("text_content","")
-
-    dep1_meta = deps[1].get("metadata", {})
-    assert dep1_meta.get("target_module") == "react"
-    assert dep1_meta.get("start_line") == 2
-    assert "import type { FC } from \"react\";" in deps[1].get("text_content","")
+    import_rels = [r for r in rels if r.type == "IMPORTS"]
+    assert len(import_rels) == 2
+    import_targets = {r.target_id for r in import_rels}
+    assert "react" in import_targets

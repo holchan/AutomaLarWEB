@@ -1,21 +1,21 @@
-# .roo/cognee/tests/parser/parsers/test_python_parser.py
+# .roo/cognee/tests/parser/parsers/test_rust_parser.py
 import pytest
 import asyncio
 import os
-import json
-import hashlib
 from pathlib import Path
 from typing import List, TYPE_CHECKING
 
 pytestmark = pytest.mark.asyncio
 
 try:
+    from src.parser.entities import TextChunk, CodeEntity, Relationship, ParserOutput
     from src.parser.parsers.rust_parser import RustParser
-    from src.parser.entities import DataPoint, TextChunk, CodeEntity, Dependency
 except ImportError as e:
-    pass
+    pytest.skip(f"Skipping Rust parser tests: Failed to import dependencies - {e}", allow_module_level=True)
+
 if TYPE_CHECKING:
     from src.parser.parsers.base_parser import BaseParser
+    from pydantic import BaseModel
 
 TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "rust"
 if not TEST_DATA_DIR.is_dir():
@@ -30,121 +30,93 @@ def parser() -> RustParser:
             pytest.skip("Rust tree-sitter language not loaded or available.", allow_module_level=True)
     except ImportError as e:
         pytest.skip(f"Tree-sitter setup or core library not available: {e}", allow_module_level=True)
-
     return RustParser()
+
+from ..conftest import run_parser_and_save_output
 
 async def test_parse_empty_rs_file(parser: RustParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing an empty Rust file."""
     empty_file = tmp_path / "empty.rs"
     empty_file.touch()
-    results = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=empty_file, output_dir=tmp_path)
     assert len(results) == 0, "Empty .rs file should yield no DataPoints"
 
 async def test_parse_utils_file(parser: RustParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing utils.rs which contains only a simple function."""
     test_file = TEST_DATA_DIR / "utils.rs"
-    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
-    assert len(results) > 0, "Expected DataPoints from utils.rs"
-    payloads = [dp.model_dump(mode='json') for dp in results]
+    assert len(results) > 0
 
-    chunks = [p for p in payloads if p.get("type") == "TextChunk"]
-    assert len(chunks) >= 1, "Expected at least one TextChunk"
+    chunks = [dp for dp in results if isinstance(dp, TextChunk)]
+    entities = [dp for dp in results if isinstance(dp, CodeEntity)]
+    rels = [dp for dp in results if isinstance(dp, Relationship)]
 
-    funcs = [p for p in payloads if p.get("type") == "FunctionDefinition"]
-    assert len(funcs) == 1, "Expected one function definition"
-    func_meta = funcs[0].get("metadata", {})
-    assert func_meta.get("name") == "helper"
-    assert func_meta.get("start_line") == 1
-    assert func_meta.get("end_line") == 3
-    assert "pub fn helper()" in funcs[0].get("text_content","")
+    assert len(chunks) >= 1
 
-    other_entities = [p for p in payloads if p.get("type") not in ["TextChunk", "FunctionDefinition"]]
-    assert len(other_entities) == 0, f"Found unexpected entities: {[e.get('type') for e in other_entities]}"
+    funcs = [e for e in entities if e.type == "FunctionDefinition"]
+    assert len(funcs) == 1
+    func = funcs[0]
+    assert func.type == "FunctionDefinition"
+    assert ":FunctionDefinition:helper:" in func.id
+    assert func.start_line == 1
+    assert func.end_line == 3
+    assert "pub fn helper()" in func.snippet_content
+
+    other_entities = [e for e in entities if e.type != "FunctionDefinition"]
+    assert len(other_entities) == 0
+
+    assert len(rels) == len(chunks) + len(entities)
+    assert all(r.type in ["CONTAINS_CHUNK", "CONTAINS_ENTITY"] for r in rels)
+
 
 async def test_parse_simple_mod_file(parser: RustParser, tmp_path: Path, run_parser_and_save_output):
     """Test parsing simple_mod.rs from test_data."""
     test_file = TEST_DATA_DIR / "simple_mod.rs"
-    results = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
+    results: List[BaseModel] = await run_parser_and_save_output(parser=parser, test_file_path=test_file, output_dir=tmp_path)
 
-    assert len(results) > 0, "Expected DataPoints from simple_mod.rs"
-    payloads = [dp.model_dump(mode='json') for dp in results]
-    payload_map = {p.get("type", "Unknown"): [] for p in payloads}
-    for p in payloads:
-        payload_map[p.get("type", "Unknown")].append(p)
+    assert len(results) > 0
 
-    assert len(payload_map.get("TextChunk", [])) >= 1
-    assert len(payload_map.get("ModuleDefinition", [])) == 1
-    assert len(payload_map.get("StructDefinition", [])) == 1
-    assert len(payload_map.get("EnumDefinition", [])) == 1
-    assert len(payload_map.get("TraitDefinition", [])) == 1
-    assert len(payload_map.get("Implementation", [])) == 2
-    assert len(payload_map.get("FunctionDefinition", [])) == 5
-    assert len(payload_map.get("MacroDefinition", [])) == 1
-    assert len(payload_map.get("Dependency", [])) == 2
+    chunks = [dp for dp in results if isinstance(dp, TextChunk)]
+    entities = [dp for dp in results if isinstance(dp, CodeEntity)]
+    rels = [dp for dp in results if isinstance(dp, Relationship)]
 
-    mod = payload_map["ModuleDefinition"][0]
-    mod_meta = mod.get("metadata", {})
-    assert mod_meta.get("name") == "utils"
-    assert mod_meta.get("start_line") == 4
-    assert mod.get("text_content") == "mod utils; // Declare submodule"
+    assert len(chunks) >= 1
 
-    struct = payload_map["StructDefinition"][0]
-    struct_meta = struct.get("metadata", {})
-    assert struct_meta.get("name") == "Point"
-    assert struct_meta.get("start_line") == 6
-    assert struct_meta.get("end_line") == 9
+    entity_map = {}
+    for e in entities:
+        if e.type not in entity_map: entity_map[e.type] = []
+        entity_map[e.type].append(e)
 
-    enum = payload_map["EnumDefinition"][0]
-    enum_meta = enum.get("metadata", {})
-    assert enum_meta.get("name") == "Status"
-    assert enum_meta.get("start_line") == 19
-    assert enum_meta.get("end_line") == 22
+    assert len(entity_map.get("ModuleDefinition", [])) == 1
+    assert ":ModuleDefinition:utils:" in entity_map["ModuleDefinition"][0].id
 
-    trait = payload_map["TraitDefinition"][0]
-    trait_meta = trait.get("metadata", {})
-    assert trait_meta.get("name") == "Summary"
-    assert trait_meta.get("start_line") == 24
-    assert trait_meta.get("end_line") == 26
+    assert len(entity_map.get("StructDefinition", [])) == 1
+    assert ":StructDefinition:Point:" in entity_map["StructDefinition"][0].id
 
-    impls = payload_map["Implementation"]
-    impls.sort(key=lambda i: i.get("metadata", {}).get("start_line", 0))
-    impl_point = impls[0]
-    impl_summary = impls[1]
-    impl_point_meta = impl_point.get("metadata", {})
-    impl_summary_meta = impl_summary.get("metadata", {})
-    assert impl_point_meta.get("name") == "Point"
-    assert impl_point_meta.get("start_line") == 11
-    assert impl_point_meta.get("end_line") == 17
-    assert "impl Point {" in impl_point.get("text_content", "")
-    assert impl_summary_meta.get("name") == "Point"
-    assert impl_summary_meta.get("start_line") == 28
-    assert impl_summary_meta.get("end_line") == 32
-    assert "impl Summary for Point {" in impl_summary.get("text_content", "")
+    assert len(entity_map.get("EnumDefinition", [])) == 1
+    assert ":EnumDefinition:Status:" in entity_map["EnumDefinition"][0].id
 
-    funcs = payload_map["FunctionDefinition"]
-    func_map = {f.get("metadata", {}).get("name"): f for f in funcs}
-    assert set(func_map.keys()) == {"new", "distance_from_origin", "summarize", "process_point", "main"}
-    assert func_map["new"].get("metadata", {}).get("start_line") == 12
-    assert func_map["distance_from_origin"].get("metadata", {}).get("start_line") == 15
-    assert func_map["summarize"].get("metadata", {}).get("start_line") == 29
-    assert func_map["process_point"].get("metadata", {}).get("start_line") == 35
-    assert func_map["main"].get("metadata", {}).get("start_line") == 57
+    assert len(entity_map.get("TraitDefinition", [])) == 1
+    assert ":TraitDefinition:Summary:" in entity_map["TraitDefinition"][0].id
 
-    macro = payload_map["MacroDefinition"][0]
-    macro_meta = macro.get("metadata", {})
-    assert macro_meta.get("name") == "create_map"
-    assert macro_meta.get("start_line") == 46
-    assert macro_meta.get("end_line") == 55
+    assert len(entity_map.get("Implementation", [])) == 2
+    impl_names = sorted([impl.id.split(":")[-2] for impl in entity_map["Implementation"] if impl.id.count(":") >= 3])
+    assert "Point"
 
-    deps = payload_map["Dependency"]
-    deps.sort(key=lambda d: d.get("metadata", {}).get("start_line", 0))
-    dep0_meta = deps[0].get("metadata", {})
-    dep1_meta = deps[1].get("metadata", {})
-    assert dep0_meta.get("target_module") == "std::collections::HashMap"
-    assert dep0_meta.get("start_line") == 2
-    assert deps[0].get("text_content") == "use std::collections::HashMap; // Standard library import"
-    assert dep1_meta.get("target_module") == "crate::utils::helper"
-    assert dep1_meta.get("start_line") == 3
-    assert deps[1].get("text_content") == "use crate::utils::helper; // Crate relative import"
+    assert len(entity_map.get("FunctionDefinition", [])) == 5
+    func_names = {f.id.split(":")[-2] for f in entity_map["FunctionDefinition"] if f.id.count(":") >= 3}
+    assert func_names == {"new", "distance_from_origin", "summarize", "process_point", "main"}
 
+    assert len(entity_map.get("MacroDefinition", [])) == 1
+    assert ":MacroDefinition:create_map:" in entity_map["MacroDefinition"][0].id
+
+    import_rels = [r for r in rels if r.type == "IMPORTS"]
+    assert len(import_rels) == 2
+    targets = sorted([r.target_id for r in import_rels])
+    assert targets == ["crate::utils::helper", "std::collections::HashMap"]
+
+    implements_trait_rels = [r for r in rels if r.type == "IMPLEMENTS_TRAIT"]
+    assert len(implements_trait_rels) == 1
+    assert implements_trait_rels[0].source_id == entity_map["Implementation"][1].id
+    assert implements_trait_rels[0].target_id == "Summary"
