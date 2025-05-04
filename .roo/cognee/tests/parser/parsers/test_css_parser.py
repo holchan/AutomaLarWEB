@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import List, TYPE_CHECKING
 
+
 pytestmark = pytest.mark.asyncio
 
 try:
@@ -15,7 +16,7 @@ except ImportError as e:
 
 if TYPE_CHECKING:
     from src.parser.parsers.base_parser import BaseParser
-    from pydantic import
+    from pydantic import BaseModel
 
 TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "css"
 if not TEST_DATA_DIR.is_dir():

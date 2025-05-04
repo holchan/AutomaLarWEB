@@ -6,7 +6,7 @@ from typing import Optional # Added for TextChunk tests
 
 # Attempt to import entities. This assumes the simplified import in entities.py is done
 try:
-    from src.parser.entities import Repository, SourceFile, CodeEntity, Dependency, TextChunk
+    from src.parser.entities import Repository, SourceFile, CodeEntity, Relationship, TextChunk
 except ImportError as e:
     print(f"ImportError in test_entities: {e}")
     # If entities aren't available, skip these tests.
@@ -85,8 +85,8 @@ def test_codeentity_creation():
     assert ce.end_line == end_line, "CodeEntity end_line mismatch"
     # --- End Correction ---
 
-def test_dependency_creation():
-    """Test the creation of a Dependency entity."""
+def test_relationship_creation():
+    """Test the creation of a Relationship entity."""
     target = "os"
     snippet = "import os"
     start_line = 1
@@ -96,7 +96,7 @@ def test_dependency_creation():
     # --- MODIFIED: Removed UUID generation ---
     # expected_dep_id = str(uuid5(NAMESPACE_OID, dep_id_str)) NO LONGER NEEDED
 
-    dep = Dependency(
+    dep = Relationship(
         dep_id_str=dep_id_str, # Pass raw string ID
         source_file_id=EXPECTED_FILE_ID_STR,
         target=target,
@@ -106,14 +106,14 @@ def test_dependency_creation():
     )
 
     # Check direct fields
-    assert dep.type == "Dependency"
+    assert dep.type == "Relationship"
     # --- MODIFIED: Assert against the raw string ID ---
     assert dep.id == dep_id_str # <<<< EXPECT THE RAW STRING ID
     assert dep.text_content == snippet
     assert dep.target_module == target
     assert dep.used_in_file == str(EXPECTED_FILE_ID_STR)
-    assert dep.start_line == start_line, "Dependency start_line mismatch"
-    assert dep.end_line == end_line, "Dependency end_line mismatch"
+    assert dep.start_line == start_line, "Relationship start_line mismatch"
+    assert dep.end_line == end_line, "Relationship end_line mismatch"
     assert isinstance(dep.timestamp, float) # Check timestamp
 
 def test_textchunk_creation():

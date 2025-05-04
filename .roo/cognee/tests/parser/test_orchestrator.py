@@ -15,7 +15,7 @@ pytestmark = pytest.mark.asyncio
 try:
     from src.parser.orchestrator import process_repository, _process_single_file # Import helper too
     # Import specific entity types for instantiation in mocks and type checks
-    from src.parser.entities import Repository, SourceFile, TextChunk, CodeEntity, Dependency
+    from src.parser.entities import Repository, SourceFile, TextChunk, CodeEntity, Relationship
 except ImportError as e:
      pytest.skip(f"Skipping orchestrator tests: Failed to import dependencies - {e}", allow_module_level=True)
 
@@ -32,7 +32,7 @@ def create_mock_payload(id_val: str, type_val: str, parent_id: str = None, text_
         # Add keys based on type for more realistic mocks if needed by assertions
         "chunk_of": parent_id if type_val == "TextChunk" else None,
         "defined_in_file": parent_id if type_val in ["FunctionDefinition", "ClassDefinition"] else None,
-        "used_in_file": parent_id if type_val == "Dependency" else None,
+        "used_in_file": parent_id if type_val == "Relationship" else None,
         **kwargs
     }
     return {k: v for k, v in payload.items() if v is not None} # Clean None values
@@ -75,8 +75,8 @@ def create_entity_instance(payload: Dict):
             start_line=payload.get("start_line"),
             end_line=payload.get("end_line")
         )
-    elif type_val == "Dependency":
-        dp = Dependency(
+    elif type_val == "Relationship":
+        dp = Relationship(
             dep_id_str=payload.get("id"),
             source_file_id=str_parent_id,
             target=payload.get("target_module"),
@@ -109,7 +109,7 @@ def setup_expected_outcomes(base_path: Path) -> dict:
             mock_payloads = [
                 create_mock_payload(f"{file_id_str}:chunk:0", "TextChunk", parent_id=file_id_str, chunk_index=0, text_content="mock python text chunk 1"),
                 create_mock_payload(f"{file_id_str}:FunctionDefinition:main:10", "FunctionDefinition", parent_id=file_id_str, name="main", start_line=10, end_line=15, text_content="def main():\n  pass"),
-                create_mock_payload(f"{file_id_str}:dep:os:1", "Dependency", parent_id=file_id_str, target_module="os", start_line=1, end_line=1, text_content="import os"),
+                create_mock_payload(f"{file_id_str}:dep:os:1", "Relationship", parent_id=file_id_str, target_module="os", start_line=1, end_line=1, text_content="import os"),
             ]
         elif f_type == "markdown":
             mock_payloads = [
@@ -119,7 +119,7 @@ def setup_expected_outcomes(base_path: Path) -> dict:
         elif f_type == "javascript":
              mock_payloads = [
                 create_mock_payload(f"{file_id_str}:ClassDefinition:App:5", "ClassDefinition", parent_id=file_id_str, name="App", start_line=5, end_line=20, text_content="class App {}"),
-                create_mock_payload(f"{file_id_str}:dep:react:1", "Dependency", parent_id=file_id_str, target_module="react", start_line=1, end_line=1, text_content="import React from 'react'"),
+                create_mock_payload(f"{file_id_str}:dep:react:1", "Relationship", parent_id=file_id_str, target_module="react", start_line=1, end_line=1, text_content="import React from 'react'"),
              ]
 
         # Convert payloads to entity instances

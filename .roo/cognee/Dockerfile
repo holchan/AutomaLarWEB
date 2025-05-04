@@ -32,16 +32,17 @@ FROM python:3.12-slim-bookworm
 ARG FINAL_VENV_PATH=/.roo/cognee/.venv
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libpq5 && \
+    apt-get install -y --no-install-recommends \
+        libpq5 \
+        git && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-
 WORKDIR /workspace
 
 COPY --from=builder ${FINAL_VENV_PATH} ${FINAL_VENV_PATH}
 
 ENV PATH="${FINAL_VENV_PATH}/bin:$PATH"
-ENV PYTHONPATH=/workspace/.roo/cognee
+#ENV PYTHONPATH=/workspace/.roo/cognee
 ENV PYTHONUNBUFFERED=1
 
 ENTRYPOINT ["cognee"]
