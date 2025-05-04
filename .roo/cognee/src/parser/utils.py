@@ -1,24 +1,21 @@
 # src/parser/utils.py
 import aiofiles
 import logging
+import os
 from typing import Optional, Any
 
 try:
-    from cognee.shared.logging_utils import get_logger
-    logger = get_logger(__name__)
-    logger.info("Using Cognee logger for parser module.")
-except ImportError:
-    logger = logging.getLogger("standalone_parser")
-    if not logger.hasHandlers():
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-        if os.environ.get("PARSER_LOG_LEVEL", "").lower() == "debug":
-            logger.setLevel(logging.DEBUG)
-        logger.propagate = False
-    logger.info(f"Cognee logger not found. Using standard Python logging for parser module (Level: {logger.getLevelName(logger.level)}).")
+    from cognee.shared.logging_utils import get_logger, INFO, DEBUG, WARNING, ERROR, CRITICAL, log_levels
+    cognee_log_level_str = os.getenv("LOG_LEVEL", "DEBUG").upper()
+    log_level = log_levels.get(cognee_log_level_str, DEBUG)
+
+    logger = get_logger(__name__, level=log_level)
+    logger.info(f"Using Cognee logger for parser module (Level: {logging.getLevelName(log_level)}).")
+
+except ImportError as e:
+    print(f"CRITICAL ERROR: Failed to import Cognee logger utility: {e}", file=os.sys.stderr)
+    print("Ensure the main 'cognee' package is installed and accessible in your PYTHONPATH.", file=os.sys.stderr)
+    raise ImportError("Cognee logging utility is required but could not be imported.") from e
 
 try:
     from tree_sitter import Node as TSNODE_TYPE
@@ -39,7 +36,6 @@ async def read_file_content(file_path: str) -> Optional[str]:
     Returns:
         The file content as a string, or None if an error occurs.
     """
-
     try:
         async with aiofiles.open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = await f.read()
@@ -66,7 +62,6 @@ def get_node_text(node: TSNODE_TYPE, content_bytes: bytes) -> Optional[str]:
     Returns:
         The decoded text of the node, or None if an error occurs or tree-sitter is unavailable.
     """
-
     if not TS_AVAILABLE or not hasattr(node, 'start_byte') or not hasattr(node, 'end_byte'):
         logger.debug("Tree-sitter not available or invalid node type passed to get_node_text.")
         return None
@@ -74,7 +69,7 @@ def get_node_text(node: TSNODE_TYPE, content_bytes: bytes) -> Optional[str]:
         start = max(0, node.start_byte)
         end = min(len(content_bytes), node.end_byte)
         if start >= end:
-            logger.warning(f"Node {node.type} at {node.start_point}-{node.end_point} has invalid byte range: start={start}, end={end}. Returning empty string.")
+            logger.debug(f"Node {getattr(node, 'type', 'unknown')} at {getattr(node, 'start_point', '?')}-{getattr(node, 'end_point', '?')} has invalid byte range: start={start}, end={end}. Returning empty string.")
             return ""
 
         text = content_bytes[start:end].decode("utf-8", "ignore")
