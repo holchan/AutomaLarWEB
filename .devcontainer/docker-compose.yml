@@ -3,9 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args: {}
+      args:
+        - WORKSPACE_PATH=${WORKSPACE_PATH-/workspace}
     volumes:
-      - ..:/workspace:cached
+      - ..:/${WORKSPACE_PATH-/workspace}:cached
       - node_modules_devcontainer:/workspace/node_modules
       - next_cache_devcontainer:/workspace/.next
       - storybook_cache_devcontainer:/workspace/.storybook-cache
@@ -18,7 +19,8 @@ services:
     env_file:
       - .env.devcontainer
     environment:
-      - TZ=Etc/UTC
+      - TZ=${TIMEZONE-America/Sao_Paulo}
+      - WORKSPACE_PATH=${WORKSPACE_PATH-/workspace}
     user: node
     depends_on:
       db:
@@ -50,7 +52,7 @@ services:
       - dev_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
+      interval: 30s
       timeout: 5s
       retries: 5
     deploy:
@@ -64,14 +66,18 @@ services:
     networks:
       - dev_net
     volumes:
-      - ..:/workspace:cached
-      - cognee_data_devcontainer:/workspace/.roo/cognee/data
+      - ..:/${WORKSPACE_PATH-/workspace}:cached
     env_file:
       - .env.devcontainer
     build:
-      context: ..
+      context: ../
       dockerfile: ./.roo/cognee/Dockerfile
+      args:
+        - BUILD_PATH=${COGNEE_BUILD_PATH-/opt/cognee}
+        - WORKSPACE_PATH=${WORKSPACE_PATH-/workspace}
     environment:
+      - WORKSPACE_PATH=${WORKSPACE_PATH-/workspace}
+      - BUILD_PATH=${COGNEE_BUILD_PATH-/opt/cognee}
       - ENVIRONMENT=${COGNEE_ENV-local}
       - TOKENIZERS_PARALLELISM=${COGNEE_TOKENIZERS_PARALLELISM-false}
       - LLM_API_KEY=${COGNEE_LLM_API_KEY-}
@@ -100,6 +106,7 @@ services:
           memory: 4GB
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    command: sleep infinity
     ports:
       - ${COGNEE_SSE_PORT-8000}:${COGNEE_SSE_PORT-8000}
 
@@ -109,7 +116,6 @@ volumes:
   storybook_cache_devcontainer:
   postgres_data_devcontainer:
   zsh_history_devcontainer:
-  cognee_data_devcontainer:
 
 networks:
   dev_net:
