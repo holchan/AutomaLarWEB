@@ -45,9 +45,9 @@ This setup utilizes Docker Compose to orchestrate the necessary services for loc
 - **VS Code Integration:** Pre-installs useful extensions and applies tailored settings for optimal DX (ESLint, Prettier, GitLens, Prisma, Storybook, Peacock, etc.).
 - **Task Automation:** Common tasks (start dev server, run migrations, lint, test) should be configured in `.vscode/tasks.json` for easy access via the Command Palette (`Ctrl+Shift+P` -> "Tasks: Run Task").
 - **Debugging:** Debugging configurations for Next.js (client/server), Storybook, and tests should be defined in `.vscode/launch.json`.
-- **Environment Variables:** Development secrets/config (like `DATABASE_URL`) are managed via a `.env.devcontainer` file in the project root.
+- **Environment Variables:** Development secrets/config (like `DATABASE_URL`) are managed via a `.env` file in the project root.
 - **Separation of Concerns:** This setup is strictly for _development_. Production builds use a separate, multi-stage `Dockerfile` (typically at the project root) and connect to managed cloud databases. Deployment configurations reside in the `deploy/` folder.
 
 ## Important Initial Setup Steps (After First Open)
 
-Refer to the "Actionable Next Steps" section in `devcontainer.json` and the main project `README.md` for crucial one-time setup tasks like running `yarn prisma init`, setting up Husky, and configuring `.env.devcontainer`.
+Refer to the "Actionable Next Steps" section in `devcontainer.json` and the main project `README.md` for crucial one-time setup tasks like running `yarn prisma init`, setting up Husky, and configuring `.env`.

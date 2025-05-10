@@ -17,7 +17,7 @@ services:
       - "6006:6006"
       - "5555:5555"
     env_file:
-      - ../.env.devcontainer
+      - ../.env
     environment:
       - TZ=Etc/UTC
     user: node

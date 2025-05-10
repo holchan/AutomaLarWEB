@@ -1,32 +1,35 @@
+name: automalar-web
+version: "3.8"
+
 services:
   app:
+    container_name: automalar-web-app
+    working_dir: ${WORKSPACE_PATH-/automalarweb}
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        - WORKSPACE_PATH=${WORKSPACE_PATH-/workspace}
     volumes:
-      - ..:/${WORKSPACE_PATH-/workspace}:cached
-      - node_modules_devcontainer:/workspace/node_modules
-      - next_cache_devcontainer:/workspace/.next
-      - storybook_cache_devcontainer:/workspace/.storybook-cache
+      - ..:${WORKSPACE_PATH-/automalarweb}:cached
+      - node_modules_devcontainer:${WORKSPACE_PATH-/automalarweb}/node_modules
+      - next_cache_devcontainer:${WORKSPACE_PATH-/automalarweb}/.next
+      - storybook_cache_devcontainer:${WORKSPACE_PATH-/automalarweb}/.storybook-cache
       - zsh_history_devcontainer:/home/node/.zsh_history:z
-    command: sleep infinity
     ports:
       - "${APP_PORT-3000}:${APP_PORT-3000}"
       - "${STORYBOOK_PORT-6006}:${STORYBOOK_PORT-6006}"
-      - "${PRSIMA_PORT-5555}:${PRISMA_PORT-5555}"
+      - "${PRISMA_PORT-5555}:${PRISMA_PORT-5555}"
     env_file:
-      - .env.devcontainer
+      - .env
     environment:
       - TZ=${TIMEZONE-America/Sao_Paulo}
-      - WORKSPACE_PATH=${WORKSPACE_PATH-/workspace}
+      - WORKSPACE_PATH=${WORKSPACE_PATH-/automalarweb}
     user: node
+    command: sleep infinity
     depends_on:
       db:
         condition: service_healthy
     networks:
-      - dev_net
+      - automalarwebdev_dev_network
     deploy:
       resources:
         limits:
@@ -34,12 +37,13 @@ services:
           memory: 10GB
 
   db:
+    container_name: automalar-web-db
     image: postgres:15
     restart: unless-stopped
     volumes:
       - postgres_data_devcontainer:/var/lib/postgresql/data
     env_file:
-      - .env.devcontainer
+      - .env
     environment:
       - POSTGRES_USER=${POSTGRES_USER-devuser}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD-devpassword}
@@ -49,7 +53,7 @@ services:
     ports:
       - "${DB_PORT-5432}:${DB_PORT-5432}"
     networks:
-      - dev_net
+      - automalarwebdev_dev_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 30s
@@ -62,21 +66,21 @@ services:
           memory: 2GB
 
   cognee-mcp:
-    container_name: cognee-mcp
+    container_name: automalar-web-mcp
     networks:
-      - dev_net
+      - automalarwebdev_dev_network
     volumes:
-      - ..:/${WORKSPACE_PATH-/workspace}:cached
+      - ..:${WORKSPACE_PATH-/automalarweb}:cached
     env_file:
-      - .env.devcontainer
+      - .env
     build:
       context: ../
       dockerfile: ./.roo/cognee/Dockerfile
       args:
         - BUILD_PATH=${COGNEE_BUILD_PATH-/opt/cognee}
-        - WORKSPACE_PATH=${WORKSPACE_PATH-/workspace}
+        - WORKSPACE_PATH=${WORKSPACE_PATH-/automalarweb}
     environment:
-      - WORKSPACE_PATH=${WORKSPACE_PATH-/workspace}
+      - WORKSPACE_PATH=${WORKSPACE_PATH-/automalarweb}
       - BUILD_PATH=${COGNEE_BUILD_PATH-/opt/cognee}
       - ENVIRONMENT=${COGNEE_ENV-local}
       - TOKENIZERS_PARALLELISM=${COGNEE_TOKENIZERS_PARALLELISM-false}
@@ -118,5 +122,5 @@ volumes:
   zsh_history_devcontainer:
 
 networks:
-  dev_net:
+  automalarwebdev_dev_network:
     driver: bridge

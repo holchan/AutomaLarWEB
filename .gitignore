@@ -19,7 +19,6 @@ __pycache__/
 *.pyd
 
 # Env files
-.env.devcontainer
 .env
 
 # OS generated files
