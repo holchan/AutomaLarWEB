@@ -2,7 +2,8 @@
   "name": "AutomaLarWEB",
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
-  "workspaceFolder": "/workspace",
+  "workspaceFolder": "${localEnv:WORKSPACE_PATH}",
+  "remoteUser": "${localEnv:WORKSPACE_USER}",
 
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {},
@@ -14,8 +15,8 @@
   },
 
   "initializeCommand": "echo 'Starting Dev Container setup...'",
-  "postCreateCommand": "sudo chown -R node:node /workspace",
-  "postStartCommand": "cd /workspace && yarn install --frozen-lockfile || (yarn install && npx prisma generate)",
+  "postCreateCommand": "sudo chown -R ${localEnv:WORKSPACE_USER}:${localEnv:WORKSPACE_GROUP:-${localEnv:WORKSPACE_USER}} ${localEnv:WORKSPACE_PATH}",
+  "postStartCommand": "cd ${localEnv:WORKSPACE_PATH} && yarn install --frozen-lockfile || (yarn install && npx prisma generate)",
   "postAttachCommand": {
     "server": "echo 'Attached to AutomaLarWEB Dev Container! 🔥' && git config --global --add safe.directory ${containerWorkspaceFolder}"
   },
@@ -57,6 +58,5 @@
       ]
     }
   },
-  "remoteUser": "node",
   "shutdownAction": "stopCompose"
 }
