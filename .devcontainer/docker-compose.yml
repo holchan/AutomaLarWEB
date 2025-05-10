@@ -29,7 +29,7 @@ services:
       db:
         condition: service_healthy
     networks:
-      - automalarwebdev_dev_network
+      - automalarweb_dev_network
     deploy:
       resources:
         limits:
@@ -53,7 +53,7 @@ services:
     ports:
       - "${DB_PORT-5432}:${DB_PORT-5432}"
     networks:
-      - automalarwebdev_dev_network
+      - automalarweb_dev_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 30s
@@ -68,7 +68,7 @@ services:
   cognee-mcp:
     container_name: automalar-web-mcp
     networks:
-      - automalarwebdev_dev_network
+      - automalarweb_dev_network
     volumes:
       - ..:${WORKSPACE_PATH-/automalarweb}:cached
     env_file:
@@ -122,5 +122,5 @@ volumes:
   zsh_history_devcontainer:
 
 networks:
-  automalarwebdev_dev_network:
+  automalarweb_dev_network:
     driver: bridge
