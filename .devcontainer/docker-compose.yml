@@ -1,36 +1,36 @@
-name: ${WEB_PROJECT_SLUG-automalar-web}
+name: ${WEB_PROJECT_SLUG:-automalar-web}
 version: "3.8"
 
 services:
   app:
-    container_name: ${WEB_PROJECT_SLUG-automalar-web}-app
-    working_dir: ${WEB_WORKSPACE_PATH-/automalarweb}
+    container_name: ${WEB_PROJECT_SLUG:-automalar-web}-app
+    working_dir: ${WEB_WORKSPACE_PATH:-/automalarweb}
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ..:${WEB_WORKSPACE_PATH-/automalarweb}:cached
-      - node_modules_devcontainer:${WEB_WORKSPACE_PATH-/automalarweb}/node_modules
-      - next_cache_devcontainer:${WEB_WORKSPACE_PATH-/automalarweb}/.next
-      - storybook_cache_devcontainer:${WEB_WORKSPACE_PATH-/automalarweb}/.storybook-cache
+      - ..:${WEB_WORKSPACE_PATH:-/automalarweb}:cached
+      - node_modules_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/node_modules
+      - next_cache_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/.next
+      - storybook_cache_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/.storybook-cache
       - zsh_history_devcontainer:/home/node/.zsh_history:z
     ports:
-      - "${WEB_APP_PORT-3000}:${WEB_APP_PORT-3000}"
-      - "${WEB_STORYBOOK_PORT-6006}:${WEB_STORYBOOK_PORT-6006}"
-      - "${WEB_PRISMA_PORT-5555}:${WEB_PRISMA_PORT-5555}"
+      - "${WEB_APP_PORT:-3000}:${WEB_APP_PORT:-3000}"
+      - "${WEB_STORYBOOK_PORT:-6006}:${WEB_STORYBOOK_PORT:-6006}"
+      - "${WEB_PRISMA_PORT:-5555}:${WEB_PRISMA_PORT:-5555}"
     env_file:
       - .env
     environment:
-      - TZ=${TIMEZONE-America/Sao_Paulo}
-      - WORKSPACE_PATH=${WEB_WORKSPACE_PATH-/automalarweb}
-      - WORKSPACE_SLUG=${WEB_PROJECT_SLUG-automalar-web}
-    user: ${WEB_WORKSPACE_USER-node}
+      - TZ=${TIMEZONE:-America/Sao_Paulo}
+      - WORKSPACE_PATH=${WEB_WORKSPACE_PATH:-/automalarweb}
+      - WORKSPACE_SLUG=${WEB_PROJECT_SLUG:-automalar-web}
+    user: ${WEB_WORKSPACE_USER:-node}
     command: sleep infinity
     depends_on:
       db:
         condition: service_healthy
     networks:
-      - ${WEB_PROJECT_SLUG-automalar-web}_dev_network
+      - ${WEB_PROJECT_SLUG:-automalar-web}_dev_network
     deploy:
       resources:
         limits:
@@ -38,23 +38,23 @@ services:
           memory: 10GB
 
   db:
-    container_name: ${WEB_PROJECT_SLUG-automalar-web}-db
+    container_name: ${WEB_PROJECT_SLUG:-automalar-web}-db
     image: postgres:15
     restart: unless-stopped
     volumes:
-      - ${WEB_PROJECT_SLUG-automalar-web}_postgres_data_devcontainer:/var/lib/postgresql/data
+      - ${WEB_PROJECT_SLUG:-automalar-web}_postgres_data_devcontainer:/var/lib/postgresql/data
     env_file:
       - .env
     environment:
-      - POSTGRES_USER=${WEB_POSTGRES_USER-devuser}
-      - POSTGRES_PASSWORD=${WEB_POSTGRES_PASSWORD-devpassword}
-      - POSTGRES_DB=${WEB_POSTGRES_DB-devdb}
-      - TZ=${TIMEZONE-America/Sao_Paulo}
-      - PGTZ=${TIMEZONE-America/Sao_Paulo}
+      - POSTGRES_USER=${WEB_POSTGRES_USER:-devuser}
+      - POSTGRES_PASSWORD=${WEB_POSTGRES_PASSWORD:-devpassword}
+      - POSTGRES_DB=${WEB_POSTGRES_DB:-devdb}
+      - TZ=${TIMEZONE:-America/Sao_Paulo}
+      - PGTZ=${TIMEZONE:-America/Sao_Paulo}
     ports:
-      - "${WEB_DB_PORT-5432}:${WEB_DB_PORT-5432}"
+      - "${WEB_DB_PORT:-5432}:${WEB_DB_PORT:-5432}"
     networks:
-      - ${WEB_PROJECT_SLUG-automalar-web}_dev_network
+      - ${WEB_PROJECT_SLUG:-automalar-web}_dev_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$WEB_POSTGRES_USER -d $$WEB_POSTGRES_DB"]
       interval: 30s
@@ -67,43 +67,43 @@ services:
           memory: 2GB
 
   cognee-mcp:
-    container_name: ${WEB_PROJECT_SLUG-automalar-web}-mcp
+    container_name: ${WEB_PROJECT_SLUG:-automalar-web}-mcp
     volumes:
-      - ..:${WEB_WORKSPACE_PATH-/automalarweb}:cached
+      - ..:${WEB_WORKSPACE_PATH:-/automalarweb}:cached
     env_file:
       - .env
     build:
       context: ../
       dockerfile: ./.roo/cognee/Dockerfile
       args:
-        - BUILD_PATH=${WEB_COGNEE_BUILD_PATH-/opt/cognee}
-        - WORKSPACE_PATH=${WEB_WORKSPACE_PATH-/automalarweb}
+        - BUILD_PATH=${WEB_COGNEE_BUILD_PATH:-/opt/cognee}
+        - WORKSPACE_PATH=${WEB_WORKSPACE_PATH:-/automalarweb}
     environment:
-      - WORKSPACE_PATH=${WEB_WORKSPACE_PATH-/automalarweb}
-      - BUILD_PATH=${WEB_COGNEE_BUILD_PATH-/opt/cognee}
-      - ENVIRONMENT=${WEB_COGNEE_ENV-local}
-      - TOKENIZERS_PARALLELISM=${WEB_COGNEE_TOKENIZERS_PARALLELISM-false}
-      - LLM_API_KEY=${WEB_COGNEE_LLM_API_KEY-}
-      - LLM_MODEL=${WEB_COGNEE_LLM_MODEL-gemini/gemini-2.0-flash}
-      - LLM_PROVIDER=${WEB_COGNEE_LLM_PROVIDER-gemini}
-      - LLM_ENDPOINT=${WEB_COGNEE_LLM_ENDPOINT-}
-      - LLM_API_VERSION=${WEB_COGNEE_LLM_API_VERSION-}
-      - LLM_MAX_TOKENS=${WEB_COGNEE_LLM_MAX_TOKENS-16384}
-      - EMBEDDING_PROVIDER=${WEB_COGNEE_EMBEDDING_PROVIDER-gemini}
-      - EMBEDDING_API_KEY=${WEB_COGNEE_EMBEDDING_API_KEY-}
-      - EMBEDDING_MODEL=${WEB_COGNEE_EMBEDDING_MODEL-gemini/text-embedding-004}
-      - EMBEDDING_ENDPOINT=${WEB_COGNEE_EMBEDDING_ENDPOINT-}
-      - EMBEDDING_API_VERSION=${WEB_COGNEE_EMBEDDING_API_VERSION-}
-      - EMBEDDING_DIMENSIONS=${WEB_COGNEE_EMBEDDING_DIMENSIONS-768}
-      - EMBEDDING_MAX_TOKENS=${WEB_COGNEE_EMBEDDING_MAX_TOKENS-2048}
-      - GRAPH_DATABASE_PROVIDER=${WEB_COGNEE_GRAPH_DATABASE_PROVIDER-networkx}
-      - VECTOR_DB_PROVIDER=${WEB_COGNEE_VECTOR_DB_PROVIDER-lancedb}
-      - DB_PROVIDER=${WEB_COGNEE_DB_PROVIDER-sqlite}
-      - DB_NAME=${WEB_COGNEE_DB_NAME-WEB_COGNEE_db}
-      - SSE_HOST=${WEB_COGNEE_SSE_HOST-0.0.0.0}
-      - SSE_PORT=${WEB_COGNEE_SSE_PORT-8000}
+      - WORKSPACE_PATH=${WEB_WORKSPACE_PATH:-/automalarweb}
+      - BUILD_PATH=${WEB_COGNEE_BUILD_PATH:-/opt/cognee}
+      - ENVIRONMENT=${WEB_COGNEE_ENV:-local}
+      - TOKENIZERS_PARALLELISM=${WEB_COGNEE_TOKENIZERS_PARALLELISM:-false}
+      - LLM_API_KEY=${WEB_COGNEE_LLM_API_KEY:-}
+      - LLM_MODEL=${WEB_COGNEE_LLM_MODEL:-gemini/gemini-2.0-flash}
+      - LLM_PROVIDER=${WEB_COGNEE_LLM_PROVIDER:-gemini}
+      - LLM_ENDPOINT=${WEB_COGNEE_LLM_ENDPOINT:-}
+      - LLM_API_VERSION=${WEB_COGNEE_LLM_API_VERSION:-}
+      - LLM_MAX_TOKENS=${WEB_COGNEE_LLM_MAX_TOKENS:-16384}
+      - EMBEDDING_PROVIDER=${WEB_COGNEE_EMBEDDING_PROVIDER:-gemini}
+      - EMBEDDING_API_KEY=${WEB_COGNEE_EMBEDDING_API_KEY:-}
+      - EMBEDDING_MODEL=${WEB_COGNEE_EMBEDDING_MODEL:-gemini/text-embedding-004}
+      - EMBEDDING_ENDPOINT=${WEB_COGNEE_EMBEDDING_ENDPOINT:-}
+      - EMBEDDING_API_VERSION=${WEB_COGNEE_EMBEDDING_API_VERSION:-}
+      - EMBEDDING_DIMENSIONS=${WEB_COGNEE_EMBEDDING_DIMENSIONS:-768}
+      - EMBEDDING_MAX_TOKENS=${WEB_COGNEE_EMBEDDING_MAX_TOKENS:-2048}
+      - GRAPH_DATABASE_PROVIDER=${WEB_COGNEE_GRAPH_DATABASE_PROVIDER:-networkx}
+      - VECTOR_DB_PROVIDER=${WEB_COGNEE_VECTOR_DB_PROVIDER:-lancedb}
+      - DB_PROVIDER=${WEB_COGNEE_DB_PROVIDER:-sqlite}
+      - DB_NAME=${WEB_COGNEE_DB_NAME:-WEB_COGNEE_db}
+      - SSE_HOST=${WEB_COGNEE_SSE_HOST:-0.0.0.0}
+      - SSE_PORT=${WEB_COGNEE_SSE_PORT:-8000}
     networks:
-      - ${WEB_PROJECT_SLUG-automalar-web}_dev_network
+      - ${WEB_PROJECT_SLUG:-automalar-web}_dev_network
     deploy:
       resources:
         limits:
@@ -113,7 +113,7 @@ services:
       - "host.docker.internal:host-gateway"
     command: sleep infinity
     ports:
-      - ${WEB_COGNEE_SSE_PORT-8000}:${WEB_COGNEE_SSE_PORT-8000}
+      - ${WEB_COGNEE_SSE_PORT:-8000}:${WEB_COGNEE_SSE_PORT:-8000}
 
 volumes:
   node_modules_devcontainer:
