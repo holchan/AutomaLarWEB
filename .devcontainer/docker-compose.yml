@@ -1,5 +1,4 @@
 name: ${WEB_PROJECT_SLUG:-automalar-web}
-version: "3.8"
 
 services:
   app:
