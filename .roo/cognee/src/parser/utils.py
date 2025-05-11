@@ -6,7 +6,7 @@ from typing import Optional, Any
 
 try:
     from cognee.shared.logging_utils import get_logger, INFO, DEBUG, WARNING, ERROR, CRITICAL, log_levels
-    cognee_log_level_str = os.getenv("LOG_LEVEL", "DEBUG").upper()
+    cognee_log_level_str = os.getenv("WEB_COGNEE_LOG_LEVEL", "DEBUG").upper()
     log_level = log_levels.get(cognee_log_level_str, DEBUG)
 
     logger = get_logger(__name__, level=log_level)

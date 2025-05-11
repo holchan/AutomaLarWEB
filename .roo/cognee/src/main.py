@@ -28,7 +28,7 @@ def setup_arg_parser():
     parser.add_argument(
         "--project-name",
         help="Project name used for 'local/' prefix if target is local path and --repo-id is not set.",
-        default=os.environ.get("COGNEE_PROJECT", "default_project") # Use env var or default
+        default=os.environ.get("WEB_COGNEE_PROJECT", "default_project")
     )
     parser.add_argument(
         "--concurrency",
@@ -136,5 +136,5 @@ if __name__ == "__main__":
     # Example usage from command line:
     # python -m src.main https://github.com/someuser/somerepo.git --verbose
     # python -m src.main /path/to/local/repo --repo-id my_local_project
-    # python -m src.main /path/to/local/repo # Uses COGNEE_PROJECT env var or default
+    # python -m src.main /path/to/local/repo # Uses WEB_COGNEE_PROJECT env var or default
     asyncio.run(main())

@@ -2,8 +2,8 @@ import asyncio
 import aiohttp
 import os
 
-sse_host = os.getenv("COGNEE_SSE_HOST", "localhost")
-sse_port = os.getenv("COGNEE_SSE_PORT", "8000")
+sse_host = os.getenv("WEB_COGNEE_SSE_HOST", "localhost")
+sse_port = os.getenv("WEB_COGNEE_SSE_PORT", "8000")
 
 async def sse_client(url: str):
     """
@@ -37,7 +37,7 @@ async def sse_client(url: str):
 
 async def main():
     # Assuming that the SSE server is exposed on the port defined in the devcontainer environment.
-    # For example, if COGNEE_SSE_HOST is 0.0.0.0 and COGNEE_SSE_PORT is 8000, then from within Docker:
+    # For example, if WEB_COGNEE_SSE_HOST is 0.0.0.0 and WEB_COGNEE_SSE_PORT is 8000, then from within Docker:
     sse_url = f"http://cognee-mcp:{sse_port}/sse"  # Adjust if your SSE endpoint path is different (e.g. http://localhost:8000/sse)
     await sse_client(sse_url)
 
