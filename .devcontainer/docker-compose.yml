@@ -10,10 +10,10 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ..:${WEB_WORKSPACE_PATH:-/automalarweb}:cached
-      - node_modules_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/node_modules
-      - next_cache_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/.next
-      - storybook_cache_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/.storybook-cache
-      - zsh_history_devcontainer:/home/node/.zsh_history:z
+      - ${WEB_PROJECT_SLUG:-automalar-web}_node_modules_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/node_modules
+      - ${WEB_PROJECT_SLUG:-automalar-web}_next_cache_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/.next
+      - ${WEB_PROJECT_SLUG:-automalar-web}_storybook_cache_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/.storybook-cache
+      - ${WEB_PROJECT_SLUG:-automalar-web}_zsh_history_devcontainer:/home/node/.zsh_history:z
     ports:
       - "${WEB_APP_PORT:-3000}:${WEB_APP_PORT:-3000}"
       - "${WEB_STORYBOOK_PORT:-6006}:${WEB_STORYBOOK_PORT:-6006}"
@@ -117,10 +117,15 @@ services:
 
 volumes:
   node_modules_devcontainer:
+    name: ${WEB_PROJECT_SLUG:-automalar-web}_node_modules_devcontainer
   next_cache_devcontainer:
+      name: ${WEB_PROJECT_SLUG:-automalar-web}_next_cache_devcontainer
   storybook_cache_devcontainer:
+      name: ${WEB_PROJECT_SLUG:-automalar-web}_storybook_cache_devcontainer
   postgres_data_devcontainer:
+      name: ${WEB_PROJECT_SLUG:-automalar-web}_postgres_data_devcontainer
   zsh_history_devcontainer:
+      name: ${WEB_PROJECT_SLUG:-automalar-web}_zsh_history_devcontainer
 
 networks:
   dev_network:
