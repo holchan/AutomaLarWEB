@@ -9,10 +9,10 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ..:${WEB_WORKSPACE_PATH:-/automalarweb}:cached
-      - ${WEB_PROJECT_SLUG:-automalar-web}_node_modules_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/node_modules
-      - ${WEB_PROJECT_SLUG:-automalar-web}_next_cache_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/.next
-      - ${WEB_PROJECT_SLUG:-automalar-web}_storybook_cache_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/.storybook-cache
-      - ${WEB_PROJECT_SLUG:-automalar-web}_zsh_history_devcontainer:/home/node/.zsh_history:z
+      - node_modules_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/node_modules
+      - next_cache_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/.next
+      - storybook_cache_devcontainer:${WEB_WORKSPACE_PATH:-/automalarweb}/.storybook-cache
+      - zsh_history_devcontainer:/home/node/.zsh_history:z
     ports:
       - "${WEB_APP_PORT:-3000}:${WEB_APP_PORT:-3000}"
       - "${WEB_STORYBOOK_PORT:-6006}:${WEB_STORYBOOK_PORT:-6006}"
@@ -29,7 +29,7 @@ services:
       db:
         condition: service_healthy
     networks:
-      - ${WEB_PROJECT_SLUG:-automalar-web}_dev_network
+      - dev_network
     deploy:
       resources:
         limits:
@@ -41,7 +41,7 @@ services:
     image: postgres:15
     restart: unless-stopped
     volumes:
-      - ${WEB_PROJECT_SLUG:-automalar-web}_postgres_data_devcontainer:/var/lib/postgresql/data
+      - postgres_data_devcontainer:/var/lib/postgresql/data
     env_file:
       - .env
     environment:
@@ -53,7 +53,7 @@ services:
     ports:
       - "${WEB_DB_PORT:-5432}:${WEB_DB_PORT:-5432}"
     networks:
-      - ${WEB_PROJECT_SLUG:-automalar-web}_dev_network
+      - dev_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$WEB_POSTGRES_USER -d $$WEB_POSTGRES_DB"]
       interval: 30s
@@ -102,7 +102,7 @@ services:
       - SSE_HOST=${WEB_COGNEE_SSE_HOST:-0.0.0.0}
       - SSE_PORT=${WEB_COGNEE_SSE_PORT:-8000}
     networks:
-      - ${WEB_PROJECT_SLUG:-automalar-web}_dev_network
+      - dev_network
     deploy:
       resources:
         limits:
