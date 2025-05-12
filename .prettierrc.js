@@ -1,9 +1,14 @@
 module.exports = {
-  trailingComma: 'all',
+  printWidth: 100,
   tabWidth: 2,
+  useTabs: false,
   semi: true,
   singleQuote: true,
-  printWidth: 100,
+  trailingComma: 'all',
+  bracketSpacing: true,
+  arrowParens: 'always',
+  jsxSingleQuote: true,
+  quoteProps: 'as-needed',
 
   overrides: [
     {
@@ -11,18 +16,14 @@ module.exports = {
       options: {
         proseWrap: 'preserve',
         tabWidth: 2,
+        printWidth: 120,
       },
     },
     {
-      files: '*.{yml,yaml}',
+      files: '*.{yml,yaml,json}',
       options: {
         tabWidth: 2,
-      },
-    },
-    {
-      files: '*.json',
-      options: {
-        tabWidth: 2,
+        singleQuote: false,
       },
     },
     {
@@ -33,5 +34,13 @@ module.exports = {
          printWidth: 120,
       },
     },
+    {
+       files: 'prisma/schema.prisma',
+       options: {
+          parser: 'prisma',
+          singleQuote: false,
+          printWidth: 80,
+       }
+    }
   ],
 };

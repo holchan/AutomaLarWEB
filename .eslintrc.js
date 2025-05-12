@@ -17,17 +17,23 @@ module.exports = {
     react: {
       version: 'detect',
     },
+    'import/resolver': {
+      node: {
+        extensions: ['.js', '.jsx', '.ts', '.tsx'],
+      },
+      typescript: {},
+    },
   },
 
   extends: [
     'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
     'plugin:react/recommended',
     'plugin:react-hooks/recommended',
     'plugin:jsx-a11y/recommended',
-    'plugin:import/errors',
-    'plugin:import/warnings',
     'plugin:import/typescript',
-    'plugin:@typescript-eslint/recommended',
+    'next/core-web-vitals',
+    'plugin:@next/next/recommended',
     'prettier',
   ],
 
@@ -40,22 +46,16 @@ module.exports = {
   ],
 
   rules: {
-    // Place project-specific ESLint rules overrides here.
-    // Example: Allow console logs in development builds
-    // 'no-console': process.env.NODE_ENV === 'production' ? 'warn' : 'off',
-
-    // Example: Custom rule severity
-    // 'no-unused-vars': 'warn',
-
-    // Override recommended rules if needed
-    // 'react/react-in-jsx-scope': 'off', // Not needed for Next.js 13+
-    // '@typescript-eslint/explicit-function-return-type': 'off', // Often too strict
-
-    // Add or override rules from plugins
-    // 'import/order': 'warn',
-
-    'prettier/prettier': 'warn',
+    'no-console': process.env.NODE_ENV === 'production' ? 'warn' : 'off',
+    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_.*$' }],
+    'react/react-in-jsx-scope': 'off',
+    '@typescript-eslint/explicit-function-return-type': 'warn',
+    '@typescript-eslint/explicit-module-boundary-types': 'warn',
+    'react/prop-types': 'off',
+    'jsx-a11y/anchor-is-valid': ['error', { components: ['Link'], specialLink: ['hrefLeft', 'hrefRight'], aspects: ['invalidHref', 'preferButton'] }],
+    'import/order': ['warn', { 'groups': ['builtin', 'external', 'internal', ['parent', 'sibling', 'index']], 'newlines-between': 'always' }],
   },
+
   overrides: [
     {
       files: ['**/*.ts', '**/*.tsx'],
@@ -64,7 +64,21 @@ module.exports = {
     },
     {
       files: ['**/__tests__/**/*.[jt]s?(x)', '**/?(*.)+(spec|test).[jt]s?(x)'],
-      extends: ['plugin:jest/recommended'],
+      extends: [
+        'plugin:jest/recommended',
+        'plugin:testing-library/react',
+        'plugin:jest-dom/recommended',
+      ],
+      rules: {
+        'jest/no-disabled-tests': 'warn',
+      },
     },
+    {
+      files: ['src/utils/**/*.ts', 'src/pages/api/**/*.ts'],
+      rules: {
+        '@typescript-eslint/explicit-function-return-type': 'error',
+        '@typescript-eslint/explicit-module-boundary-types': 'error',
+      }
+    }
   ],
 };

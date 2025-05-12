@@ -4,6 +4,22 @@
     "private": true,
     "devDependencies": {
       "@prisma/client": "^5.17.0",
-      "prisma": "^5.17.0"
+      "prisma": "^5.17.0",
+      "eslint": "^8.50.0",
+      "@typescript-eslint/eslint-plugin": "^6.x.x",
+      "@typescript-eslint/parser": "^6.x.x",
+      "eslint-config-prettier": "^9.x.x",
+      "eslint-plugin-import": "^2.x.x",
+      "eslint-plugin-jsx-a11y": "^6.x.x",
+      "eslint-plugin-react": "^7.x.x",
+      "eslint-plugin-react-hooks": "^4.x.x",
+      "eslint-plugin-jest": "^27.x.x",
+      "eslint-plugin-testing-library": "^6.x.x",
+      "eslint-plugin-jest-dom": "^7.x.x",
+      "next": "latest",
+      "eslint-config-next": "^14.x.x",
+      "react": "latest",
+      "prettier": "^3.x.x",
+      "typescript": "^5.x.x"
     }
   }

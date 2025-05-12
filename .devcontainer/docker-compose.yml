@@ -29,6 +29,7 @@ services:
       - TZ=${TIMEZONE:-America/Sao_Paulo}
       - WORKSPACE_PATH=${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}
       - WORKSPACE_SLUG=${WEB_PROJECT_SLUG:-automalar-web}
+      - NODE_ENV=${WEB_NODE_ENV:-development}
     user: ${WEB_WORKSPACE_USER:-node}
     command: sleep infinity
     depends_on:
