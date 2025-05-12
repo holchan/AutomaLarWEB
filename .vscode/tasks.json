@@ -1,7 +1,5 @@
 {
-    "version": "2.0.0",
     "tasks": [
-        // --- Development Servers ---
         {
             "label": "dev: Next.js",
             "type": "shell",
@@ -20,7 +18,6 @@
             "group": "build",
             "detail": "Starts the Storybook development server (yarn storybook)."
         },
-        // --- Prisma / Database ---
         {
             "label": "db: Migrate Dev",
             "type": "shell",
@@ -45,7 +42,7 @@
             "group": "none",
             "detail": "Opens Prisma Studio GUI (yarn db:studio). Requires port 5555."
         },
-        { // Optional task for convenience, but run manually first time.
+        {
             "label": "db: Init Prisma (Run Once!)",
             "type": "shell",
             "command": "yarn prisma:init",
@@ -53,7 +50,6 @@
             "group": "none",
             "detail": "Initializes Prisma in the project (yarn prisma:init). Use only if needed!"
         },
-        // --- Linting & Formatting ---
         {
             "label": "lint",
             "type": "shell",
@@ -78,7 +74,6 @@
             "group": "none",
             "detail": "Formats code with Prettier (yarn format:write)."
         },
-        // --- Testing ---
         {
             "label": "test",
             "type": "shell",

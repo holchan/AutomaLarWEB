@@ -1,62 +1,8 @@
 {
-  "name": "AutomaLarWEB",
-  "dockerComposeFile": "docker-compose.yml",
+  "name": "${localEnv:WEB_WORKSPACE_SLUG}",
+  "dockerComposeFile": "${localEnv:WEB_DOCKER_COMPOSE_PATH}",
   "service": "app",
-  "workspaceFolder": "${localEnv:WORKSPACE_PATH}",
-  "remoteUser": "${localEnv:WORKSPACE_USER}",
-
-  "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/common-utils:2": {
-      "installZsh": "true",
-      "configureZshAsDefaultShell": "true",
-      "upgradePackages": "true"
-    }
-  },
-
-  "initializeCommand": "echo 'Starting Dev Container setup...'",
-  "postCreateCommand": "sudo chown -R ${localEnv:WORKSPACE_USER}:${localEnv:WORKSPACE_GROUP:-${localEnv:WORKSPACE_USER}} ${localEnv:WORKSPACE_PATH}",
-  "postStartCommand": "cd ${localEnv:WORKSPACE_PATH} && yarn install --frozen-lockfile || (yarn install && npx prisma generate)",
-  "postAttachCommand": {
-    "server": "echo 'Attached to AutomaLarWEB Dev Container! 🔥' && git config --global --add safe.directory ${localEnv:WORKSPACE_PATH}"
-  },
-
-  "portsAttributes": {
-    "3000": { "label": "Next.js App", "onAutoForward": "openPreview" },
-    "6006": { "label": "Storybook", "onAutoForward": "notify" },
-    "5432": { "label": "PostgreSQL DB", "onAutoForward": "silent" },
-    "5555": { "label": "Prisma Studio", "onAutoForward": "openPreview" },
-    "8000": { "label": "Cognee MCP", "onAutoForward": "silent" }
-  },
-
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "eamodio.gitlens",
-        "github.vscode-pull-request-github",
-        "ms-azuretools.vscode-docker",
-        "ms-vscode.vscode-typescript-next",
-        "streetsidesoftware.code-spell-checker",
-        "usernamehw.errorlens",
-        "oderwat.indent-rainbow",
-        "christian-kohler.path-intellisense",
-        "formulahendry.auto-rename-tag",
-        "wayou.vscode-todo-highlight",
-        "mikestead.dotenv",
-        "wix.vscode-import-cost",
-        "pkief.material-icon-theme",
-        "ms-vsliveshare.vsliveshare",
-        "rangav.vscode-thunder-client",
-        "johnpapa.vscode-peacock",
-        "bradlc.vscode-tailwindcss",
-        "orta.vscode-jest",
-        "prisma.prisma",
-        "slevesque.shader",
-        "RooVeterinaryInc.roo-cline"
-      ]
-    }
-  },
+  "workspaceFolder": "${localEnv:WORKSPACE_PATH}${localEnv:WEB_WORKSPACE_PATH}",
+  "remoteUser": "${localEnv:WEB_WORKSPACE_USER}",
   "shutdownAction": "stopCompose"
 }

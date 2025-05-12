@@ -24,7 +24,7 @@
   "explorer.compactFolders": false,
   "explorer.fileNesting.enabled": true,
   "explorer.fileNesting.patterns": {
-    "package.json": ".eslint*, .prettier*, yarn.lock, tsconfig.json, next.config.*, postcss.config.*, tailwind.config.*, prisma/schema.prisma, .huskyrc*, lint-staged*, .env",
+    "package.json": ".eslint*, .prettier*, yarn.lock, tsconfig.json, next.config.*, postcss.config.*, tailwind.config.*, prisma/schema.prisma, .huskyrc*, lint-staged*, .env*, .editorconfig, .gitignore, commitlint.config.js, cypress.json, docker-compose.yml, jest.config.js",
     "*.js": "$(capture).js.map, $(capture).d.ts, $(capture).test.js, $(capture).spec.js",
     "*.jsx": "$(capture).js, $(capture).test.jsx, $(capture).spec.jsx",
     "*.ts": "$(capture).js, $(capture).js.map, $(capture).d.ts, $(capture).test.ts, $(capture).spec.ts",
