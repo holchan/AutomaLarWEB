@@ -1,22 +1,22 @@
-name: ${WEB_PROJECT_SLUG:-automalar-web}
+name: ${PROJECT_SLUG:-}/${WEB_PROJECT_SLUG:-automalar-web}
 
 services:
   app:
     container_name: ${WEB_PROJECT_SLUG:-automalar-web}-app
     working_dir: ${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ${WEB_BUILD_CONTEXT_PATH:-.}
+      dockerfile: ${WEB_DOCKERFILE_PATH:-Dockerfile}
       args:
         WEB_WORKSPACE_PATH: ${WEB_WORKSPACE_PATH:-/automalarweb}
         WEB_WORKSPACE_USER: ${WEB_WORKSPACE_USER:-node}
         WEB_WORKSPACE_GROUP: ${WEB_WORKSPACE_GROUP:-node}
         WORKSPACE_PATH: ${WORKSPACE_PATH:-}
     volumes:
-      - ..:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}:cached
-      - node_modules_devcontainer:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}/node_modules
-      - next_cache_devcontainer:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}/.next
-      - storybook_cache_devcontainer:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}/.storybook-cache
+      - ${WEB_VOLUME_CONTEXT_PATH:-..}:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}:cached
+      - node_modules_app:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}/node_modules
+      - next_cache_app:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}/.next
+      - storybook_cache_app:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}/.storybook-cache
       - zsh_history_devcontainer:/home/${WEB_WORKSPACE_USER:-node}/.zsh_history:z
     ports:
       - "${WEB_APP_PORT:-3000}:${WEB_APP_PORT:-3000}"
@@ -36,11 +36,6 @@ services:
         condition: service_healthy
     networks:
       - dev_network
-    deploy:
-      resources:
-        limits:
-          cpus: "2.5"
-          memory: 10GB
 
   db:
     container_name: ${WEB_PROJECT_SLUG:-automalar-web}-db
@@ -48,6 +43,8 @@ services:
     restart: unless-stopped
     volumes:
       - postgres_data_devcontainer:/var/lib/postgresql/data
+    ports:
+      - "${WEB_DB_PORT:-5432}:${WEB_DB_PORT:-5432}"
     env_file:
       - .env
     environment:
@@ -56,8 +53,6 @@ services:
       - POSTGRES_DB=${WEB_POSTGRES_DB:-devdb}
       - TZ=${TIMEZONE:-America/Sao_Paulo}
       - PGTZ=${TIMEZONE:-America/Sao_Paulo}
-    ports:
-      - "${WEB_DB_PORT:-5432}:${WEB_DB_PORT:-5432}"
     networks:
       - dev_network
     healthcheck:
@@ -65,21 +60,18 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 2GB
 
   cognee-mcp:
     container_name: ${WEB_PROJECT_SLUG:-automalar-web}-mcp
     volumes:
-      - ..:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}:cached
+      - ${WEB_VOLUME_CONTEXT_PATH:-..}:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}:cached
+    ports:
+      - ${WEB_COGNEE_SSE_PORT:-8000}:${WEB_COGNEE_SSE_PORT:-8000}
     env_file:
       - .env
     build:
-      context: ../
-      dockerfile: ./.roo/cognee/Dockerfile
+      context: ${WEB_COGNEE_BUILD_CONTEXT_PATH:-..}
+      dockerfile: ${WEB_COGNEE_DOCKERFILE_PATH:-.roo/cognee/Dockerfile}
       args:
         BUILD_PATH: ${WEB_COGNEE_BUILD_PATH:-/opt/cognee}
         WEB_WORKSPACE_PATH: ${WEB_WORKSPACE_PATH:-/automalarweb}
@@ -112,30 +104,23 @@ services:
       - SSE_PORT=${WEB_COGNEE_SSE_PORT:-8000}
     networks:
       - dev_network
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 4GB
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command: sleep infinity
-    ports:
-      - ${WEB_COGNEE_SSE_PORT:-8000}:${WEB_COGNEE_SSE_PORT:-8000}
 
 volumes:
-  node_modules_devcontainer:
-    name: ${WEB_PROJECT_SLUG:-automalar-web}_node_modules_devcontainer
-  next_cache_devcontainer:
-      name: ${WEB_PROJECT_SLUG:-automalar-web}_next_cache_devcontainer
-  storybook_cache_devcontainer:
-      name: ${WEB_PROJECT_SLUG:-automalar-web}_storybook_cache_devcontainer
+  node_modules_app:
+    name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_node_modules_devcontainer
+  next_cache_app:
+      name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_next_cache_devcontainer
+  storybook_cache_app:
+      name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_storybook_cache_devcontainer
   postgres_data_devcontainer:
-      name: ${WEB_PROJECT_SLUG:-automalar-web}_postgres_data_devcontainer
+      name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_postgres_data_devcontainer
   zsh_history_devcontainer:
-      name: ${WEB_PROJECT_SLUG:-automalar-web}_zsh_history_devcontainer
+      name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_zsh_history_devcontainer
 
 networks:
   dev_network:
-    name: ${WEB_PROJECT_SLUG:-automalar-web}_dev_network
+    name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_dev_network
     driver: bridge
