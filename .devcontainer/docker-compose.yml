@@ -8,11 +8,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        WEB_WORKSPACE_PATH: ${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}
+        WEB_WORKSPACE_PATH: ${WEB_WORKSPACE_PATH:-/automalarweb}
         WEB_WORKSPACE_USER: ${WEB_WORKSPACE_USER:-node}
         WEB_WORKSPACE_GROUP: ${WEB_WORKSPACE_GROUP:-node}
         WORKSPACE_PATH: ${WORKSPACE_PATH:-}
-        WORKSPACE_USER: ${WORKSPACE_USER:-}
     volumes:
       - ..:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}:cached
       - node_modules_devcontainer:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}/node_modules
@@ -82,8 +81,11 @@ services:
       context: ../
       dockerfile: ./.roo/cognee/Dockerfile
       args:
-        - BUILD_PATH=${WEB_COGNEE_BUILD_PATH:-/opt/cognee}
-        - WORKSPACE_PATH=${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}
+        BUILD_PATH: ${WEB_COGNEE_BUILD_PATH:-/opt/cognee}
+        WEB_WORKSPACE_PATH: ${WEB_WORKSPACE_PATH:-/automalarweb}
+        WEB_WORKSPACE_USER: ${WEB_WORKSPACE_USER:-node}
+        WEB_WORKSPACE_GROUP: ${WEB_WORKSPACE_GROUP:-node}
+        WORKSPACE_PATH: ${WORKSPACE_PATH:-}
     environment:
       - WORKSPACE_PATH=${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}
       - BUILD_PATH=${WEB_COGNEE_BUILD_PATH:-/opt/cognee}

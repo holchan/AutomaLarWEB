@@ -1,5 +1,10 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
+ARG WEB_WORKSPACE_PATH
+ARG WEB_WORKSPACE_USER
+ARG WORKSPACE_PATH
+ARG WORKSPACE_USER
+
 ARG BUILD_PATH
 WORKDIR ${BUILD_PATH}
 
@@ -21,12 +26,6 @@ RUN uv venv ${BUILD_PATH}/.venv --python python3.12
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-editable --no-install-project --python ${BUILD_PATH}/.venv/bin/python
-        # --no-dev
-
-#COPY ./.roo/cognee/src ${BUILD_PATH}/src
-
-#RUN --mount=type=cache,target=/root/.cache/uv \
-#   uv pip install --python ${BUILD_PATH}/.venv/bin/python .
 
 FROM python:3.12-slim-bookworm
 
@@ -39,7 +38,8 @@ RUN apt-get update && \
 
 ARG BUILD_PATH
 ARG WORKSPACE_PATH
-WORKDIR ${WORKSPACE_PATH}
+ARG WEB_WORKSPACE_PATH
+WORKDIR ${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}
 
 COPY --from=builder ${BUILD_PATH}/.venv ${BUILD_PATH}/.venv
 

@@ -1,10 +1,10 @@
+FROM mcr.microsoft.com/devcontainers/typescript-node:22-bookworm
+
 ARG WEB_WORKSPACE_PATH="/automalarweb"
 ARG WEB_WORKSPACE_USER="node"
 ARG WEB_WORKSPACE_GROUP="node"
 ARG WORKSPACE_PATH=""
 ARG WORKSPACE_USER=""
-
-FROM mcr.microsoft.com/devcontainers/typescript-node:22-bookworm
 
 USER root
 
@@ -29,8 +29,22 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-RUN echo "$(which zsh)" >> /etc/shells \
-    && usermod -s "$(which zsh)" ${WEB_WORKSPACE_USER}
+RUN ZSH_PATH=$(which zsh); \
+    if [ -z "$ZSH_PATH" ]; then \
+        echo "Error: zsh not found by 'which' after installation. Make sure zsh is installed and in PATH." >&2; \
+        exit 1; \
+    fi; \
+    echo "Found zsh at: $ZSH_PATH"; \
+    # Add zsh to /etc/shells if it's not already there
+    if ! grep -qxF "$ZSH_PATH" /etc/shells; then \
+        echo "Adding $ZSH_PATH to /etc/shells"; \
+        echo "$ZSH_PATH" >> /etc/shells; \
+    else \
+        echo "$ZSH_PATH already in /etc/shells"; \
+    fi && \
+    echo "Attempting to set $ZSH_PATH as shell for user ${WEB_WORKSPACE_USER}"; \
+    usermod -s "$ZSH_PATH" "${WEB_WORKSPACE_USER}" && \
+    echo "Successfully set $ZSH_PATH as shell for ${WEB_WORKSPACE_USER}"
 
 USER ${WEB_WORKSPACE_USER}
 

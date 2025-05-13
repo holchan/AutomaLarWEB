@@ -1,8 +1,8 @@
 {
-  "name": "${localEnv:WEB_WORKSPACE_SLUG}",
-  "dockerComposeFile": "${localEnv:WEB_DOCKER_COMPOSE_PATH}",
+  "name": "automalar-web",
+  "dockerComposeFile": "docker-compose.yml",
   "service": "app",
-  "workspaceFolder": "${localEnv:WORKSPACE_PATH}${localEnv:WEB_WORKSPACE_PATH}",
-  "remoteUser": "${localEnv:WEB_WORKSPACE_USER}",
+  "workspaceFolder": "/automalarweb",
+  "remoteUser": "node",
   "shutdownAction": "stopCompose"
 }
