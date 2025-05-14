@@ -2,6 +2,7 @@ ARG NODE_VERSION="22"
 FROM node:${NODE_VERSION}-bookworm-slim
 
 ARG TIMEZONE="America/Sao_Paulo"
+ARG WEB_PROJECT_SLUG="automalar-web"
 
 ARG WEB_WORKSPACE_PATH="/automalarweb"
 ARG WEB_WORKSPACE_USER="node"
@@ -134,7 +135,7 @@ ENV HOME="/home/${WEB_WORKSPACE_USER}"
 
 LABEL dev.containers.metadata='{ \
   "initializeCommand": "echo \"Starting Dev Container setup...\"", \
-  "postCreateCommand": "sudo chown -R ${localEnv:HOST_USER_NAME:-${WEB_WORKSPACE_USER}}:${localEnv:HOST_GROUP_ID:-${WEB_WORKSPACE_GROUP_UID}} ${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}", \
+  "postCreateCommand": "sudo chown -R ${WEB_WORKSPACE_USER_UID}:${WEB_WORKSPACE_GROUP_UID} ${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}" \
   "postStartCommand": "cd ${WORKSPACE_PATH}${WEB_WORKSPACE_PATH} && yarn install --frozen-lockfile || (yarn install && npx prisma generate)", \
   "postAttachCommand": { \
     "server": "echo \"Attached to ${WEB_PROJECT_SLUG} Dev Container! 🔥\" && git config --global --add safe.directory ${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}" \

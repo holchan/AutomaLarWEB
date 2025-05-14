@@ -8,10 +8,15 @@ services:
       context: ${WEB_BUILD_CONTEXT_PATH:-.}
       dockerfile: ${WEB_DOCKERFILE_PATH:-Dockerfile}
       args:
+        TIMEZONE: "${TIMEZONE:-America/Sao_Paulo}"
         WEB_WORKSPACE_PATH: ${WEB_WORKSPACE_PATH:-/automalarweb}
+        WEB_PROJECT_SLUG: ${WEB_PROJECT_SLUG:-automalar-web}
         WEB_WORKSPACE_USER: ${WEB_WORKSPACE_USER:-node}
-        WEB_WORKSPACE_GROUP: ${WEB_WORKSPACE_GROUP:-node}
+        WEB_WORKSPACE_USER_UID: "${WEB_WORKSPACE_USER_UID:-1000}"
+        WEB_WORKSPACE_GROUP_UID: "${WEB_WORKSPACE_GROUP_UID:-1000}"
         WORKSPACE_PATH: ${WORKSPACE_PATH:-}
+        NODE_VERSION: "${WEB_NODE_VERSION:-22}"
+        NVM_VERSION: "${WEB_NVM_VERSION:-0.39.7}"
     volumes:
       - ${WEB_VOLUME_CONTEXT_PATH:-..}:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}:cached
       - node_modules_app:${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}/node_modules
@@ -29,7 +34,7 @@ services:
       - WORKSPACE_PATH=${WORKSPACE_PATH:-}${WEB_WORKSPACE_PATH:-/automalarweb}
       - WORKSPACE_SLUG=${WEB_PROJECT_SLUG:-automalar-web}
       - NODE_ENV=${WEB_NODE_ENV:-development}
-    user: ${WEB_WORKSPACE_USER:-node}
+    user: ${WEB_WORKSPACE_USER_UID:-1000}:${WEB_WORKSPACE_GROUP_UID:-1000}
     command: sleep infinity
     depends_on:
       db:
