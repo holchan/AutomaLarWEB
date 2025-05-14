@@ -110,17 +110,17 @@ services:
 
 volumes:
   node_modules_app:
-    name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_node_modules_devcontainer
+    name: ${PROJECT_SLUG}${PROJECT_SLUG:+_}${WEB_PROJECT_SLUG:-automalar-web}_node_modules_devcontainer
   next_cache_app:
-    name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_next_cache_devcontainer
+    name: ${PROJECT_SLUG}${PROJECT_SLUG:+_}${WEB_PROJECT_SLUG:-automalar-web}_next_cache_devcontainer
   storybook_cache_app:
-    name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_storybook_cache_devcontainer
+    name: ${PROJECT_SLUG}${PROJECT_SLUG:+_}${WEB_PROJECT_SLUG:-automalar-web}_storybook_cache_devcontainer
   postgres_data_devcontainer:
-    name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_postgres_data_devcontainer
+    name: ${PROJECT_SLUG}${PROJECT_SLUG:+_}${WEB_PROJECT_SLUG:-automalar-web}_postgres_data_devcontainer
   zsh_history_devcontainer:
-    name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_zsh_history_devcontainer
+    name: ${PROJECT_SLUG}${PROJECT_SLUG:+_}${WEB_PROJECT_SLUG:-automalar-web}_zsh_history_devcontainer
 
 networks:
   dev_network:
-    name: ${PROJECT_SLUG:-}_${WEB_PROJECT_SLUG:-automalar-web}_dev_network
+    name: ${PROJECT_SLUG}${PROJECT_SLUG:+_}${WEB_PROJECT_SLUG:-automalar-web}_dev_network
     driver: bridge
