@@ -4,12 +4,5 @@
   "service": "app",
   "workspaceFolder": "/automalarweb",
   "remoteUser": "node",
-  "shutdownAction": "stopCompose",
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "ms-azuretools.vscode-docker"
-      ]
-    }
-  }
+  "shutdownAction": "stopCompose"
 }
