@@ -3,12 +3,12 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 ARG WEB_WORKSPACE_PATH
 ARG WEB_WORKSPACE_USER
 ARG WORKSPACE_PATH
-ARG WORKSPACE_USER
 
 ARG BUILD_PATH
+ARG WEB_COGNEE_BUILD_CONTEXT_PATH
 WORKDIR ${BUILD_PATH}
 
-COPY .roo/cognee/pyproject.toml ./.roo/cognee/uv.lock* ${BUILD_PATH}
+COPY ${WEB_COGNEE_BUILD_CONTEXT_PATH}/.roo/cognee/pyproject.toml ${WEB_COGNEE_BUILD_CONTEXT_PATH}/.roo/cognee/uv.lock* ${BUILD_PATH}
 
 ENV UV_LINK_MODE=copy
 
