@@ -1,24 +1,12 @@
 #!/bin/bash
 set -e
 
-PREBUILT_VENV_DIR="$BUILD_PATH/.venv"
+PREBUILT_VENV_DIR="$$WORKSPACE_PATH$$WEB_WORKSPACE_PATH/.venv"
 
-TARGET_VENV_DIR="$WORKSPACE_PATH/.roo/cognee/.venv"
+TARGET_VENV_DIR="$WORKSPACE_PATH$$WEB_WORKSPACE_PATH/.roo/cognee/.venv"
 
-if [ -z "$BUILD_PATH" ] || [ -z "$WORKSPACE_PATH" ]; then
-    echo "Entrypoint: ERROR - Required environment variables BUILD_PATH or WORKSPACE_PATH are missing!"
-    echo "Entrypoint: Check the ENV definitions in your Dockerfile's final stage."
-    exit 1
-fi
-
-echo "Entrypoint: Source: $PREBUILT_VENV_DIR"
-echo "Entrypoint: Target: $TARGET_VENV_DIR"
-
-if [ ! -d "$PREBUILT_VENV_DIR" ]; then
-    echo "Entrypoint: ERROR - Pre-built source venv NOT FOUND at $PREBUILT_VENV_DIR!"
-    echo "Entrypoint: Cannot proceed. Please check the Dockerfile build log and COPY commands."
-    exit 1
-fi
+echo "Cognee Entrypoint: Source: $PREBUILT_VENV_DIR"
+echo "Cognee Entrypoint: Target: $TARGET_VENV_DIR"
 
 echo "Entrypoint: Removing existing target directory (if any) at $TARGET_VENV_DIR..."
 rm -rf "$TARGET_VENV_DIR"
