@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-PREBUILT_VENV_DIR="$$WORKSPACE_PATH$$WEB_WORKSPACE_PATH/.venv"
+PREBUILT_VENV_DIR="$BUILD_PATH/.venv"
 
-TARGET_VENV_DIR="$WORKSPACE_PATH$$WEB_WORKSPACE_PATH/.roo/cognee/.venv"
+TARGET_VENV_DIR="$WORKSPACE_PATH$WEB_WORKSPACE_PATH/.roo/cognee/.venv"
 
 echo "Cognee Entrypoint: Source: $PREBUILT_VENV_DIR"
 echo "Cognee Entrypoint: Target: $TARGET_VENV_DIR"
