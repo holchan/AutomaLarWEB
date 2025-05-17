@@ -1,0 +1,125 @@
+---
+title: "{{PAGE_TITLE}}" # An representative natural language written title based on the main page topic/subject.
+lastmod: "{{YYYY-MM-DD}}" # Date of last modification
+path: "docs/00_DEV_DOCS/{{CATEGORY_SLUG}}/{{FILE_SLUG}}.mdx" # e.g., docs/00_DEV_DOCS/00_AUTOMALAR_WEBSITE/00_INTRO.mdx
+---
+
+# {{PAGE_TITLE}}
+
+## Overview
+*(This section MUST provide a concise summary of the document's core content and its primary purpose.
+- If the document is explanatory (e.g., architecture, concept), explain what is being described and its significance.
+- If it's a guide or tutorial, briefly outline the process or task it enables.
+- If it's a reference (e.g., API, configuration), state what it references and its scope.
+The goal is to quickly inform the reader what this document is about and why it is relevant.)*
+
+---
+
+*(The following section headings are common and recommended for comprehensive documentation. Adapt, omit, combine, or add sections and sub-sections (using H2, H3, etc.) as appropriate to best convey the information for the specific topic of this document. The structure should serve clarity and completeness.)*
+
+## Prerequisites
+*(If applicable, list any essential prior knowledge, software, tools, configurations, or access rights required to understand or utilize the information in this document. If none, this section can be omitted.)*
+-   Example: Familiarity with [Related Concept/Technology].
+-   Example: [Specific Tool] version X.Y or higher installed.
+-   Example: Access to [Specific System/Service] with [Role/Permissions].
+
+## Core Concepts / Key Terminology
+*(If the document introduces or relies on specific concepts, components, or terminology that might be new or critical to understanding the main content, define them clearly here. Use subheadings for distinct items. This section is crucial for establishing a shared understanding before diving into complex details.)*
+
+### [Concept/Term 1 Name]
+*(Provide a clear and concise definition or explanation of the concept or term. Include its relevance to the document's topic.)*
+
+### [Concept/Term 2 Name]
+*(Provide a clear and concise definition or explanation of the concept or term. Include its relevance to the document's topic.)*
+
+## Detailed Information / Main Content
+*(This is the primary body of the document. Structure it logically using appropriate headings (H2, H3, etc.) and subheadings to break down the information into digestible parts. Depending on the document's purpose, this section might contain:)*
+    -   ***Explanations:*** *(In-depth descriptions of architectures, designs, systems, or features. Use clear language and define any specialized terms not covered in "Core Concepts".)*
+    -   ***Guides/Procedures:*** *(Step-by-step instructions for performing tasks. Use numbered lists for sequential actions and bulleted lists for non-sequential items or options. Each step should be clear, actionable, and ideally verifiable.)*
+    -   ***Specifications:*** *(Detailed requirements for APIs (endpoints, request/response schemas, authentication), data structures, UI components, system interfaces, etc.)*
+    -   ***Reference Material:*** *(Lists of parameters, configuration options, error codes with explanations, command-line options, etc. Tables are often useful here.)*
+
+*(Consider using the following elements within this section where they enhance understanding:)*
+-   ***Code Examples:*** *(Illustrate implementations, API usage, configurations. Use Markdown code blocks with appropriate language identifiers. Keep examples focused and relevant to the point being made.)*
+    ```javascript
+    // Brief description of what the code example demonstrates
+    // Example: Initializing a service client
+    const serviceClient = new ServiceClient({
+      apiKey: process.env.SERVICE_API_KEY,
+      timeout: 5000
+    });
+
+    async function fetchData(id) {
+      try {
+        const data = await serviceClient.get(`/items/${id}`);
+        return data;
+      } catch (error) {
+        console.error(`Error fetching data for ID ${id}:`, error);
+        throw error;
+      }
+    }
+    ```
+-   ***Diagrams:*** *(Use Mermaid syntax for flowcharts, sequence diagrams, component diagrams, class diagrams, state diagrams, etc., to visualize complex information, relationships, or processes.)*
+    ```mermaid
+    sequenceDiagram
+        participant User
+        participant WebApp
+        participant APIService
+        participant Database
+
+        User->>WebApp: Submits form data
+        WebApp->>APIService: POST /resource with data
+        APIService->>Database: Stores data
+        Database-->>APIService: Confirms storage
+        APIService-->>WebApp: Returns success response (201 Created)
+        WebApp-->>User: Displays success message
+    ```
+-   ***Tables:*** *(For presenting structured data like configuration options, API parameters, comparison of features, or lists of properties and their descriptions.)*
+
+    | Parameter     | Type   | Required | Description                                       | Default Value |
+    |---------------|--------|----------|---------------------------------------------------|---------------|
+    | `userId`      | String | Yes      | The unique identifier for the user.               | N/A           |
+    | `isActive`    | Boolean| No       | Flag to indicate if the user account is active.   | `true`        |
+    | `preferences` | Object | No       | User-specific preferences.                        | `{}`          |
+
+
+## Examples / Use Cases
+*(If distinct from the main content or if more elaborate examples are beneficial, provide practical, real-world examples or common use cases here. This helps solidify understanding and demonstrates application of the concepts or procedures discussed. Each example should be clearly titled and self-contained if possible.)*
+
+### Example 1: [Descriptive Title of Use Case, e.g., "Authenticating a User with OAuth2"]
+*(Briefly describe the scenario this example covers.)*
+*(Provide detailed steps, code snippets, or configuration examples relevant to this use case.)*
+
+### Example 2: [Descriptive Title of Use Case, e.g., "Querying for Active Orders"]
+*(Briefly describe the scenario this example covers.)*
+*(Provide detailed steps, code snippets, or configuration examples relevant to this use case.)*
+
+## Important Considerations / Best Practices
+*(Highlight any critical advice, best practices to follow, common pitfalls to avoid, security considerations, performance tips, scalability notes, or other important points that the reader should be aware of concerning this topic. Use bullet points for readability.)*
+-   **Security:** Always sanitize user inputs before processing X to prevent Y.
+-   **Performance:** For large datasets, consider implementing pagination when querying Z.
+-   **Maintainability:** Ensure that [specific pattern] is followed for easier debugging of Q.
+-   **Scalability:** This component is designed to scale horizontally by [method].
+
+## Troubleshooting / FAQ
+*(If applicable, address common issues, error messages, or frequently asked questions related to the content. This can save readers time and effort. A table format or Q&A format can be useful.)*
+
+### Common Issues
+| Problem / Error Message             | Possible Cause(s)                               | Recommended Solution(s)                                       |
+|-------------------------------------|-------------------------------------------------|---------------------------------------------------------------|
+| "Connection Timeout" when calling X | Network issue, Service X down, Firewall blocking | Check network connectivity, Verify Service X status, Check firewall rules |
+| Data not appearing after update     | Caching layer not invalidated, Async process delay | Clear relevant caches, Monitor async job queues                 |
+
+### Frequently Asked Questions (FAQ)
+**Q: How do I configure [specific feature]?**
+A: Refer to the "[Relevant Section Title](#relevant-section-slug)" section above, or see the example in "[Example Title](#example-title-slug)".
+
+**Q: What are the rate limits for API Y?**
+A: The current rate limits are Z requests per minute. See the [API Rate Limiting Policy](./path/to/rate-limiting-policy) for more details.
+
+## Further Reading / Related Documents
+*(Provide links to other relevant internal documentation (other dev docs, ADRs) or external resources that offer additional context or more in-depth information. Adhere to project linking guidelines.)*
+-   `[Title of Related Internal Document](./relative/path/to/document-no-extension)`
+-   `[ADR-XXX: Title of Relevant ADR](./../../01_ADR/ADR-XXX-title-slug-no-extension)`
+-   `[Official Documentation for External Tool/Library](https://www.example.com/docs)`
+-   `[Relevant Standard or RFC](https://www.rfc-editor.org/rfc/rfcXXXX.txt)`

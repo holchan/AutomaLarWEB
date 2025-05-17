@@ -19,7 +19,7 @@ When tasked with creating or updating an ADR, adhere to the following structure 
     - If a decision is being revisited and changed, the old ADR should be marked "Deprecated" or "Superseded by ADR-NNN (the new ADR number)", and a new ADR should be created for the new decision.
 - **Date:** {YYYY-MM-DD}
     - Current date for new ADRs or date of last significant status change/update.
-- **Relevant Context Source(s):** {Link(s) code, ADRs or docs that provided key context for this decision. Be specific.}
+- **Relevant Context Source(s):** {Link(s) code, ADRs or docs that provided key context for this topic. Be specific.}
 ---
 
 ## 1. Context and Problem Statement
