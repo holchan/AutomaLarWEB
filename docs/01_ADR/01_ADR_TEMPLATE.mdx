@@ -1,0 +1,170 @@
+---
+title: "ADR-NNN: {{ADR_TITLE}}" # Replace NNN with the sequential ADR number and {{ADR_TITLE}} with a concise, descriptive title summarizing the main topic, question, decision, or outcome of this record.
+lastmod: "{{YYYY-MM-DD}}" # Date of the latest significant modification to THIS ADR.
+status: "{{STATUS}}" # e.g., "Exploratory", "Informational", "Decision - Accepted", "Decision - Proposed", "Research Findings", "Requirement Definition", "Idea - Parked", "Superseded by ADR-MMM", "Archived", "Deprecated". This should reflect the primary nature or current state of this record.
+tags: # Add multiple relevant tags to categorize this record. Think keywords, technologies, components, features, or the nature of the content (e.g., discussion-summary, research-finding, decision-rationale, requirement-clarification, brainstorming, problem-analysis, code-design).
+  - "{{TAG_1}}" # e.g., authentication, user-interface, performance-tuning, database-schema, CI-CD
+  - "{{TAG_2}}" # e.g., research, decision, idea, requirement, problem, discussion, coding
+  - "{{TAG_3}}" # e.g., frontend, backend, API, security, scalability
+path: "docs/01_ADR/ADR-NNN-kebab-case-title-from-title.md" # Filename: ADR-NNN-kebab-case-version-of-the-title.md
+---
+
+# ADR-NNN: {{ADR_TITLE}}
+
+*(This document serves as a comprehensive record of interactions, discussions, research, decisions, coding efforts, brainstorming sessions, and the evolution of ideas related to the project's development. Its purpose is to capture the detailed thinking process, context, and outcomes at specific milestones or checkpoints, serving as a valuable "memory bank" for the project.)*
+
+---
+
+## 1. Overview & Purpose of this Record
+*(Concisely articulate the essence of this record. What is its central theme or subject? What was the primary catalyst or objective that led to its creation? What is the most important takeaway or the current state of affairs regarding this topic as of the last update? This section should immediately orient a reader to the record's significance and content.)*
+
+## 2. Context & Background
+*(Elaborate on the circumstances and history leading up to this record.
+- What was the pre-existing situation, system state, or understanding?
+- What specific events, needs, questions, or challenges prompted this interaction or line of thought?
+- Are there previous ADRs, documents, code versions, or specific discussions (internal or external) that form a critical backdrop?
+- What were the overarching goals, known requirements, or operational constraints (e.g., technical limitations, desired performance characteristics, security postures, maintainability goals) that framed this exploration?
+- Were any foundational assumptions made at the outset that influenced the direction taken?
+A thorough context allows future readers to fully grasp the context.)*
+
+## 3. Chronology of Interaction / Exploration / Development / Ideation
+*(This is the core narrative section. Document the detailed flow of the interaction, research, coding session, or thought process. Aim for a rich "story" of what transpired. Consider including, with liberal use of subheadings (H3, H4) for structure:)*
+
+### 3.1. Initial Framing: Questions, Problems, Hypotheses
+   - *(What were the initial questions posed or the core problem as initially understood? How was it articulated?)*
+   - *(Were there any early hypotheses, hunches, or proposed avenues of investigation?)*
+   - *(What was the desired end-state or definition of "done" for this particular interaction, if any was established?)*
+
+### 3.2. Research, Investigation, & Discovery (If Applicable)
+   - **Methodology:** *(Briefly, how was research conducted? (e.g., documentation review, API exploration, competitor analysis, codebase archeology).)*
+   - **Sources Consulted:** *(List specific documentation, articles, forum discussions, API specifications, libraries, existing internal/external code, etc. Provide direct links where possible.)*
+       - `[Source Title 1](URL/Path)`: *(Key insight, relevance, or snippet from this source.)*
+   - **Key Findings, Learnings, & "Aha!" Moments:** *(Summarize significant information uncovered. What new understanding was gained about the problem domain, potential solutions, technologies, limitations, or trade-offs? Were there any surprising discoveries?)*
+   - **Data Gathered/Analyzed:** *(If quantitative or qualitative data was collected or analyzed, summarize the process and key results, or link to a more detailed analysis.)*
+
+### 3.3. Brainstorming, Ideation, & Creative Exploration (If Applicable)
+   - *(Document the spectrum of ideas, concepts, architectural patterns, or alternative approaches that were generated or considered, even those that were speculative, unconventional, or quickly dismissed. Capture the breadth of the creative process.)*
+   - *(For each distinct idea, briefly note its essence and any immediate thoughts on its potential, feasibility, or novelty.)*
+
+### 3.4. Discussions, Arguments, & Viewpoint Synthesis
+   - *(Summarize the key points, arguments, and counter-arguments made during discussions. If different perspectives emerged (e.g., from the AI vs. human, or different facets of the AI's analysis), capture the essence of each viewpoint neutrally.)*
+   - *(Note any points of strong agreement, consensus reached, areas of persistent disagreement, or topics where understanding evolved through dialogue.)*
+
+### 3.5. Technical Deep Dives, Prototyping, & Coding Efforts (If Applicable)
+   - **Approach & Design:** *(Describe the specific technical approach, algorithm, data structure, or design pattern explored or implemented. Why was this approach chosen for investigation?)*
+   - **Implementation Details & Key Code Snippets/Pseudocode:** *(Include relevant, concise code examples or pseudocode that are critical to understanding the implementation or idea. Explain the purpose of the snippet. Use Markdown code blocks with language identifiers.)*
+   - **Challenges Encountered & Solutions Attempted:** *(Document any technical hurdles, bugs, integration issues, performance bottlenecks, or conceptual difficulties faced. What solutions were tried, and what were their outcomes?)*
+   - **Observations, Results, & Test Outcomes:** *(What was observed during prototyping or coding? What were the results of any tests, benchmarks, or validations performed? Did the outcome match expectations?)*
+
+### 3.6. Doubts, Misconceptions, Clarifications, & Evolving Understanding
+   - *(Document any initial misunderstandings, incorrect assumptions, or conceptual errors that were identified and subsequently corrected or clarified.)*
+   - *(Note any significant doubts, uncertainties, or "known unknowns" that arose during the process and how they were (or were not) resolved.)*
+   - *(Summarize any key clarifications or shifts in understanding that occurred.)*
+
+### 3.7. Requirements Elicitation, Definition, & Refinement (If Applicable)
+   - *(If the interaction involved defining, clarifying, or refining functional or non-functional requirements, list them here. Note their source or rationale if important.)*
+   - *(Distinguish between Must-haves, Should-haves, Could-haves, Won't-haves (MoSCoW) if that prioritization was part of the process.)*
+
+## 4. Considered Options & Alternatives (If a Formal Decision Point was Reached or Distinct Paths Explored)
+*(If the process documented in section 3 led to a point where distinct, viable options or alternative paths needed to be formally evaluated for a specific decision or direction, detail them here. If this ADR primarily documents exploration without a fork-in-the-road decision, this section might be brief, state "N/A," or be omitted.)*
+
+### Option 1: [Concise and Descriptive Name of Option 1]
+-   **Description:** *(Provide a detailed explanation of what this option entails, its core mechanics, or key characteristics.)*
+-   **Rationale / Potential Benefits (Pros):** *(List specific advantages, how it addresses the problem/goals, alignment with existing architecture, ease of implementation, performance benefits, etc.)*
+-   **Drawbacks / Challenges / Risks (Cons):** *(List specific disadvantages, potential difficulties, risks, cost implications, maintenance overhead, negative impacts on other areas, etc.)*
+-   **Further Analysis/Notes:** *(Include any specific analysis, effort estimates, resource requirements, dependencies, or noteworthy details related to this option.)*
+
+### Option 2: [Concise and Descriptive Name of Option 2]
+-   **Description:** *(Detailed explanation.)*
+-   **Rationale / Potential Benefits (Pros):**
+-   **Drawbacks / Challenges / Risks (Cons):**
+-   **Further Analysis/Notes:**
+
+*(Add more options (Option 3, Option 4, etc.) in the same comprehensive format as necessary. The goal is to provide a clear basis for comparison if a decision was made.)*
+
+## 5. Outcome / Conclusion / Decision / Current Status
+*(Based on everything documented above, what was the primary result, resolution, or current state of this topic? This section MUST clearly articulate the "so what?" of this entire record. Be specific and unambiguous.)*
+-   **If a definitive Decision was Made:**
+    -   **The Decision Is:** *(State the decision clearly and unequivocally.)*
+    -   **Chosen Option (if applicable, from Section 4):** [Name of Chosen Option]
+    -   **Detailed Rationale for Decision:** *(Explain comprehensively *why* this decision was made. This is crucial. Connect it directly to the Context (Sec 2), the Exploration (Sec 3), and the evaluation of Options (Sec 4, if applicable). Articulate how this decision best addresses the stated goals/problems, why its trade-offs are acceptable, and why it was preferred over alternatives at this point in time. Reference specific findings or arguments.)*
+-   **If a Conclusion or Key Insight was Reached (e.g., from research, discussion, or analysis):**
+    -   **Main Conclusion/Insight:** *(Summarize the primary understanding, learning, or realization achieved.)*
+    -   **Supporting Evidence/Reasoning:** *(Briefly reference the key points from Section 3 that support this conclusion.)*
+-   **If a Set of Requirements was Finalized or Refined:**
+    -   **Outcome:** *(State that the requirements (detailed in Section 3.7 or Section 7) are now considered defined/updated to a certain stage.)*
+    -   **Key Changes (if refinement):** *(Highlight significant changes to previously understood requirements.)*
+-   **If an Idea was Advanced, Parked, or Discarded:**
+    -   **Current Status of Idea:** *(e.g., "Idea [X] advanced to prototyping phase," "Idea [Y] parked for future consideration due to [reason]," "Idea [Z] discarded because [reason].")*
+    -   **Justification for Status:** *(Briefly explain why this status was assigned.)*
+-   **If a Problem was Analyzed without a Definitive Solution Yet:**
+    -   **Refined Problem Understanding:** *(Summarize the deeper or more nuanced understanding of the problem gained through the exploration.)*
+    -   **Current Assessment:** *(What is the current assessment of the problem's severity, impact, or urgency?)*
+-   **If a Coding/Implementation Task was Completed or Reached a Milestone:**
+    -   **Outcome of Implementation:** *(Describe what was successfully built, fixed, or refactored. Reference specific code modules or features.)*
+    -   **Current State of Code:** *(e.g., "Feature X implemented and unit tested," "Refactoring of Y module complete," "Prototype Z demonstrates feasibility.")*
+
+## 6. Implications, Consequences, & Forward Path
+*(Based on the Outcome/Conclusion/Decision (Section 5), what are the broader implications and the path forward? Focus on aspects relevant to a solo developer + AI workflow.)*
+
+### 6.1. Anticipated Impacts & Effects
+   - **Technical Impacts:** *(How does this affect the existing codebase, architecture, system performance, security posture, data models, dependencies, or technical debt?)*
+   - **Development Workflow Impacts:** *(Does this change how future related work will be approached, tools used, or effort estimated?)*
+   - **Maintainability & Future Evolution:** *(How does this outcome affect the long-term maintainability, scalability, or extensibility of the relevant parts of the project?)*
+   - **Identified Shortcomings/Limitations:** *(Are there any known limitations, trade-offs accepted, or areas where the outcome is not ideal but was deemed acceptable?)*
+   - **Resource Implications (Time, Tools, Learning):** *(Does this outcome imply a need for significant time investment in a particular area, acquisition of new tools, or learning new skills?)*
+
+### 6.2. Future Considerations & Open Questions
+   - **Related Topics for Future Exploration:** *(What new questions or areas of investigation has this work opened up? What logical next steps in research or design might follow?)*
+   - **Unresolved Issues / "Known Unknowns":** *(What specific questions remain unanswered or aspects are still unclear? What information is still needed?)*
+   - **Potential Revisit Triggers:** *(Under what future conditions or events should this ADR be reviewed or the outcome potentially re-evaluated? (e.g., "If performance of module X degrades by Y%", "If a new version of library Z offers feature A", "If project requirements significantly shift in area B").)*
+
+### 6.3. Points Requiring Future Clarification or Deeper Investigation
+   - *(List specific points, concepts, or requirements that were touched upon but require more detailed thought, research, or discussion at a later date. These are "pins" put in topics for later.)*
+
+*(Note: Explicit "Action Items" with owners/dates are less critical for a solo dev + AI setup unless you use it for personal task tracking. The focus here is more on the strategic forward path and areas needing more thought.)*
+
+## 7. Supporting Information, Artifacts, & Key References
+*(Provide direct links to any crucial external resources, detailed code (if too long for embedding or better viewed in an IDE/repo), diagrams (Mermaid syntax can be embedded directly), or other artifacts that are central to understanding this record and were not fully embedded or adequately referenced in Section 3. This is for key evidence, outputs, or essential context.)*
+-   **Key External Resource:** `[Descriptive Title of Resource](Full_URL)`
+-   **Relevant Internal Document:** `[Document Title](./relative/path/to/doc-no-extension)`
+-   **Link to Specific Code Commit/Branch/File (if applicable):** `[Description of Code Link](Full_GitHub_or_Repo_URL_to_Code)`
+-   **Illustrative Code Snippet (if concise and critical):**
+    ```python
+    # Example: Final configuration for the chosen component
+    config = {
+        "param_a": "value_a",
+        "feature_toggle_x": True,
+        "timeout_ms": 5000
+    }
+    ```
+-   **Key Diagram (Mermaid):**
+    ```mermaid
+    graph LR
+        subgraph "Problem Space"
+            A[Initial Challenge]
+            B[Constraint 1]
+            C[Constraint 2]
+        end
+        subgraph "Exploration & Decision"
+            D{Considered Options}
+            E[Option Alpha]
+            F[Option Beta]
+        end
+        A --> D
+        B --> D
+        C --> D
+        D -- Analysis --> E
+        D -- Analysis --> F
+        E --> G((Decision: Choose Alpha))
+    ```
+
+---
+
+## Change History
+*(This section tracks significant modifications to THIS ADR document itself, providing a meta-history of the record.)*
+-   **{{YYYY-MM-DD}} (Initial Version - {{AUTHOR_OR_SYSTEM_IF_AI}}):** ADR Created. Title: "{{ADR_TITLE}}". Status: {{INITIAL_STATUS}}. *(Brief note on initial purpose or outcome, e.g., "Documenting decision on X," "Summarizing research on Y," "Initial thoughts on feature Z.")*
+-   **{{YYYY-MM-DD}} (Update - {{AUTHOR_OR_SYSTEM_IF_AI}}):** Status changed to {{NEW_STATUS}}. *(Reason for update, e.g., "Decision formally accepted," "Further research added to Section 3.2," "Clarified consequences in Section 6.1," "Superseded by ADR-YYY.")*
+
+---
+*This ADR was last significantly modified on {{YYYY-MM-DD}} as per the Change History.*
