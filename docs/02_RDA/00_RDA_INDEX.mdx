@@ -1,21 +1,33 @@
 ---
-title: "RDA-NNNN: {{RDA_TITLE}}" # NNNN = sequential RDA number. {{RDA_TITLE}} = concise title summarizing the research query/topic.
-lastmod: "{{YYYY-MM-DD}}" # Date of the latest significant modification to THIS RDA.
-status: "{{STATUS}}" # e.g., "Research - In Progress", "Research - Completed", "Research - Findings Presented", "Research - Superseded by RDA-MMMM", "Research - Archived"
-tags: # Add multiple relevant tags to categorize this record. Think keywords, technologies, components, features, or the nature of the content (e.g., discussion-summary, research-finding, decision-rationale, requirement-clarification, brainstorming, problem-analysis, code-design).
-  - "{{TAG_1}}" # e.g., authentication, user-interface, performance-tuning, database-schema, CI-CD
-  - "{{TAG_2}}" # e.g., "comparative-analysis", "feasibility-study", "literature-review", "performance-benchmark"
-  - "{{TAG_3}}" # e.g., frontend, backend, API, security, scalability
-path: "docs/01_ADR/RDA-NNNN-kebab-case-title-from-title.md" # Filename: RDA-NNNN-kebab-case-version-of-the-title.md
+title: "Project Research Data Artifact (RDA) Index"
+lastmod: "2025-05-19"
+path: "docs/02_RDA/00_RDA_INDEX.mdx"
 ---
 
-# Research Data Archive (RDA) Index
+# Research Data Artifact (RDA) Index
 
-This index lists all Research Data Archives generated during the project.
-RDAs document the context, process, findings, and sources for specific research tasks.
+This document lists all Research Data Artifacts (RDAs) for this project. RDAs serve as records for research activities, data collection, analysis, findings, and supporting evidence related to various aspects of the project's development and investigation.
 
-## Archives (Newest First)
+**RDAs are listed in reverse chronological order (newest artifact first, highest number at the top).** This order helps in quickly identifying the latest RDA number for new entries.
 
-*   [RDA-NNNN: {{RDA_TITLE_NNNN}}](./RDA-NNNN-kebab-case-title.mdx) - {{YYYY-MM-DD}}
-*   [RDA-NNNM: {{RDA_TITLE_NNNM}}](./RDA-NNNM-kebab-case-title.mdx) - {{YYYY-MM-DD}}
-*   ...
+## Standard Research Data Artifact (RDA) Template
+- For creating new Research Data Artifact pages, use the:
+- **Template:** [RDA Template](./01_RDA_TEMPLATE)
+
+---
+*(When a new RDA is created, add its entry to the TOP of the list below. Ensure the RDA number is sequential and correctly formatted (e.g., RDA-NNN). The link MUST be relative and omit the .md or .mdx file extension as per project linking guidelines.)*
+
+- [RDA-001: Example Initial Research Topic](./RDA-001-example-initial-research-topic)
+
+---
+
+## Change History
+*(This section tracks significant modifications to THIS RDA Index document itself, primarily reflecting the addition or status update of RDAs. Entries are listed in reverse chronological order: newest changes at the top.)*
+
+| Date         | Change Summary                                                                                                                      |
+|--------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| {{YYYY-MM-DD}} | **Update**: Added entry for [RDA-NNN: Title of New RDA].                                                                              |
+| {{YYYY-MM-DD}} | **Update**: Status of [RDA-MMM: Title of Old RDA] changed to 'Archived' or 'Superseded by RDA-XXX'.                                    |
+| {{YYYY-MM-DD}} | **Initial Version**: RDA Index Created. *(Optionally, note if any existing RDAs were retrospectively added at this point).*          |
+
+---
