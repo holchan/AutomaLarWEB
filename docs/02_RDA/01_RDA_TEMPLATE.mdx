@@ -1,10 +1,127 @@
 ---
-title: "RDA-NNNN: {{RDA_TITLE}}" # NNNN = sequential RDA number. {{RDA_TITLE}} = concise title summarizing the research query/topic.
+title: "RDA-NNNN: {{RDA_TITLE}}" # NNNN = sequential RDA number. {{RDA_TITLE}} = concise title summarizing the research query, topic, or objective.
 lastmod: "{{YYYY-MM-DD}}" # Date of the latest significant modification to THIS RDA.
-status: "{{STATUS}}" # e.g., "Research - In Progress", "Research - Completed", "Research - Findings Presented", "Research - Superseded by RDA-MMMM", "Research - Archived"
-tags: # Add multiple relevant tags to categorize this record. Think keywords, technologies, components, features, or the nature of the content (e.g., discussion-summary, research-finding, decision-rationale, requirement-clarification, brainstorming, problem-analysis, code-design).
-  - "{{TAG_1}}" # e.g., authentication, user-interface, performance-tuning, database-schema, CI-CD
-  - "{{TAG_2}}" # e.g., "comparative-analysis", "feasibility-study", "literature-review", "performance-benchmark"
-  - "{{TAG_3}}" # e.g., frontend, backend, API, security, scalability
-path: "docs/01_ADR/RDA-NNNN-kebab-case-title-from-title.md" # Filename: RDA-NNNN-kebab-case-version-of-the-title.md
+status: "{{STATUS}}" # e.g., "Research - Planning", "Research - In Progress", "Research - Data Collection", "Research - Analysis Phase", "Research - Completed", "Research - Findings Presented", "Research - Actioned", "Research - Parked", "Research - Superseded by RDA-MMMM", "Research - Archived". This should reflect the current state of this research activity.
+tags: # Add multiple relevant tags to categorize this research. Consider keywords, technologies investigated, methodologies used, problem domain, or the nature of the findings.
+  - "research"
+  - "{{TAG_1}}" # e.g., performance-benchmarking, library-evaluation, user-feedback-analysis, security-vulnerability-assessment
+  - "{{TAG_2}}" # e.g., data-storage, messaging-queues, frontend-rendering, machine-learning-models
+  - "{{TAG_3}}" # e.g., feasibility-study, comparative-analysis, literature-review, proof-of-concept
+path: "docs/02_RDA/RDA-NNNN-kebab-case-title-from-title.md" # Filename: RDA-NNNN-kebab-case-version-of-the-title.md
+---
+
+# RDA-NNNN: {{RDA_TITLE}}
+
+*(This Research Data Artifact (RDA) serves as a comprehensive record of a specific research activity undertaken for the project. It documents the research objectives, methodology, data collection process, analysis, key findings, conclusions, and any resulting recommendations or implications. Its purpose is to provide a clear, traceable, and reusable account of the research to inform current and future development, decisions, and understanding.)*
+
+---
+
+## 1. Overview & Research Objective(s)
+*(Concisely articulate the essence of this research.
+- **What was the primary research question, problem, or objective?** (e.g., "To evaluate the performance of database X vs. database Y for workload Z," "To identify the most suitable frontend framework for achieving specific UX goals A and B," "To understand user pain points related to feature C," "To assess the security implications of integrating with external API D.")
+- **Why was this research undertaken?** (What knowledge gap was it trying to fill, or what decision was it intended to inform?)
+- **What is the key summary of the findings or the current status of this research as of the last update?**
+This section should immediately orient a reader to the purpose and main outcome of this RDA.)*
+
+## 2. Context & Background
+*(Elaborate on the circumstances and history leading up to this research activity.
+- **Pre-existing Situation/Knowledge:** What was known or assumed before this research began? Were there existing systems, processes, or data relevant to this topic?
+- **Triggering Event/Need:** What specific event, requirement, problem, opportunity, or previous ADR/RDA prompted this investigation?
+- **Relevant Prior Work:** Refer to any previous internal research, ADRs, pilot studies, or external literature that forms a critical backdrop or starting point.
+- **Scope & Boundaries:** What were the defined scope and limitations of this research? What was explicitly *not* investigated?
+- **Stakeholders & Intended Audience for Findings:** Who requested this research, or who are the primary consumers of its findings?
+A thorough context allows future readers to understand the rationale and constraints of the research.)*
+
+## 3. Research Methodology & Approach
+*(Describe in detail *how* the research was conducted. This section is crucial for assessing the validity and reliability of the findings.
+- **Overall Research Design:** (e.g., Experimental, Observational, Comparative Analysis, Literature Review, Survey, User Interviews, Proof of Concept, Performance Benchmarking, Code Archeology).
+- **Specific Methods Used:** (e.g., A/B testing, heuristic evaluation, thematic analysis of interviews, static/dynamic code analysis, load testing simulation).
+- **Tools & Technologies Leveraged:** (e.g., Specific benchmarking tools, survey platforms, analytics software, IDEs, libraries used for prototyping).
+- **Criteria for Evaluation/Comparison (if applicable):** (If comparing options, what were the key metrics or criteria used for assessment? e.g., performance (latency, throughput), ease of use, learning curve, cost, security features, community support, scalability).
+- **Sampling Strategy (if applicable):** (If data was collected from a sample, how was the sample selected and what are its characteristics? e.g., for user research).
+- **Timeline/Duration:** (Approximate start and end dates or duration of the active research phase).)*
+
+## 4. Data Collection & Sources Consulted
+*(Detail what data was collected and from where).
+- **Primary Data Sources:** (If new data was generated, e.g., benchmark results, survey responses, interview transcripts, prototype outputs). Describe the collection process.
+- **Secondary Data Sources:** (If existing data or literature was used, e.g., academic papers, industry reports, technical documentation, open-source project code, internal logs).
+    - `[Source Title 1 (e.g., Official Documentation for Library X)](URL/Path)`: *(Brief note on what information was sought or extracted from this source.)*
+    - `[Source Title 2 (e.g., Performance Benchmark Study by Y Corp)](URL/Path)`: *(Relevance to this research.)*
+- **Data Management:** (Briefly, how was data stored, organized, and prepared for analysis? Were there any ethical considerations or data privacy measures taken?)*
+
+## 5. Analysis & Key Findings
+*(This is the core output section. Present the results of the data analysis clearly and objectively.
+- **Data Presentation:** Use tables, charts (Mermaid or links to external visualizations), code snippets, or narrative summaries to present the analyzed data.
+- **Quantitative Findings (if applicable):** (e.g., "Option A demonstrated an average latency of X ms, 20% lower than Option B's Y ms under Z load conditions." "75% of surveyed users reported difficulty with feature Q.")
+- **Qualitative Findings (if applicable):** (e.g., "Key themes emerging from user interviews included [Theme 1], [Theme 2], and [Theme 3]." "Code review of library P revealed significant concerns regarding [specific maintainability issue].")
+- **"Aha!" Moments & Significant Discoveries:** Highlight any particularly important, surprising, or impactful findings that emerged from the analysis.
+- **Patterns & Trends:** Describe any notable patterns, trends, correlations, or anomalies observed in the data.
+Structure this section logically, often mirroring the research questions or objectives.)*
+
+### 5.1. Finding/Result Area 1: [Descriptive Title]
+*(Detailed presentation and analysis related to this specific finding or area of investigation.)*
+
+### 5.2. Finding/Result Area 2: [Descriptive Title]
+*(Detailed presentation and analysis related to this specific finding or area of investigation.)*
+
+## 6. Discussion & Interpretation of Findings
+*(Go beyond just presenting the findings; explain what they *mean* in the context of the research objectives and the broader project.
+- **Relation to Research Questions/Objectives:** How do the findings answer the initial research questions or address the objectives outlined in Section 1?
+- **Comparison with Existing Knowledge/Expectations:** How do these findings compare with prior knowledge, initial hypotheses, or existing literature/benchmarks? Are they consistent or contradictory?
+- **Strengths & Weaknesses of Findings:** What are the strong points of the evidence found? What are its limitations or areas where confidence might be lower?
+- **Plausible Explanations for Findings:** If findings are unexpected, offer potential explanations or interpretations.
+- **Synthesis of Multiple Findings:** If applicable, how do different findings interrelate or combine to form a larger picture?)*
+
+## 7. Limitations of the Research
+*(Acknowledge any factors that might have constrained the research or could limit the generalizability or certainty of its findings. Transparency here is key.
+- **Scope Limitations:** (e.g., "This research focused only on X and did not evaluate Y due to time constraints.")
+- **Methodological Limitations:** (e.g., "The sample size for user interviews was small (n=5), so findings may not be generalizable." "The benchmarking environment did not perfectly replicate production conditions.")
+- **Data Limitations:** (e.g., "Data from source Z was incomplete for the period Q." "Self-reported survey data may be subject to bias.")
+- **Tool Limitations:** (e.g., "The free tier of tool A limited the number of tests that could be run.")
+- **Time/Resource Constraints:** How did these affect the depth or breadth of the research?)*
+
+## 8. Conclusions & Recommendations (If Applicable)
+*(Based on the findings and discussion, what are the main conclusions of this research? If the research was intended to inform a decision or action, what are the specific recommendations?)*
+- **Main Conclusions:** (Summarize the most important takeaways from the entire research effort in 2-3 key points.)
+- **Specific Recommendations (if any):**
+    - *Recommendation 1:* [Clear, actionable recommendation, e.g., "Proceed with Option A for database selection based on superior performance and scalability demonstrated."]
+        - *Justification:* (Briefly link back to specific findings supporting this recommendation.)
+    - *Recommendation 2:* [e.g., "Initiate a follow-up study to investigate aspect Y further due to inconclusive findings in this RDA."]
+        - *Justification:*
+- **Confidence in Recommendations:** (If making recommendations, state the level of confidence, e.g., "High confidence based on strong evidence," "Moderate confidence, further validation suggested.")
+- **Caveats to Recommendations:** (Any conditions under which the recommendations might not hold true.)*
+
+## 9. Implications & Potential Next Steps (Beyond Specific Recommendations)
+*(What are the broader implications of these research findings for the project? What potential next steps, beyond direct recommendations, might be considered?
+- **Impact on Project Strategy/Roadmap:** How might these findings influence future plans or priorities?
+- **Areas for Future Research:** What new questions or areas for investigation have been uncovered by this research?
+- **Potential Design/Development Changes Suggested:** Do the findings suggest a need to reconsider any current designs, implementations, or technical choices?
+- **Knowledge Gaps Still Remaining:** What important questions are still unanswered even after this research?)*
+
+## 10. Supporting Data, Artifacts, & Key References
+*(Provide direct links to any crucial raw data, detailed analysis spreadsheets/notebooks, scripts used for data collection/analysis, presentation slides summarizing findings, or other artifacts that are central to this RDA and were not fully embedded or adequately referenced in earlier sections. This is for key evidence, detailed outputs, or essential context that allows others to reproduce or scrutinize the research.)*
+-   **Raw Data Repository/File:** `[Description, e.g., Benchmark Results CSV](URL_or_relative_path_if_local)`
+-   **Analysis Script/Notebook:** `[Description, e.g., Python Notebook for Statistical Analysis](URL_or_relative_path_if_local)`
+-   **Presentation of Findings:** `[Description, e.g., Slide Deck for Team Review](URL_or_relative_path_if_local)`
+-   **Key External Paper/Study:** `[Full Citation or Title](URL_if_available)`
+-   **Illustrative Diagram/Chart (if not embedded above):**
+    ```mermaid
+    pie titleBreakdown of User Feedback Categories
+        "Feature Requests" : 40
+        "Bug Reports" : 25
+        "Usability Issues" : 20
+        "Positive Feedback" : 15
+    ```
+
+---
+
+## Change History
+*(This section tracks significant modifications to THIS RDA document itself, providing a meta-history of the record. Entries are listed in reverse chronological order: newest changes at the top.)*
+
+| Date         | Change Summary                                                                                                                                                              |
+|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| {{YYYY-MM-DD}} | **{{CONCISE_CHANGE_TITLE_OR_TYPE}}**: {{Detailed summary of changes made. e.g., "Status updated to Completed; added final conclusions and recommendations.", "Incorporated feedback from peer review on methodology section.", "Added new data source to Section 4."}} |
+| {{YYYY-MM-DD}} | **{{CONCISE_CHANGE_TITLE_OR_TYPE}}**: {{Description of previous significant update.}}                                                                                                  |
+| {{YYYY-MM-DD}} | **Initial Version**: RDA Created. Title: "{{RDA_TITLE}}". Status: {{INITIAL_STATUS}}. *(Brief note on initial research question or objective).*                                                |
+
 ---
