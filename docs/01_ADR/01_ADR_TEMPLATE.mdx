@@ -1,15 +1,15 @@
 ---
-title: "ADR-NNN: {{ADR_TITLE}}" # Replace NNN with the sequential ADR number and {{ADR_TITLE}} with a concise, descriptive title summarizing the main topic, question, decision, or outcome of this record.
+title: "ADR-NNNN: {{ADR_TITLE}}" # Replace NNNN with the sequential ADR number and {{ADR_TITLE}} with a concise, descriptive title summarizing the main topic, question, decision, or outcome of this record.
 lastmod: "{{YYYY-MM-DD}}" # Date of the latest significant modification to THIS ADR.
 status: "{{STATUS}}" # e.g., "Exploratory", "Informational", "Decision - Accepted", "Decision - Proposed", "Research Findings", "Requirement Definition", "Idea - Parked", "Superseded by ADR-MMM", "Archived", "Deprecated". This should reflect the primary nature or current state of this record.
 tags: # Add multiple relevant tags to categorize this record. Think keywords, technologies, components, features, or the nature of the content (e.g., discussion-summary, research-finding, decision-rationale, requirement-clarification, brainstorming, problem-analysis, code-design).
   - "{{TAG_1}}" # e.g., authentication, user-interface, performance-tuning, database-schema, CI-CD
   - "{{TAG_2}}" # e.g., research, decision, idea, requirement, problem, discussion, coding
   - "{{TAG_3}}" # e.g., frontend, backend, API, security, scalability
-path: "docs/01_ADR/ADR-NNN-kebab-case-title-from-title.md" # Filename: ADR-NNN-kebab-case-version-of-the-title.md
+path: "docs/01_ADR/ADR-NNNN-kebab-case-title-from-title.md" # Filename: ADR-NNNN-kebab-case-version-of-the-title.md
 ---
 
-# ADR-NNN: {{ADR_TITLE}}
+# ADR-NNNN: {{ADR_TITLE}}
 
 *(This document serves as a comprehensive record of interactions, discussions, research, decisions, coding efforts, brainstorming sessions, and the evolution of ideas related to the project's development. Its purpose is to capture the detailed thinking process, context, and outcomes at specific milestones or checkpoints, serving as a valuable "memory bank" for the project.)*
 
@@ -162,16 +162,12 @@ A thorough context allows future readers to fully grasp the context.)*
 ---
 
 ## Change History
-*(This section tracks significant modifications to THIS ADR document itself, providing a meta-history of the record.)*
--   **{{YYYY-MM-DD}} (Initial Version - {{AUTHOR_OR_SYSTEM_IF_AI}}):** ADR Created. Title: "{{ADR_TITLE}}". Status: {{INITIAL_STATUS}}. *(Brief note on initial purpose or outcome, e.g., "Documenting decision on X," "Summarizing research on Y," "Initial thoughts on feature Z.")*
--   **{{YYYY-MM-DD}} (Update - {{AUTHOR_OR_SYSTEM_IF_AI}}):** Status changed to {{NEW_STATUS}}. *(Reason for update, e.g., "Decision formally accepted," "Further research added to Section 3.2," "Clarified consequences in Section 6.1," "Superseded by ADR-YYY.")*
+*(This section tracks significant modifications to THIS ADR document itself, providing a meta-history of the record. Entries are listed in reverse chronological order: newest changes at the top.)*
 
----
-
-## Change History
-*(This section tracks significant modifications to THIS document, providing a meta-history of its evolution. List changes in reverse chronological order (newest first).)*
--   **{{YYYY-MM-DD}} (Update - {{AUTHOR_OR_SYSTEM_IF_AI}}):** Status changed to {{NEW_STATUS_FROM_FRONTMATTER}}. *(Briefly describe the nature of the update, e.g., "Added section on Advanced Configuration options," "Corrected examples in API usage," "Major revision of performance tuning guidelines based on recent benchmarks," "Minor typos and link corrections.")*
--   **{{YYYY-MM-DD}} (Update - {{AUTHOR_OR_SYSTEM_IF_AI}}):** Status changed to {{PREVIOUS_STATUS}}. *(Description of previous significant update.)*
--   **{{YYYY-MM-DD}} (Initial Version - {{AUTHOR_OR_SYSTEM_IF_AI}}):** Document Created. Title: "{{PAGE_TITLE}}". Status: {{INITIAL_STATUS_FROM_FRONTMATTER}}. *(Brief note on initial purpose or scope, e.g., "Initial draft covering basic setup and API overview.")*
+| Date         | Change Summary                                                                                                                                                              |
+|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| {{YYYY-MM-DD}} | **{{CONCISE_CHANGE_TITLE_OR_TYPE}}**: {{Detailed summary of changes made. e.g., "Status updated to Accepted; refined justification for Option B.", "Added findings from new performance benchmarks to Section 3.2.", "Corrected factual error in Context section."}} |
+| {{YYYY-MM-DD}} | **{{CONCISE_CHANGE_TITLE_OR_TYPE}}**: {{Description of previous significant update.}}                                                                                                  |
+| {{YYYY-MM-DD}} | **Initial Version**: ADR Created. Title: "{{ADR_TITLE}}". Status: {{INITIAL_STATUS}}. *(Brief note on initial purpose or outcome).*                                                |
 
 ---
