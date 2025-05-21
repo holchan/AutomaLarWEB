@@ -22,10 +22,10 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN uv venv ${BUILD_PATH}/.venv --python python3.12
+RUN uv venv "${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}/.roo/cognee/.venv" --python python3.12
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-editable --no-install-project --python ${BUILD_PATH}/.venv/bin/python
+    uv sync --frozen --no-editable --no-install-project --python "${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}/.roo/cognee/.venv/bin/python" --project "${BUILD_PATH}"
 
 FROM python:3.12-slim-bookworm
 
@@ -41,11 +41,12 @@ ARG WORKSPACE_PATH
 ARG WEB_WORKSPACE_PATH
 WORKDIR ${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}
 
-COPY --from=builder ${BUILD_PATH}/.venv ${BUILD_PATH}/.venv
+COPY --from=builder "${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}/.roo/cognee/.venv" ${BUILD_PATH}/.venv
 
 COPY .roo/cognee/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENV PYTHONUNBUFFERED=1
+ENV PATH="${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}/.roo/cognee/.venv/bin:$PATH"
 
 ENTRYPOINT ["/entrypoint.sh"]
 #ENTRYPOINT ["cognee-mcp"]

@@ -21,8 +21,6 @@ echo "Entrypoint: Removing source pre-built venv from $PREBUILT_VENV_DIR..."
 rm -rf "$PREBUILT_VENV_DIR"
 echo "Entrypoint: Source pre-built venv removed."
 
-export PATH="$TARGET_VENV_DIR/bin:$PATH"
-
 echo "Entrypoint: Using PATH: $PATH"
 echo "Entrypoint: Executing container command: $@"
 
