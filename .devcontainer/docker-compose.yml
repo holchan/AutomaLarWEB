@@ -79,10 +79,7 @@ services:
       dockerfile: ${WEB_COGNEE_DOCKERFILE_PATH:-.roo/cognee/Dockerfile}
       args:
         BUILD_PATH: ${WEB_COGNEE_BUILD_PATH:-/opt/cognee}
-        WEB_COGNEE_BUILD_CONTEXT_PATH: ${WEB_COGNEE_BUILD_CONTEXT_PATH:-..}
         WEB_WORKSPACE_PATH: ${WEB_WORKSPACE_PATH:-/automalarweb}
-        WEB_WORKSPACE_USER: ${WEB_WORKSPACE_USER:-node}
-        WEB_WORKSPACE_GROUP: ${WEB_WORKSPACE_GROUP:-node}
         WORKSPACE_PATH: ${WORKSPACE_PATH:-}
     environment:
       - WEB_WORKSPACE_PATH=${WEB_WORKSPACE_PATH:-/automalarweb}
