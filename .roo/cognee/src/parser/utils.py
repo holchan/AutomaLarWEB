@@ -1,82 +1,82 @@
-# src/parser/utils.py
+import asyncio
 import aiofiles
-import logging
-import os
 from typing import Optional, Any
 
 try:
-    from cognee.shared.logging_utils import get_logger, INFO, DEBUG, WARNING, ERROR, CRITICAL, log_levels
-    cognee_log_level_str = os.getenv("WEB_COGNEE_LOG_LEVEL", "DEBUG").upper()
-    log_level = log_levels.get(cognee_log_level_str, DEBUG)
-
-    logger = get_logger(__name__, level=log_level)
-    logger.info(f"Using Cognee logger for parser module (Level: {logging.getLevelName(log_level)}).")
-
-except ImportError as e:
-    print(f"CRITICAL ERROR: Failed to import Cognee logger utility: {e}", file=os.sys.stderr)
-    print("Ensure the main 'cognee' package is installed and accessible in your PYTHONPATH.", file=os.sys.stderr)
-    raise ImportError("Cognee logging utility is required but could not be imported.") from e
-
-try:
-    from tree_sitter import Node as TSNODE_TYPE
-    TS_AVAILABLE = True
-    logger.debug("Tree-sitter Node type imported successfully.")
+    from cognee.shared.logging_utils import get_logger
+    logger = get_logger(__name__)
 except ImportError:
-    logger.debug("Tree-sitter library not found, using 'Any' for TSNODE_TYPE hint.")
-    TSNODE_TYPE = Any
+    print("Warning: Cognee's logging_utils not found. Falling back to basic print for logging in parser.utils.")
+    class PrintLogger:
+        def error(self, msg, exc_info=None): print(f"ERROR: {msg}" + (f" | Exception: {exc_info}" if exc_info else ""))
+        def warning(self, msg): print(f"WARNING: {msg}")
+        def info(self, msg): print(f"INFO: {msg}")
+        def debug(self, msg): print(f"DEBUG: {msg}")
+    logger = PrintLogger()
+
+TS_AVAILABLE = True
+TSNODE_TYPE = Any
+try:
+    from tree_sitter import Node as TSNODE_TYPE_REAL
+    TSNODE_TYPE = TSNODE_TYPE_REAL
+except ImportError:
+    logger.warning("Tree-sitter library not found. AST-based parsing will be unavailable for some languages.")
     TS_AVAILABLE = False
 
 async def read_file_content(file_path: str) -> Optional[str]:
     """
     Safely reads file content asynchronously with UTF-8 encoding, ignoring errors.
-
-    Args:
-        file_path: The absolute path to the file.
-
-    Returns:
-        The file content as a string, or None if an error occurs.
     """
     try:
-        async with aiofiles.open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        async with aiofiles.open(file_path, mode="r", encoding="utf-8", errors="ignore") as f:
             content = await f.read()
-            logger.debug(f"Successfully read {len(content)} characters from {file_path} using aiofiles.")
-            return content
+        return content
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
         return None
     except IOError as e:
-        logger.error(f"IOError reading file {file_path}: {e}")
+        logger.error(f"IOError reading file {file_path}", exc_info=e)
         return None
     except Exception as e:
-        logger.error(f"Unexpected error reading file {file_path}: {e}", exc_info=True)
+        logger.error(f"Unexpected error reading file {file_path}", exc_info=e)
         return None
 
 def get_node_text(node: TSNODE_TYPE, content_bytes: bytes) -> Optional[str]:
     """
     Extracts text from a tree-sitter node safely.
-
-    Args:
-        node: The tree_sitter.Node object (or Any if library not present).
-        content_bytes: The byte representation of the source file content.
-
-    Returns:
-        The decoded text of the node, or None if an error occurs or tree-sitter is unavailable.
     """
-    if not TS_AVAILABLE or not hasattr(node, 'start_byte') or not hasattr(node, 'end_byte'):
-        logger.debug("Tree-sitter not available or invalid node type passed to get_node_text.")
+    if not TS_AVAILABLE or node is None:
         return None
     try:
         start = max(0, node.start_byte)
         end = min(len(content_bytes), node.end_byte)
-        if start >= end:
-            logger.debug(f"Node {getattr(node, 'type', 'unknown')} at {getattr(node, 'start_point', '?')}-{getattr(node, 'end_point', '?')} has invalid byte range: start={start}, end={end}. Returning empty string.")
-            return ""
-
+        if start >= end: return ""
         text = content_bytes[start:end].decode("utf-8", "ignore")
         return text
-    except IndexError as e:
-        logger.error(f"IndexError getting text for node type {getattr(node, 'type', 'unknown')} at {getattr(node, 'start_point', '?')}-{getattr(node, 'end_point', '?')}: {e}")
-        return None
     except Exception as e:
-        logger.error(f"Error getting node text for node type {getattr(node, 'type', 'unknown')}: {e}", exc_info=True)
+        logger.error(f"Error extracting text from tree-sitter node.", exc_info=True)
         return None
+
+def parse_text_chunk_id(text_chunk_id: str) -> Optional[tuple[str, int]]:
+    """Parses 'source_file_id:chunk_index' into (source_file_id, chunk_index)."""
+    try:
+        parts = text_chunk_id.rsplit(':', 1)
+        if len(parts) == 2:
+            return parts[0], int(parts[1])
+    except ValueError:
+        logger.error(f"Could not parse chunk_index (int) from text_chunk_id: {text_chunk_id}")
+    except Exception as e:
+        logger.error(f"Error parsing text_chunk_id '{text_chunk_id}'.", exc_info=e)
+    return None
+
+def parse_code_entity_id(code_entity_id: str) -> Optional[tuple[str, str, str, int]]:
+    """Parses 'text_chunk_id:entity_type:name_hash:index' into (text_chunk_id, entity_type, name_hash, index)."""
+    try:
+        parts = code_entity_id.rsplit(':', 3)
+        if len(parts) == 4:
+            return parts[0], parts[1], parts[2], int(parts[3])
+    except ValueError:
+        logger.error(f"Could not parse index (int) from code_entity_id: {code_entity_id}")
+    except Exception as e:
+        logger.error(f"Error parsing code_entity_id '{code_entity_id}'.", exc_info=e)
+    return None

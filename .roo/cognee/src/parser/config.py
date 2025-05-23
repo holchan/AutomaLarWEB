@@ -1,4 +1,3 @@
-# src/parser/config.py
 import os
 
 CHUNK_SIZE = 1000
@@ -6,26 +5,41 @@ CHUNK_OVERLAP = 100
 
 IGNORED_DIRS = {
     ".git",
+    ".hg",
+    ".svn",
+    ".idea",
+    ".vscode",
     "__pycache__",
     "node_modules",
-    "dist",
+    "vendor",
     "build",
+    "dist",
+    "target",
+    "out",
+    "bin",
+    "obj",
     "venv",
     ".venv",
-    "target",
-    ".next",
-    ".vscode",
-    ".idea",
-    "coverage",
+    "env",
+    ".env",
     "logs",
     "tmp",
     "temp",
-    "data",
-    ".ruff_cache",
+    "coverage",
+    ".cache",
+    ".pytest_cache",
     ".mypy_cache",
+    ".tox",
+    "site-packages",
+    "*.egg-info",
+    "docs/_build",
+    "site",
+    ".serverless",
+    ".terraform",
+    "__pypackages__"
 }
+
 IGNORED_FILES = {
-    ".DS_Store",
     "*.pyc",
     "*.pyo",
     "*.pyd",
@@ -33,14 +47,33 @@ IGNORED_FILES = {
     "*.dll",
     "*.o",
     "*.a",
+    "*.obj",
+    "*.lib",
+    "*.class",
+    "*.jar",
+    "*.war",
+    "*.ear",
+    "*.log",
     "*.swp",
     "*.swo",
-    "*.log",
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
     "package-lock.json",
     "yarn.lock",
-    "pnpm-lock.yaml",
     "poetry.lock",
-    "uv.lock",
+    "Pipfile.lock",
+    "Gemfile.lock",
+    "composer.lock",
+    "go.sum",
+    "*.min.js",
+    "*.min.css",
+    "*.map",
+    "*.lock",
+    "*.bak",
+    "*.tmp",
+    "*.temp",
+    "*~",
 }
 
 SUPPORTED_EXTENSIONS = {
@@ -49,14 +82,27 @@ SUPPORTED_EXTENSIONS = {
     ".jsx": "javascript",
     ".ts": "typescript",
     ".tsx": "typescript",
+    ".java": "java", # Placeholder - parser needed
     ".c": "c",
     ".h": "c",
     ".cpp": "cpp",
     ".hpp": "cpp",
+    ".cs": "csharp", # Placeholder - parser needed
+    ".go": "go", # Placeholder - parser needed
+    ".php": "php", # Placeholder - parser needed
     ".rs": "rust",
+    ".sh": "shell", # Placeholder - parser needed (simple chunking initially)
+    ".ps1": "powershell",# Placeholder - parser needed (simple chunking initially)
     ".css": "css",
     "Dockerfile": "dockerfile",
     ".dockerfile": "dockerfile",
+    ".html": "html", # Placeholder - parser needed (simple chunking or specialized)
+    ".xml": "xml", # Placeholder - parser needed
+    ".json": "json", # Placeholder - parser needed (often just chunked or loaded as data)
+    ".yaml": "yaml", # Placeholder - parser needed
+    ".yml": "yaml", # Placeholder - parser needed
     ".md": "markdown",
-    ".mdx": "markdown",
+    ".mdx": "markdown", # MDX treated as Markdown for now
+    ".txt": "text", # Generic text files
+    ".sql": "sql",
 }
