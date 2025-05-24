@@ -91,18 +91,18 @@ SUPPORTED_EXTENSIONS = {
     ".go": "go", # Placeholder - parser needed
     ".php": "php", # Placeholder - parser needed
     ".rs": "rust",
-    ".sh": "shell", # Placeholder - parser needed (simple chunking initially)
-    ".ps1": "powershell",# Placeholder - parser needed (simple chunking initially)
+    ".sh": "shell", # Placeholder - parser needed
+    ".ps1": "powershell",# Placeholder - parser needed
     ".css": "css",
     "Dockerfile": "dockerfile",
     ".dockerfile": "dockerfile",
-    ".html": "html", # Placeholder - parser needed (simple chunking or specialized)
+    ".html": "html", # Placeholder - parser needed
     ".xml": "xml", # Placeholder - parser needed
-    ".json": "json", # Placeholder - parser needed (often just chunked or loaded as data)
+    ".json": "json", # Placeholder - parser needed
     ".yaml": "yaml", # Placeholder - parser needed
     ".yml": "yaml", # Placeholder - parser needed
     ".md": "markdown",
-    ".mdx": "markdown", # MDX treated as Markdown for now
-    ".txt": "text", # Generic text files
+    ".mdx": "markdown",
+    ".txt": "text",
     ".sql": "sql",
 }

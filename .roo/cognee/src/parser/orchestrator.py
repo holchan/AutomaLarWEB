@@ -1,189 +1,172 @@
 import asyncio
 import os
 import time
-from typing import AsyncGenerator, Dict, Type, Any
-from pydantic import BaseModel
 from pathlib import Path
+from typing import AsyncGenerator, Dict, Type, List, Union
 
-from .entities import Repository, SourceFile, Relationship
+from pydantic import BaseModel
+
 from .discovery import discover_files
-from .utils import logger
-from .config import SUPPORTED_EXTENSIONS
-
 from .parsers.base_parser import BaseParser
-from .parsers.markdown_parser import MarkdownParser
+from .utils import logger
+
+from .parsers.c_parser import CParser
+from .parsers.cpp_parser import CppParser
 from .parsers.python_parser import PythonParser
 from .parsers.javascript_parser import JavascriptParser
 from .parsers.typescript_parser import TypescriptParser
-from .parsers.c_parser import CParser
-from .parsers.cpp_parser import CppParser
 from .parsers.rust_parser import RustParser
-from .parsers.dockerfile_parser import DockerfileParser
+from .parsers.markdown_parser import MarkdownParser
 from .parsers.css_parser import CssParser
+from .parsers.dockerfile_parser import DockerfileParser
+# from .parsers.java_parser import JavaParser
+# from .parsers.csharp_parser import CSharpParser
+# from .parsers.go_parser import GoParser
+# from .parsers.php_parser import PhpParser
+# from .parsers.html_parser import HtmlParser
+# from .parsers.xml_parser import XmlParser
+# from .parsers.json_parser import JsonParser
+# from .parsers.yaml_parser import YamlParser
+# from .parsers.txt_parser import TxtParser
+# from .parsers.sql_parser import SQLParser
+
+from .entities import Repository, SourceFile, TextChunk, CodeEntity, Relationship
 
 PARSER_MAP: Dict[str, Type[BaseParser]] = {
-    "markdown": MarkdownParser,
     "python": PythonParser,
     "javascript": JavascriptParser,
     "typescript": TypescriptParser,
     "c": CParser,
     "cpp": CppParser,
     "rust": RustParser,
-    "dockerfile": DockerfileParser,
+    "markdown": MarkdownParser,
     "css": CssParser,
+    "dockerfile": DockerfileParser,
+    # "java": JavaParser,
+    # "csharp": CSharpParser,
+    # "go": GoParser,
+    # "php": PhpParser,
+    # "shell": ShellParser,
+    # "html": HtmlParser,
+    # "xml": XmlParser,
+    # "json": JsonParser,
+    # "yaml": YamlParser,
+    # "txt": TxtParser,
+    # "sql": SQLParser,
 }
 
-async def _parse_and_yield_file_data(
-    parser_instance: BaseParser,
-    file_path: str,
-    file_id: str
-) -> AsyncGenerator[BaseModel, None]:
-    """
-    Helper coroutine to run a parser and yield its results.
+OrchestratorOutput = Union[Repository, SourceFile, TextChunk, CodeEntity, Relationship]
 
+
+async def _run_parser_for_file(
+    parser_instance: BaseParser,
+    abs_file_path: str,
+    file_id: str,
+    language_key: str
+) -> List[BaseModel]:
+    """
+    Helper coroutine to run a single parser and collect all its results.
     Handles exceptions during parsing and logs them.
     """
+    logger.debug(f"Starting parsing for {abs_file_path} with {type(parser_instance).__name__}")
+    parsed_items: List[BaseModel] = []
     try:
-        logger.debug(f"Starting parsing for file: {os.path.basename(file_path)} using {parser_instance.parser_type}")
-        count = 0
-        async for dp in parser_instance.parse(file_path, file_id):
-            yield dp
-            count += 1
-        logger.debug(f"Parser {parser_instance.parser_type} finished for {os.path.basename(file_path)}, yielded {count} items.")
+        async for item in parser_instance.parse(abs_file_path, file_id, language_key):
+            parsed_items.append(item)
+        logger.debug(f"Finished parsing {abs_file_path}. Yielded {len(parsed_items)} items.")
     except Exception as e:
-        logger.error(f"Error executing parser {parser_instance.parser_type} on file {file_path}: {e}", exc_info=True)
+        logger.error(f"Error during parsing file {abs_file_path} with {type(parser_instance).__name__}", exc_info=e)
+    return parsed_items
 
 
-async def process_repository(repo_path: str, repo_id: str, concurrency_limit: int = 50) -> AsyncGenerator[BaseModel, None]:
+async def process_repository(
+    repo_path: str,
+    repo_id: str,
+    concurrency_limit: int = 10
+) -> AsyncGenerator[OrchestratorOutput, None]:
     """
     Orchestrates the process of discovering and parsing files within a repository.
-
-    Yields Repository, SourceFile, TextChunk, CodeEntity, and Relationship objects
-    according to the defined entities.
-
-    Args:
-        repo_path: The absolute path to the local repository directory.
-        repo_id: The unique identifier for this repository instance, repo name or project name (e.g., "microsoft/graphrag" or "local/AutomaLarWEB").
-        concurrency_limit: Max number of files to parse concurrently.
-
-    Yields:
-        Pydantic BaseModel objects: Repository, SourceFile, Relationship,
-        TextChunk, CodeEntity.
+    Yields Pydantic BaseModel objects from src.parser.entities:
+    Repository, then SourceFile for each file, then TextChunk, CodeEntity, Relationship from parsers.
     """
-    abs_repo_path = os.path.abspath(repo_path)
-    start_time = time.time()
-    logger.info(f"Starting repository processing for: {repo_id} ({abs_repo_path})")
+    abs_repo_path = Path(repo_path).resolve()
+    start_time_repo = time.time()
+    logger.info(f"Starting processing for repository: {repo_id} at {abs_repo_path}")
 
-    if not os.path.isdir(abs_repo_path):
-        logger.error(f"Repository path not found or not a directory: {abs_repo_path}")
-        return
+    repository_node = Repository(id=repo_id, path=str(abs_repo_path))
+    yield repository_node
 
-    try:
-        repo_node = Repository(id=repo_id, path=abs_repo_path)
-        yield repo_node
-    except Exception as e:
-        logger.error(f"Failed to create Repository node for {repo_id}: {e}", exc_info=True)
-        return
+    parser_instances_cache: Dict[str, BaseParser] = {}
 
-    parser_instances: Dict[str, BaseParser] = {}
-    file_processing_coroutines = []
-    file_nodes_to_yield = []
+    file_processing_args_list: List[Tuple[BaseParser, str, str, str]] = []
 
-    async for file_path, relative_path, file_type in discover_files(abs_repo_path):
-        file_id = f"{repo_id}:{relative_path}"
+    files_discovered_count = 0
+    async for abs_file_path, rel_file_path, language_key in discover_files(str(abs_repo_path)):
+        files_discovered_count += 1
+        file_id = f"{repo_id}:{rel_file_path}"
 
-        try:
-            file_node = SourceFile(
-                id=file_id,
-                file_path=file_path,
-            )
-            file_rel = Relationship(source_id=repo_id, target_id=file_id, type="CONTAINS_FILE")
-            file_nodes_to_yield.append((file_node, file_rel))
-            logger.debug(f"Prepared SourceFile node for: {relative_path} (ID: {file_id})")
-        except Exception as e:
-            logger.error(f"Failed to create SourceFile node/relationship for {relative_path}: {e}", exc_info=True)
-            continue
+        source_file_node = SourceFile(
+            id=file_id,
+            file_path=abs_file_path,
+            relative_path=rel_file_path,
+            language_key=language_key,
+            timestamp=time.time()
+        )
+        yield source_file_node
 
-        ParserClass = PARSER_MAP.get(file_type)
-
+        ParserClass = PARSER_MAP.get(language_key)
         if ParserClass:
-            if file_type not in parser_instances:
+            if language_key not in parser_instances_cache:
                 try:
-                    parser_instances[file_type] = ParserClass()
-                    logger.debug(f"Instantiated parser for type: '{file_type}' ({ParserClass.__name__})")
+                    parser_instances_cache[language_key] = ParserClass()
+                    logger.debug(f"Initialized parser for language key: {language_key}")
                 except Exception as e:
-                    logger.error(f"Failed to instantiate parser {ParserClass.__name__} for type '{file_type}': {e}", exc_info=True)
+                    logger.error(f"Failed to initialize parser for {language_key}", exc_info=e)
                     continue
 
-            parser_instance = parser_instances[file_type]
-            coro = _parse_and_yield_file_data(parser_instance, file_path, file_id)
-            file_processing_coroutines.append(coro)
+            parser_instance = parser_instances_cache[language_key]
+            file_processing_args_list.append(
+                (parser_instance, abs_file_path, file_id, language_key)
+            )
         else:
-            logger.warning(f"No parser mapped for supported file type '{file_type}'. Skipping detailed parsing for: {relative_path}")
+            logger.warning(f"No parser registered for language key '{language_key}' for file {abs_file_path}. Skipping parsing for this file.")
 
-    logger.info(f"Discovery complete. Found {len(file_nodes_to_yield)} supported files to process.")
-    total_yielded = 1
-    for file_node, file_rel in file_nodes_to_yield:
-        yield file_node
-        yield file_rel
-        total_yielded += 2
+    logger.info(f"Discovered {files_discovered_count} files. Prepared {len(file_processing_args_list)} files for parsing.")
 
-    processed_files_count = 0
-    tasks = []
-    results_buffer = []
+    total_parsed_items_yielded = 0
+    for i in range(0, len(file_processing_args_list), concurrency_limit):
+        batch_args = file_processing_args_list[i:i + concurrency_limit]
+        if not batch_args:
+            continue
 
-    async def run_and_buffer(coro):
-        async for item in coro:
-            results_buffer.append(item)
+        logger.info(f"Processing batch {i//concurrency_limit + 1} of {len(batch_args)} files for parsing...")
 
-    for i in range(0, len(file_processing_coroutines), concurrency_limit):
-        batch_coros = file_processing_coroutines[i:i + concurrency_limit]
-        logger.info(f"Processing batch {i//concurrency_limit + 1} ({len(batch_coros)} files)...")
+        tasks = [
+            asyncio.create_task(
+                _run_parser_for_file(p_instance, p_abs_file_path, p_file_id, p_lang_key)
+            ) for p_instance, p_abs_file_path, p_file_id, p_lang_key in batch_args
+        ]
 
-        tasks = [asyncio.create_task(run_and_buffer(coro)) for coro in batch_coros]
+        results_for_batch_of_files: List[Union[List[BaseModel], Exception]] = await asyncio.gather(*tasks, return_exceptions=True)
 
-        if tasks:
-            done, pending = await asyncio.wait(tasks)
-            processed_files_count += len(done)
+        batch_items_yielded = 0
+        for result_list_or_exc in results_for_batch_of_files:
+            if isinstance(result_list_or_exc, Exception):
+                logger.error(f"A file parsing task in the batch resulted in an exception: {result_list_or_exc}")
+            elif isinstance(result_list_or_exc, list):
+                for item in result_list_or_exc:
+                    yield item
+                    batch_items_yielded += 1
+            else:
+                logger.warning(f"Unexpected result type from parser task: {type(result_list_or_exc)}")
 
-            for task in done:
-                if task.exception():
-                    pass
+        total_parsed_items_yielded += batch_items_yielded
+        logger.info(f"Batch {i//concurrency_limit + 1} processed. Yielded {batch_items_yielded} parser items.")
+        await asyncio.sleep(0.01)
 
-            batch_yield_count = 0
-            for item in results_buffer:
-                yield item
-                batch_yield_count += 1
-            total_yielded += batch_yield_count
-            results_buffer.clear()
-
-            logger.info(f"Finished batch {i//concurrency_limit + 1}. Yielded {batch_yield_count} parser items. Total files processed so far: {processed_files_count}")
-
-    end_time = time.time()
-    duration = end_time - start_time
-    logger.info(f"Finished processing repository {repo_id}. Total items yielded: {total_yielded} in {duration:.2f} seconds.")
-
-
-async def _orchestrator_test_main():
-    script_dir = Path(__file__).parent.parent.parent
-    repo_to_parse = str(script_dir / "tests" / "parser" / "test_data")
-    test_repo_id = "local/test_repo"
-    print(f"Starting parsing process via orchestrator for repository: {os.path.abspath(repo_to_parse)} with ID: {test_repo_id}")
-
-    count = 0
-    start_time = time.time()
-    async for data_point in process_repository(repo_to_parse, test_repo_id, concurrency_limit=10):
-        count += 1
-        dp_type = getattr(data_point, 'type', 'Unknown')
-        dp_id = getattr(data_point, 'id', 'N/A')
-        print(f"  Yielded {count}: Type={dp_type}, ID={dp_id}")
-
-        if count % 100 == 0:
-            elapsed = time.time() - start_time
-            print(f" ... yielded {count} items ({elapsed:.2f}s elapsed) ...")
-
-    end_time = time.time()
-    print(f"\nOrchestrator finished. Yielded {count} items in {end_time - start_time:.2f} seconds.")
-
-if __name__ == "__main__":
-    asyncio.run(_orchestrator_test_main())
+    duration_repo = time.time() - start_time_repo
+    logger.info(
+        f"Finished processing repository {repo_id}. "
+        f"Total Pydantic items yielded from parsers: {total_parsed_items_yielded}. "
+        f"Total time: {duration_repo:.2f}s"
+    )
