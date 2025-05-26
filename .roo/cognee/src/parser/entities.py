@@ -13,7 +13,7 @@ class SourceFile(BaseModel):
     id: str # Composite ID string (e.g., "microsoft/graphrag:src/main.py" or "AutomaLarWEB:src/main.py")
     type: str = Field("SourceFile", frozen=True)
     file_path: str # Full original absolute path to the file, if remote the link
-    timestamp: float = Field(default_factory=time.time)
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class TextChunk(BaseModel):
     """Represents a segment of text, typically from a file."""

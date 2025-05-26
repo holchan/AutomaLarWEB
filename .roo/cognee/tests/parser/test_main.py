@@ -1,136 +1,237 @@
-# .roo/cognee/tests/parser/test_main.py
 import pytest
 import asyncio
-import argparse
 from pathlib import Path
-from unittest.mock import patch, AsyncMock, MagicMock, call
+from unittest.mock import patch, AsyncMock, MagicMock, call, ANY
+from typing import List, Tuple, Dict, Any, AsyncGenerator, Union, Optional
+import uuid
+
+from pydantic import BaseModel as PydanticBaseModel, Field
 
 pytestmark = pytest.mark.asyncio
 
-from pydantic import BaseModel
-class MockEntity(BaseModel):
-    id: str
+class MockDataPoint(PydanticBaseModel):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
     type: str
+    slug_id: str
 
-async def async_generator_wrapper(items):
+class MockRepositoryNode(MockDataPoint):
+    path: str
+
+class MockSourceFileNode(MockDataPoint):
+    file_path: str
+
+CogneeEdgeTupleMock = Tuple[uuid.UUID, uuid.UUID, str, Dict[str, Any]]
+
+class MockParserRepository(PydanticBaseModel): id: str; path: str; type: str = "Repository"
+class MockParserSourceFile(PydanticBaseModel): id: str; file_path: str; type: str = "SourceFile"; timestamp: str = "ts"
+class MockParserTextChunk(PydanticBaseModel): id: str; type: str = "TextChunk"; start_line: int = 1; end_line: int = 1; chunk_content: str = "c"
+class MockParserCodeEntity(PydanticBaseModel): id: str; type: str = "FunctionDefinition"; snippet_content: str = "s"
+class MockParserRelationship(PydanticBaseModel): source_id: str; target_id: str; type: str; properties: Optional[Dict] = None
+
+OrchestratorOutputItemMock = Union[
+    MockParserRepository,
+    Tuple[MockParserSourceFile, Dict[str, str]],
+    MockParserTextChunk, MockParserCodeEntity, MockParserRelationship
+]
+
+async def mock_process_repository_stream_generator(items: List[OrchestratorOutputItemMock]) -> AsyncGenerator[OrchestratorOutputItemMock, None]:
     for item in items:
         yield item
         await asyncio.sleep(0)
 
-@patch('src.main.argparse.ArgumentParser')
-@patch('src.main.run_parser')
-async def test_main_local_path(mock_run_parser, mock_arg_parser):
-    """Test main entry point with a local path argument."""
-    mock_args = argparse.Namespace(
-        target="/fake/local/repo",
-        repo_id=None,
-        project_name="test_project",
-        concurrency=10,
-        verbose=False,
-        keep_temp=False
-    )
-    mock_arg_parser.return_value.parse_args.return_value = mock_args
-    mock_run_parser.return_value = async_generator_wrapper([MockEntity(id="item1", type="TypeA")])
+async def mock_adapter_function(
+    stream: AsyncGenerator[OrchestratorOutputItemMock, None]
+) -> Tuple[List[MockDataPoint], List[CogneeEdgeTupleMock]]:
 
-    with patch('src.main.run_parser', return_value=async_generator_wrapper([MockEntity(id="item1", type="TypeA")])) as mock_rp_in_main:
-        from src.main import main as main_func
-        await main_func()
+    mock_nodes: List[MockDataPoint] = []
+    mock_edges: List[CogneeEdgeTupleMock] = []
 
-        mock_rp_in_main.assert_called_once_with(
-            target="/fake/local/repo",
-            repo_id_override=None,
-            project_name_local="test_project",
-            concurrency=10,
-            keep_temp=False
-        )
+    async for item in stream:
+        if isinstance(item, MockParserRepository):
+            mock_nodes.append(MockRepositoryNode(slug_id=item.id, path=item.path, type=item.type))
+        elif isinstance(item, tuple) and isinstance(item[0], MockParserSourceFile):
+            sf_node = item[0]
+            mock_nodes.append(MockSourceFileNode(slug_id=sf_node.id, file_path=sf_node.file_path, type=sf_node.type))
 
-@patch('src.main.clone_repo_to_temp')
-@patch('src.main.process_repository')
-@patch('src.main.cleanup_temp_repo')
-async def test_run_parser_git_url(mock_cleanup, mock_process_repo, mock_clone):
-    """Test run_parser specifically with a Git URL."""
-    git_url = "https://github.com/test/repo.git"
-    temp_clone_path = "/tmp/fake_clone_path"
-    derived_repo_id = "github.com/test/repo"
-    mock_clone.return_value = (temp_clone_path, derived_repo_id)
+    if len(mock_nodes) > 1:
+        mock_edges.append((mock_nodes[0].id, mock_nodes[1].id, "MOCK_CONTAINS", {}))
 
-    mock_repo_node = MockEntity(id=derived_repo_id, type="Repository")
-    mock_file_node = MockEntity(id=f"{derived_repo_id}:file.py", type="SourceFile")
-    mock_process_repo.return_value = async_generator_wrapper([mock_repo_node, mock_file_node])
+    return mock_nodes, mock_edges
 
-    results = []
-    from src.main import run_parser
-    async for item in run_parser(target=git_url, concurrency=5):
-        results.append(item)
+MAIN_MODULE_PATH = 'src.main'
 
-    mock_clone.assert_called_once_with(git_url)
-    mock_process_repo.assert_called_once_with(temp_clone_path, derived_repo_id, concurrency_limit=5)
-    assert len(results) == 2
-    assert results[0] == mock_repo_node
-    assert results[1] == mock_file_node
-    mock_cleanup.assert_called_once_with(temp_clone_path)
+@patch(f'{MAIN_MODULE_PATH}.process_repository', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.adapt_parser_to_graph_elements', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.get_graph_engine', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.add_data_points', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.index_graph_edges', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.clone_repo_to_temp')
+@patch(f'{MAIN_MODULE_PATH}.cleanup_temp_repo')
+@patch(f'{MAIN_MODULE_PATH}.logger')
+async def test_run_ingestion_local_path(
+    mock_main_logger: MagicMock, mock_cleanup: MagicMock, mock_clone: MagicMock,
+    mock_index_edges: AsyncMock, mock_add_data_points: AsyncMock,
+    mock_get_engine: AsyncMock,
+    mock_adapter: AsyncMock, mock_orchestrator: AsyncMock,
+    tmp_path: Path
+):
+    try:
+        from src.main import run_ingestion
+    except ImportError:
+        pytest.skip(f"{MAIN_MODULE_PATH} or run_ingestion function not found.")
+        return
 
-@patch('src.main.clone_repo_to_temp')
-@patch('src.main.process_repository')
-@patch('src.main.cleanup_temp_repo')
-async def test_run_parser_git_url_keep_temp(mock_cleanup, mock_process_repo, mock_clone):
-    """Test run_parser with Git URL and keep_temp=True."""
-    git_url = "https://github.com/test/repo.git"
-    temp_clone_path = "/tmp/fake_clone_path"
-    derived_repo_id = "github.com/test/repo"
-    mock_clone.return_value = (temp_clone_path, derived_repo_id)
-    mock_process_repo.return_value = async_generator_wrapper([])
+    local_repo_path = str(tmp_path / "my_local_project")
+    Path(local_repo_path).mkdir()
+    repo_id = "my_project_id"
 
-    from src.main import run_parser
-    async for _ in run_parser(target=git_url, keep_temp=True):
-        pass
+    mock_orchestrator_output: List[OrchestratorOutputItemMock] = [MockParserRepository(id=repo_id, path=local_repo_path)]
+    mock_orchestrator.return_value = mock_process_repository_stream_generator(mock_orchestrator_output)
 
-    mock_clone.assert_called_once_with(git_url)
-    mock_process_repo.assert_called_once_with(temp_clone_path, derived_repo_id, concurrency_limit=50)
+    mock_nodes_out: List[MockDataPoint] = [MockRepositoryNode(slug_id=repo_id, path=local_repo_path, type="Repository")]
+    mock_edges_out: List[CogneeEdgeTupleMock] = []
+    mock_adapter.return_value = (mock_nodes_out, mock_edges_out)
+
+    mock_engine_instance = AsyncMock()
+    mock_get_engine.return_value = mock_engine_instance
+
+    await run_ingestion(repo_url_or_path=local_repo_path, repo_id_override=repo_id)
+
+    mock_orchestrator.assert_called_once_with(repo_path=local_repo_path, repo_id=repo_id, concurrency_limit=ANY)
+    mock_adapter.assert_called_once()
+    mock_add_data_points.assert_called_once_with(data_points=mock_nodes_out)
+    mock_get_engine.assert_not_called()
+    mock_engine_instance.add_edges.assert_not_called()
+    mock_index_edges.assert_not_called()
+    mock_clone.assert_not_called()
     mock_cleanup.assert_not_called()
 
-@patch('src.main.Path')
-@patch('src.main.process_repository')
-async def test_run_parser_local_path(mock_process_repo, mock_path):
-    """Test run_parser specifically with a local directory path."""
-    local_target_path = "/fake/local/target"
-    project_name = "my_local_proj"
-    expected_repo_id = f"local/{project_name}"
-    expected_abs_path = "/abs/fake/local/target"
 
-    mock_path_instance = mock_path.return_value
-    mock_path_instance.is_dir.return_value = True
-    mock_path_instance.absolute.return_value = Path(expected_abs_path)
+@patch(f'{MAIN_MODULE_PATH}.process_repository', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.adapt_parser_to_graph_elements', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.get_graph_engine', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.add_data_points', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.index_graph_edges', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.clone_repo_to_temp')
+@patch(f'{MAIN_MODULE_PATH}.cleanup_temp_repo')
+@patch(f'{MAIN_MODULE_PATH}.logger')
+async def test_run_ingestion_git_url(
+    mock_main_logger: MagicMock, mock_cleanup: MagicMock, mock_clone: MagicMock,
+    mock_index_edges: AsyncMock, mock_add_data_points: AsyncMock,
+    mock_get_engine: AsyncMock,
+    mock_adapter: AsyncMock, mock_orchestrator: AsyncMock
+):
+    try:
+        from src.main import run_ingestion
+    except ImportError:
+        pytest.skip(f"{MAIN_MODULE_PATH} or run_ingestion function not found.")
+        return
 
-    mock_repo_node = MockEntity(id=expected_repo_id, type="Repository")
-    mock_process_repo.return_value = async_generator_wrapper([mock_repo_node])
+    git_url = "https://github.com/test/myrepo.git"
+    cloned_path = "/tmp/cloned_myrepo_xyz"
+    cloned_repo_id = "github.com/test/myrepo"
+    mock_clone.return_value = (cloned_path, cloned_repo_id)
 
-    from src.main import run_parser
-    results = []
-    async for item in run_parser(target=local_target_path, project_name_local=project_name, concurrency=20):
-        results.append(item)
+    mock_orchestrator_output: List[OrchestratorOutputItemMock] = [
+        MockParserRepository(id=cloned_repo_id, path=cloned_path)
+    ]
+    mock_orchestrator.return_value = mock_process_repository_stream_generator(mock_orchestrator_output)
 
-    mock_path.assert_called_with(local_target_path)
-    mock_path_instance.is_dir.assert_called_once()
-    mock_path_instance.absolute.assert_called_once()
-    mock_process_repo.assert_called_once_with(expected_abs_path, expected_repo_id, concurrency_limit=20)
-    assert len(results) == 1
-    assert results[0] == mock_repo_node
+    mock_nodes_out: List[MockDataPoint] = [MockRepositoryNode(slug_id=cloned_repo_id, path=cloned_path, type="Repository")]
+    node1_uuid = mock_nodes_out[0].id
+    node2_uuid = uuid.uuid4()
 
-@patch('src.main.Path')
-@patch('src.main.logger')
-async def test_run_parser_local_path_not_dir(mock_logger, mock_path):
-    """Test run_parser when local path is not a directory."""
-    local_target_path = "/fake/not_a_dir"
-    mock_path_instance = mock_path.return_value
-    mock_path_instance.is_dir.return_value = False
+    mock_sf_node = MockSourceFileNode(id=f"{cloned_repo_id}:file.py", file_path=f"{cloned_path}/file.py", type="SourceFile")
+    mock_nodes_out.append(mock_sf_node)
+    node2_uuid = mock_sf_node.id
 
-    from src.main import run_parser
-    results = []
-    async for item in run_parser(target=local_target_path):
-        results.append(item)
+    mock_edges_out: List[CogneeEdgeTupleMock] = [(node1_uuid, node2_uuid, "CONTAINS_FILE_MOCK", {})]
+    mock_adapter.return_value = (mock_nodes_out, mock_edges_out)
 
-    mock_path.assert_called_with(local_target_path)
-    mock_path_instance.is_dir.assert_called_once()
-    assert len(results) == 0
-    mock_logger.error.assert_called_with(f"Local path '{local_target_path}' is not a valid directory.")
+    mock_engine_instance = AsyncMock()
+    mock_get_engine.return_value = mock_engine_instance
+
+    await run_ingestion(repo_url_or_path=git_url)
+
+    mock_clone.assert_called_once_with(git_url)
+    mock_orchestrator.assert_called_once_with(repo_path=cloned_path, repo_id=cloned_repo_id, concurrency_limit=ANY)
+    mock_adapter.assert_called_once()
+    mock_add_data_points.assert_called_once_with(data_points=mock_nodes_out)
+
+    mock_get_engine.assert_called_once()
+    mock_engine_instance.add_edges.assert_called_once_with(edges=mock_edges_out)
+    mock_index_edges.assert_called_once_with()
+    mock_cleanup.assert_called_once_with(cloned_path)
+
+
+@patch(f'{MAIN_MODULE_PATH}.clone_repo_to_temp')
+@patch(f'{MAIN_MODULE_PATH}.logger')
+async def test_run_ingestion_git_clone_fails(
+    mock_main_logger: MagicMock, mock_clone: MagicMock
+):
+    try:
+        from src.main import run_ingestion
+    except ImportError:
+        pytest.skip(f"{MAIN_MODULE_PATH} or run_ingestion function not found.")
+        return
+
+    git_url = "https://github.com/test/nonexistent.git"
+    mock_clone.return_value = None
+
+    await run_ingestion(repo_url_or_path=git_url)
+
+    mock_clone.assert_called_once_with(git_url)
+    mock_main_logger.error.assert_any_call(f"Failed to clone repository: {git_url}")
+
+
+@patch(f'{MAIN_MODULE_PATH}.process_repository', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.logger')
+async def test_run_ingestion_orchestrator_error(
+    mock_main_logger: MagicMock, mock_orchestrator: AsyncMock, tmp_path: Path
+):
+    try:
+        from src.main import run_ingestion
+    except ImportError:
+        pytest.skip(f"{MAIN_MODULE_PATH} or run_ingestion function not found.")
+        return
+
+    local_repo_path = str(tmp_path / "error_repo")
+    Path(local_repo_path).mkdir()
+    repo_id = "error_repo_id"
+
+    mock_orchestrator.side_effect = Exception("Orchestrator boom!")
+
+    await run_ingestion(repo_url_or_path=local_repo_path, repo_id_override=repo_id)
+
+    mock_orchestrator.assert_called_once_with(repo_path=local_repo_path, repo_id=repo_id, concurrency_limit=ANY)
+    mock_main_logger.error.assert_any_call(f"An error occurred during the ingestion process for {repo_id}: Orchestrator boom!", exc_info=True)
+
+@patch(f'{MAIN_MODULE_PATH}.process_repository', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.adapt_parser_to_graph_elements', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.add_data_points', new_callable=AsyncMock)
+@patch(f'{MAIN_MODULE_PATH}.logger')
+async def test_run_ingestion_adapter_error(
+    mock_main_logger: MagicMock, mock_add_data_points: AsyncMock,
+    mock_adapter: AsyncMock, mock_orchestrator: AsyncMock, tmp_path: Path
+):
+    try:
+        from src.main import run_ingestion
+    except ImportError:
+        pytest.skip(f"{MAIN_MODULE_PATH} or run_ingestion function not found.")
+        return
+
+    local_repo_path = str(tmp_path / "adapter_error_repo")
+    Path(local_repo_path).mkdir()
+    repo_id = "adapter_error_id"
+
+    mock_orchestrator_output: List[OrchestratorOutputItemMock] = [MockParserRepository(id=repo_id, path=local_repo_path)]
+    mock_orchestrator.return_value = mock_process_repository_stream_generator(mock_orchestrator_output)
+
+    mock_adapter.side_effect = Exception("Adapter kaboom!")
+
+    await run_ingestion(repo_url_or_path=local_repo_path, repo_id_override=repo_id)
+
+    mock_orchestrator.assert_called_once()
+    mock_adapter.assert_called_once()
+    mock_add_data_points.assert_not_called()
+    mock_main_logger.error.assert_any_call(f"An error occurred during the ingestion process for {repo_id}: Adapter kaboom!", exc_info=True)

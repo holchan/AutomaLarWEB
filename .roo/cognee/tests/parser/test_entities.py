@@ -1,175 +1,105 @@
-import os
-import time
 import pytest
-from uuid import UUID, uuid5, NAMESPACE_OID
-from typing import Optional # Added for TextChunk tests
+from pydantic import ValidationError
+from datetime import datetime, timezone, timedelta
 
-# Attempt to import entities. This assumes the simplified import in entities.py is done
 try:
-    from src.parser.entities import Repository, SourceFile, CodeEntity, Relationship, TextChunk
-except ImportError as e:
-    print(f"ImportError in test_entities: {e}")
-    # If entities aren't available, skip these tests.
-    pytest.skip(f"Skipping entity tests: Failed to import entities - {e}", allow_module_level=True)
-
-
-# --- Constants for Testing ---
-ABS_REPO_PATH_STR = "/test/repo"
-FILE_PATH_STR = "/test/repo/src/main.py"
-REL_PATH_STR = "src/main.py"
-EXPECTED_REPO_ID = str(uuid5(NAMESPACE_OID, ABS_REPO_PATH_STR)) # Repo ID still a UUID
-# File ID *used* by entities will be derived from path, but entities store the string passed in
-EXPECTED_FILE_ID_STR = str(uuid5(NAMESPACE_OID, FILE_PATH_STR)) # Keep generating this for consistency IF needed by other tests, but use string IDs below
-
+    from src.parser.entities import Repository, SourceFile, TextChunk, CodeEntity, Relationship
+except ImportError:
+    pytest.skip("Skipping entity tests: Failed to import entities from src.parser.entities", allow_module_level=True)
 
 def test_repository_creation():
-    """Test the creation of a Repository entity."""
-    repo = Repository(repo_path=ABS_REPO_PATH_STR)
-    assert repo.type == "Repository"
-    assert repo.id == EXPECTED_REPO_ID
-    assert repo.path == ABS_REPO_PATH_STR
-    assert isinstance(repo.timestamp, float)
+    repo_id = "my-company/my-repo"
+    repo_path = "/path/to/cloned/my-repo"
+    repo = Repository(id=repo_id, path=repo_path)
 
+    assert repo.id == repo_id
+    assert repo.path == repo_path
+    assert repo.type == "Repository"
+
+def test_repository_id_is_string():
+    repo = Repository(id="test-repo", path="/test")
+    assert isinstance(repo.id, str)
 
 def test_sourcefile_creation():
-    """Test the creation of a SourceFile entity."""
-    sf = SourceFile(
-        file_path=FILE_PATH_STR,
-        relative_path=REL_PATH_STR,
-        repo_id=EXPECTED_REPO_ID,
-        file_type="python"
-    )
-    # Check top-level attributes
-    assert sf.type == "SourceFile" # Base type check
-    assert str(sf.id) == EXPECTED_FILE_ID_STR # File ID is correctly UUID
-    assert isinstance(sf.timestamp, float)
+    sf_id = "my-repo:src/main.py"
+    sf_path = "/path/to/cloned/my-repo/src/main.py"
 
-    # Check direct attributes set after super().__init__
-    assert sf.name == "main.py", "SourceFile name mismatch"
-    assert sf.file_path == FILE_PATH_STR, "SourceFile file_path mismatch"
-    assert sf.relative_path == REL_PATH_STR, "SourceFile relative_path mismatch"
-    assert sf.file_type == "python", "SourceFile file_type mismatch"
-    assert sf.part_of_repository == str(EXPECTED_REPO_ID), "SourceFile part_of_repository mismatch"
+    sf1 = SourceFile(id=sf_id, file_path=sf_path)
+    assert sf1.id == sf_id
+    assert sf1.file_path == sf_path
+    assert sf1.type == "SourceFile"
+    assert isinstance(sf1.timestamp, str)
+    try:
+        datetime.fromisoformat(sf1.timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        pytest.fail(f"Default timestamp '{sf1.timestamp}' is not a valid ISO 8601 string.")
 
-def test_codeentity_creation():
-    """Test the creation of a CodeEntity."""
-    entity_type = "FunctionDefinition" # Specific type
-    name = "my_function"
-    start_line = 10
-    end_line = 20
-    source_code = "def my_function():\n  pass"
-    # Construct the string ID exactly as the parser would
-    entity_id_str = f"{EXPECTED_FILE_ID_STR}:{entity_type}:{name}:{start_line}"
-    # --- MODIFIED: Removed UUID generation for expected_id ---
-    # expected_entity_id = str(uuid5(NAMESPACE_OID, entity_id_str)) NO LONGER NEEDED
+    custom_ts = datetime.now(timezone.utc).isoformat()
+    sf2 = SourceFile(id=sf_id, file_path=sf_path, timestamp=custom_ts)
+    assert sf2.timestamp == custom_ts
 
-    ce = CodeEntity(
-        entity_id_str=entity_id_str, # Pass the raw string ID
-        entity_type=entity_type,
-        name=name,
-        source_file_id=EXPECTED_FILE_ID_STR, # Use the string File ID
-        source_code=source_code,
-        start_line=start_line,
-        end_line=end_line
-    )
-
-    # Check direct fields
-    assert ce.type == entity_type
-    # --- MODIFIED: Assert against the raw string ID ---
-    assert ce.id == entity_id_str # <<<< EXPECT THE RAW STRING ID
-    assert ce.text_content == source_code
-    assert isinstance(ce.timestamp, float)
-    assert ce.name == name
-    assert ce.defined_in_file == str(EXPECTED_FILE_ID_STR)
-    assert ce.start_line == start_line, "CodeEntity start_line mismatch"
-    assert ce.end_line == end_line, "CodeEntity end_line mismatch"
-    # --- End Correction ---
-
-def test_relationship_creation():
-    """Test the creation of a Relationship entity."""
-    target = "os"
-    snippet = "import os"
-    start_line = 1
-    end_line = 1
-    # Construct the raw string ID
-    dep_id_str = f"{EXPECTED_FILE_ID_STR}:dep:{target}:{start_line}"
-    # --- MODIFIED: Removed UUID generation ---
-    # expected_dep_id = str(uuid5(NAMESPACE_OID, dep_id_str)) NO LONGER NEEDED
-
-    dep = Relationship(
-        dep_id_str=dep_id_str, # Pass raw string ID
-        source_file_id=EXPECTED_FILE_ID_STR,
-        target=target,
-        source_code_snippet=snippet,
-        start_line=start_line,
-        end_line=end_line
-    )
-
-    # Check direct fields
-    assert dep.type == "Relationship"
-    # --- MODIFIED: Assert against the raw string ID ---
-    assert dep.id == dep_id_str # <<<< EXPECT THE RAW STRING ID
-    assert dep.text_content == snippet
-    assert dep.target_module == target
-    assert dep.used_in_file == str(EXPECTED_FILE_ID_STR)
-    assert dep.start_line == start_line, "Relationship start_line mismatch"
-    assert dep.end_line == end_line, "Relationship end_line mismatch"
-    assert isinstance(dep.timestamp, float) # Check timestamp
+def test_sourcefile_requires_fields():
+    with pytest.raises(ValidationError):
+        SourceFile(id="test-id")
+    with pytest.raises(ValidationError):
+        SourceFile(file_path="/path")
 
 def test_textchunk_creation():
-    """Test the creation of a TextChunk entity."""
-    parent_id = EXPECTED_FILE_ID_STR # Use string ID
-    text = "This is a chunk of text."
-    chunk_index = 0
-    start_line_val: Optional[int] = 1
-    end_line_val: Optional[int] = 5
-    # Construct the raw string ID
-    chunk_id_str = f"{parent_id}:chunk:{chunk_index}"
-    # --- MODIFIED: Removed UUID generation ---
-    # expected_chunk_id = str(uuid5(NAMESPACE_OID, chunk_id_str)) NO LONGER NEEDED
+    tc_id = "my-repo:src/main.py:0"
+    tc_start = 10
+    tc_end = 25
+    tc_content = "This is a line of code.\nAnd another one."
 
-    tc = TextChunk(
-        chunk_id_str=chunk_id_str, # Pass raw string ID
-        parent_id=parent_id,
-        text=text,
-        chunk_index=chunk_index,
-        start_line=start_line_val,
-        end_line=end_line_val
-    )
-
+    tc = TextChunk(id=tc_id, start_line=tc_start, end_line=tc_end, chunk_content=tc_content)
+    assert tc.id == tc_id
+    assert tc.start_line == tc_start
+    assert tc.end_line == tc_end
+    assert tc.chunk_content == tc_content
     assert tc.type == "TextChunk"
-    # --- MODIFIED: Assert against the raw string ID ---
-    assert tc.id == chunk_id_str # <<<< EXPECT THE RAW STRING ID
-    assert tc.text_content == text
-    assert tc.chunk_of == str(parent_id)
-    assert tc.chunk_index == chunk_index
-    assert tc.start_line == start_line_val
-    assert tc.end_line == end_line_val
-    assert isinstance(tc.timestamp, float) # Check timestamp
 
-def test_textchunk_creation_minimal():
-    """Test TextChunk with minimal arguments (no line numbers)."""
-    parent_id = EXPECTED_FILE_ID_STR # Use string ID
-    text = "Minimal chunk."
-    chunk_index = 1
-    # Construct the raw string ID
-    chunk_id_str = f"{parent_id}:chunk:{chunk_index}"
-    # --- MODIFIED: Removed UUID generation ---
-    # expected_chunk_id = str(uuid5(NAMESPACE_OID, chunk_id_str)) NO LONGER NEEDED
+def test_textchunk_requires_fields():
+    with pytest.raises(ValidationError):
+        TextChunk(id="id", start_line=1, end_line=2)
+    with pytest.raises(ValidationError):
+        TextChunk(id="id", chunk_content="c")
 
-    tc = TextChunk(
-        chunk_id_str=chunk_id_str, # Pass raw string ID
-        parent_id=parent_id,
-        text=text,
-        chunk_index=chunk_index
-    )
+def test_codeentity_creation():
+    ce_id = "my-repo:src/main.py:0:FunctionDefinition:my_func:0"
+    ce_type = "FunctionDefinition"
+    ce_snippet = "def my_func():\n  pass"
 
-    assert tc.type == "TextChunk"
-    # --- MODIFIED: Assert against the raw string ID ---
-    assert tc.id == chunk_id_str # <<<< EXPECT THE RAW STRING ID
-    assert tc.text_content == text
-    assert tc.chunk_of == str(parent_id)
-    assert tc.chunk_index == chunk_index, "Minimal TextChunk chunk_index mismatch"
-    assert tc.start_line is None, "Minimal TextChunk start_line should be None"
-    assert tc.end_line is None, "Minimal TextChunk end_line should be None"
-    assert isinstance(tc.timestamp, float) # Check timestamp
+    ce = CodeEntity(id=ce_id, type=ce_type, snippet_content=ce_snippet)
+    assert ce.id == ce_id
+    assert ce.type == ce_type
+    assert ce.snippet_content == ce_snippet
+
+def test_codeentity_requires_fields():
+    with pytest.raises(ValidationError):
+        CodeEntity(id="id", type="FunctionDefinition")
+
+def test_relationship_creation():
+    rel_source = "my-repo:src/main.py:0:FunctionDefinition:my_func:0"
+    rel_target = "my-repo:src/utils.py:0:FunctionDefinition:helper:0"
+    rel_type = "CALLS"
+    rel_props = {"line_number": 42, "async_call": True}
+
+    rel1 = Relationship(source_id=rel_source, target_id=rel_target, type=rel_type)
+    assert rel1.source_id == rel_source
+    assert rel1.target_id == rel_target
+    assert rel1.type == rel_type
+    assert rel1.properties is None
+
+    rel2 = Relationship(source_id=rel_source, target_id=rel_target, type=rel_type, properties=rel_props)
+    assert rel2.properties == rel_props
+
+def test_relationship_target_can_be_literal():
+    rel_source = "my-repo:src/main.py"
+    rel_target_literal = "os"
+    rel_type = "IMPORTS"
+
+    rel = Relationship(source_id=rel_source, target_id=rel_target_literal, type=rel_type)
+    assert rel.target_id == rel_target_literal
+
+def test_relationship_requires_fields():
+    with pytest.raises(ValidationError):
+        Relationship(source_id="s", target_id="t")

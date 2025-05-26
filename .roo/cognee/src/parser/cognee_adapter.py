@@ -9,7 +9,7 @@ from .entities import (
     TextChunk as ParserTextChunk, CodeEntity as ParserCodeEntity,
     Relationship as ParserRelationship
 )
-from ..custom_cognee_datapoints import (
+from .custom_datapoints import (
     DataPoint, MetaData,
     RepositoryNode, SourceFileNode, TextChunkNode,
     CodeEntityNode
