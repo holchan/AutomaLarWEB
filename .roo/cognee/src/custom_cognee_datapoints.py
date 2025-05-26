@@ -1,104 +1,43 @@
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from uuid import UUID, uuid4
+from pydantic import Field as PydanticField
+from datetime import datetime, timezone
 
 try:
-    from cognee.infrastructure.engine.models.DataPoint import DataPoint
-except ImportError as e:
-    print(f"CRITICAL ERROR: Could not import Cognee's DataPoint model: {e}. "
-          "Using a placeholder DataPoint. This will not work for actual Cognee ingestion.")
-    from pydantic import BaseModel, Field as PydanticField
+    from cognee.infrastructure.engine.models.DataPoint import DataPoint, MetaData
+except ImportError:
+    from pydantic import BaseModel
+    class MetaData(Dict[str, Any]): pass
     class DataPoint(BaseModel):
         id: UUID = PydanticField(default_factory=uuid4)
         type: str
+        metadata: Optional[MetaData] = PydanticField(default_factory=lambda: MetaData(index_fields=[]))
+        created_at: int = PydanticField(default_factory=lambda: int(datetime.now(timezone.utc).timestamp() * 1000))
+        updated_at: int = PydanticField(default_factory=lambda: int(datetime.now(timezone.utc).timestamp() * 1000))
+        version: int = 1
+        ontology_valid: bool = False
+        topological_rank: Optional[int] = 0
+        belongs_to_set: Optional[List["DataPoint"]] = None
 
-class AdaptedRepositoryDP(DataPoint): pass
-class AdaptedSourceFileDP(DataPoint): pass
-class AdaptedTextChunkDP(DataPoint): pass
-class AdaptedCodeEntityDP(DataPoint): pass
-class AdaptedFunctionEntityDP(DataPoint): pass
-class AdaptedClassEntityDP(DataPoint): pass
-
-class AdaptedRepositoryDP(DataPoint):
+class RepositoryNode(DataPoint):
+    slug_id: str
     path: str
-    contains_files: List[AdaptedSourceFileDP] = []
+    metadata: Optional[MetaData] = PydanticField(default_factory=lambda: MetaData(index_fields=["slug_id", "path", "type"]))
 
-    def __init__(self, **data: Any):
-        data.setdefault('id', uuid4())
-        data.setdefault('type', "AdaptedRepository")
-        super().__init__(**data)
-
-class AdaptedSourceFileDP(DataPoint):
+class SourceFileNode(DataPoint):
+    slug_id: str
     file_path: str
-    relative_path: str
-    language_key: str
-    timestamp: float
+    timestamp: str
+    metadata: Optional[MetaData] = PydanticField(default_factory=lambda: MetaData(index_fields=["slug_id", "file_path", "timestamp", "type"])) # timestamp ADDED
 
-    # Relationships
-    part_of_repository: Optional[AdaptedRepositoryDP] = None
-    contains_chunks: List[AdaptedTextChunkDP] = []
-    defines_code_entities: List[AdaptedCodeEntityDP] = []
-
-    imports_names: List[str] = []
-
-    def __init__(self, **data: Any):
-        data.setdefault('id', uuid4())
-        data.setdefault('type', "AdaptedSourceFile")
-        super().__init__(**data)
-
-class AdaptedTextChunkDP(DataPoint):
-    original_parser_source_file_id: str
-    original_parser_chunk_id: str
-    chunk_index: int
+class TextChunkNode(DataPoint):
+    slug_id: str
     start_line: int
     end_line: int
     chunk_content: str
-    chunk_of_file: Optional[AdaptedSourceFileDP] = None
-    defines_code_entities: List[AdaptedCodeEntityDP] = []
+    metadata: Optional[MetaData] = PydanticField(default_factory=lambda: MetaData(index_fields=["slug_id", "start_line", "end_line", "chunk_content", "type"])) # start_line, end_line ADDED
 
-    def __init__(self, **data: Any):
-        data.setdefault('id', uuid4())
-        data.setdefault('type', "AdaptedTextChunk")
-        super().__init__(**data)
-
-class AdaptedCodeEntityDP(DataPoint):
-    original_parser_code_entity_id: str
-    original_parser_source_file_id: str
-    original_parser_text_chunk_id: str
-
-    entity_parser_type: str
-    name: Optional[str] = None
-    start_line: int
-    end_line: int
+class CodeEntityNode(DataPoint):
+    slug_id: str
     snippet_content: str
-    language_key: str
-    defined_in_chunk: Optional[AdaptedTextChunkDP] = None
-    part_of_file: Optional[AdaptedSourceFileDP] = None
-
-    def __init__(self, **data: Any):
-        data.setdefault('id', uuid4())
-        if 'type' not in data: data.setdefault('type', "AdaptedCodeEntity")
-        super().__init__(**data)
-
-
-class AdaptedFunctionEntityDP(AdaptedCodeEntityDP):
-    calls: List[AdaptedCodeEntityDP] = []
-
-    def __init__(self, **data: Any):
-        data.setdefault('type', "AdaptedFunction")
-        super().__init__(**data)
-
-
-class AdaptedClassEntityDP(AdaptedCodeEntityDP):
-    inherits_from: List[AdaptedClassEntityDP] = []
-    defines_methods: List[AdaptedFunctionEntityDP] = []
-
-    def __init__(self, **data: Any):
-        data.setdefault('type', "AdaptedClass")
-        super().__init__(**data)
-
-AdaptedRepositoryDP.model_rebuild()
-AdaptedSourceFileDP.model_rebuild()
-AdaptedTextChunkDP.model_rebuild()
-AdaptedCodeEntityDP.model_rebuild()
-AdaptedFunctionEntityDP.model_rebuild()
-AdaptedClassEntityDP.model_rebuild()
+    metadata: Optional[MetaData] = PydanticField(default_factory=lambda: MetaData(index_fields=["slug_id", "snippet_content", "type"]))

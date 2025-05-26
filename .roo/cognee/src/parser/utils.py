@@ -6,7 +6,6 @@ try:
     from cognee.shared.logging_utils import get_logger
     logger = get_logger(__name__)
 except ImportError:
-    print("Warning: Cognee's logging_utils not found. Falling back to basic print for logging in parser.utils.")
     class PrintLogger:
         def error(self, msg, exc_info=None): print(f"ERROR: {msg}" + (f" | Exception: {exc_info}" if exc_info else ""))
         def warning(self, msg): print(f"WARNING: {msg}")
@@ -24,9 +23,6 @@ except ImportError:
     TS_AVAILABLE = False
 
 async def read_file_content(file_path: str) -> Optional[str]:
-    """
-    Safely reads file content asynchronously with UTF-8 encoding, ignoring errors.
-    """
     try:
         async with aiofiles.open(file_path, mode="r", encoding="utf-8", errors="ignore") as f:
             content = await f.read()
@@ -42,9 +38,6 @@ async def read_file_content(file_path: str) -> Optional[str]:
         return None
 
 def get_node_text(node: TSNODE_TYPE, content_bytes: bytes) -> Optional[str]:
-    """
-    Extracts text from a tree-sitter node safely.
-    """
     if not TS_AVAILABLE or node is None:
         return None
     try:
@@ -58,7 +51,6 @@ def get_node_text(node: TSNODE_TYPE, content_bytes: bytes) -> Optional[str]:
         return None
 
 def parse_text_chunk_id(text_chunk_id: str) -> Optional[tuple[str, int]]:
-    """Parses 'source_file_id:chunk_index' into (source_file_id, chunk_index)."""
     try:
         parts = text_chunk_id.rsplit(':', 1)
         if len(parts) == 2:
@@ -70,7 +62,6 @@ def parse_text_chunk_id(text_chunk_id: str) -> Optional[tuple[str, int]]:
     return None
 
 def parse_code_entity_id(code_entity_id: str) -> Optional[tuple[str, str, str, int]]:
-    """Parses 'text_chunk_id:entity_type:name_hash:index' into (text_chunk_id, entity_type, name_hash, index)."""
     try:
         parts = code_entity_id.rsplit(':', 3)
         if len(parts) == 4:

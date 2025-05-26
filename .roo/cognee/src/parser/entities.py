@@ -39,4 +39,5 @@ class Relationship(BaseModel):
     source_id: str # String ID of the source node
     target_id: str # String ID of the target node
     type: str      # Type of relationship (e.g., "DEFINED_IN", "IMPORTS", "EXTENDS", "IMPLEMENTS", "PART_OF", "CONTAINS", "IMPLEMENTS_TRAIT")
+    properties: Optional[Dict[str, Any]] = None
 

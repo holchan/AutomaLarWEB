@@ -1,4 +1,3 @@
-# src/parser/parsers/cpp_parser.py
 from pydantic import BaseModel
 from typing import AsyncGenerator, Optional, List, Dict, Any
 from collections import defaultdict

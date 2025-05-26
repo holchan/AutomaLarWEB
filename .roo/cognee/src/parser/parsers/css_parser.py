@@ -1,4 +1,3 @@
-# src/parser/parsers/css_parser.py
 from pydantic import BaseModel
 from typing import AsyncGenerator, List
 import os
