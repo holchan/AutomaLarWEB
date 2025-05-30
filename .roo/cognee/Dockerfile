@@ -41,7 +41,7 @@ ARG WEB_WORKSPACE_PATH
 
 WORKDIR ${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}
 
-COPY --from=builder ${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}/.roo/cognee/.venv" "${BUILD_PATH}/.venv
+COPY --from=builder ${WORKSPACE_PATH}${WEB_WORKSPACE_PATH}/.roo/cognee/.venv ${BUILD_PATH}/.venv
 
 COPY .roo/cognee/entrypoint.sh ${BUILD_PATH}/entrypoint.sh
 RUN chmod +x ${BUILD_PATH}/entrypoint.sh

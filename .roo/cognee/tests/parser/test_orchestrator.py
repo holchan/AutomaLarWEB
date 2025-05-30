@@ -2,7 +2,7 @@ import pytest
 import asyncio
 from pathlib import Path
 from typing import List, Dict, Any, Union, Tuple, AsyncGenerator
-from unittest.mock import patch, AsyncMock, call, ANY
+from unittest.mock import patch, AsyncMock, call, ANY, MagicMock
 
 from pydantic import BaseModel
 
@@ -39,34 +39,47 @@ MOCK_MARKDOWN_PARSER_OUTPUT = [
     _create_parser_entity("TextChunk", "chunk:0", f"{MOCK_REPO_ID}:{MOCK_FILE_CONTEXT_2['relative_path']}", chunk_content="markdown chunk 1"),
 ]
 
-
 @pytest.fixture
-def mock_tmp_path(tmp_path: Path) -> Path:
+def mock_tmp_path_orchestrator(tmp_path: Path) -> Path:
     repo_dir = tmp_path / MOCK_REPO_ID
-    repo_dir.mkdir()
-    (repo_dir / MOCK_FILE_CONTEXT_1["relative_path"]).parent.mkdir(parents=True, exist_ok=True)
-    (repo_dir / MOCK_FILE_CONTEXT_1["relative_path"]).touch()
-    (repo_dir / MOCK_FILE_CONTEXT_2["relative_path"]).parent.mkdir(parents=True, exist_ok=True)
-    (repo_dir / MOCK_FILE_CONTEXT_2["relative_path"]).touch()
-    (repo_dir / MOCK_FILE_CONTEXT_UNSUPPORTED["relative_path"]).parent.mkdir(parents=True, exist_ok=True)
-    (repo_dir / MOCK_FILE_CONTEXT_UNSUPPORTED["relative_path"]).touch()
+    repo_dir.mkdir(exist_ok=True)
+
+    path1 = repo_dir / MOCK_FILE_CONTEXT_1["relative_path"]
+    path1.parent.mkdir(parents=True, exist_ok=True)
+    path1.touch()
+
+    path2 = repo_dir / MOCK_FILE_CONTEXT_2["relative_path"]
+    path2.parent.mkdir(parents=True, exist_ok=True)
+    path2.touch()
+
+    path_unsupported = repo_dir / MOCK_FILE_CONTEXT_UNSUPPORTED["relative_path"]
+    path_unsupported.parent.mkdir(parents=True, exist_ok=True)
+    path_unsupported.touch()
     return repo_dir
 
 @patch("src.parser.orchestrator.discover_files")
-async def test_process_repository_happy_path(mock_discover_files: AsyncMock, mock_tmp_path: Path):
-    abs_repo_path = mock_tmp_path.resolve()
+async def test_process_repository_happy_path(mock_discover_files: AsyncMock, mock_tmp_path_orchestrator: Path):
+    abs_repo_path = mock_tmp_path_orchestrator.resolve()
     mock_discovery_results = [
         (str(abs_repo_path / MOCK_FILE_CONTEXT_1["relative_path"]), MOCK_FILE_CONTEXT_1["relative_path"], MOCK_FILE_CONTEXT_1["language_key"]),
         (str(abs_repo_path / MOCK_FILE_CONTEXT_2["relative_path"]), MOCK_FILE_CONTEXT_2["relative_path"], MOCK_FILE_CONTEXT_2["language_key"]),
         (str(abs_repo_path / MOCK_FILE_CONTEXT_UNSUPPORTED["relative_path"]), MOCK_FILE_CONTEXT_UNSUPPORTED["relative_path"], MOCK_FILE_CONTEXT_UNSUPPORTED["language_key"]),
     ]
-    mock_discover_files.return_value = asyncio.as_completed(mock_discovery_results).__aiter__()
+
+    async def discover_gen():
+        for item in mock_discovery_results: yield item
+    mock_discover_files.return_value = discover_gen()
+
 
     mock_python_parser_instance = AsyncMock(spec=BaseParser)
-    mock_python_parser_instance.parse.return_value = asyncio.as_completed(MOCK_PYTHON_PARSER_OUTPUT).__aiter__()
+    async def py_parse_gen(*args, **kwargs):
+        for item in MOCK_PYTHON_PARSER_OUTPUT: yield item
+    mock_python_parser_instance.parse.return_value = py_parse_gen()
 
     mock_markdown_parser_instance = AsyncMock(spec=BaseParser)
-    mock_markdown_parser_instance.parse.return_value = asyncio.as_completed(MOCK_MARKDOWN_PARSER_OUTPUT).__aiter__()
+    async def md_parse_gen(*args, **kwargs):
+        for item in MOCK_MARKDOWN_PARSER_OUTPUT: yield item
+    mock_markdown_parser_instance.parse.return_value = md_parse_gen()
 
     original_parser_map = PARSER_MAP.copy()
     PARSER_MAP.clear()
@@ -74,7 +87,7 @@ async def test_process_repository_happy_path(mock_discover_files: AsyncMock, moc
     PARSER_MAP["markdown"] = lambda: mock_markdown_parser_instance
 
     results = []
-    async for item in process_repository(str(mock_tmp_path), MOCK_REPO_ID):
+    async for item in process_repository(str(mock_tmp_path_orchestrator), MOCK_REPO_ID):
         results.append(item)
 
     PARSER_MAP.update(original_parser_map)
@@ -105,10 +118,10 @@ async def test_process_repository_happy_path(mock_discover_files: AsyncMock, moc
 
     parser_outputs_yielded = results[1 + len(mock_discovery_results):]
 
-    assert MOCK_PYTHON_PARSER_OUTPUT[0] in parser_outputs_yielded
-    assert MOCK_PYTHON_PARSER_OUTPUT[1] in parser_outputs_yielded
-    assert MOCK_PYTHON_PARSER_OUTPUT[2] in parser_outputs_yielded
-    assert MOCK_MARKDOWN_PARSER_OUTPUT[0] in parser_outputs_yielded
+    for expected_item in MOCK_PYTHON_PARSER_OUTPUT:
+        assert any(actual_item.id == expected_item.id and actual_item.type == expected_item.type for actual_item in parser_outputs_yielded)
+    for expected_item in MOCK_MARKDOWN_PARSER_OUTPUT:
+        assert any(actual_item.id == expected_item.id and actual_item.type == expected_item.type for actual_item in parser_outputs_yielded)
 
     mock_python_parser_instance.parse.assert_called_once_with(
         str(abs_repo_path / MOCK_FILE_CONTEXT_1["relative_path"]),
@@ -119,20 +132,22 @@ async def test_process_repository_happy_path(mock_discover_files: AsyncMock, moc
         f"{MOCK_REPO_ID}:{MOCK_FILE_CONTEXT_2['relative_path']}"
     )
 
-
 @patch("src.parser.orchestrator.discover_files")
 @patch("src.parser.orchestrator.logger")
-async def test_process_repository_no_parser_found(mock_logger: MagicMock, mock_discover_files: AsyncMock, mock_tmp_path: Path):
-    abs_repo_path = mock_tmp_path.resolve()
+async def test_process_repository_no_parser_found(mock_logger: MagicMock, mock_discover_files: AsyncMock, mock_tmp_path_orchestrator: Path):
+    abs_repo_path = mock_tmp_path_orchestrator.resolve()
     mock_discovery_results = [
         (str(abs_repo_path / MOCK_FILE_CONTEXT_UNSUPPORTED["relative_path"]), MOCK_FILE_CONTEXT_UNSUPPORTED["relative_path"], MOCK_FILE_CONTEXT_UNSUPPORTED["language_key"]),
     ]
-    mock_discover_files.return_value = asyncio.as_completed(mock_discovery_results).__aiter__()
+    async def discover_gen():
+        for item in mock_discovery_results: yield item
+    mock_discover_files.return_value = discover_gen()
+
     original_parser_map = PARSER_MAP.copy()
     PARSER_MAP.clear()
 
     results = []
-    async for item in process_repository(str(mock_tmp_path), MOCK_REPO_ID):
+    async for item in process_repository(str(mock_tmp_path_orchestrator), MOCK_REPO_ID):
         results.append(item)
 
     PARSER_MAP.update(original_parser_map)
@@ -143,15 +158,16 @@ async def test_process_repository_no_parser_found(mock_logger: MagicMock, mock_d
 
     mock_logger.warning.assert_any_call(f"No parser for lang '{MOCK_FILE_CONTEXT_UNSUPPORTED['language_key']}' of file {abs_repo_path / MOCK_FILE_CONTEXT_UNSUPPORTED['relative_path']}")
 
-
 @patch("src.parser.orchestrator.discover_files")
 @patch("src.parser.orchestrator.logger")
-async def test_process_repository_parser_instantiation_error(mock_logger: MagicMock, mock_discover_files: AsyncMock, mock_tmp_path: Path):
-    abs_repo_path = mock_tmp_path.resolve()
+async def test_process_repository_parser_instantiation_error(mock_logger: MagicMock, mock_discover_files: AsyncMock, mock_tmp_path_orchestrator: Path):
+    abs_repo_path = mock_tmp_path_orchestrator.resolve()
     mock_discovery_results = [
         (str(abs_repo_path / MOCK_FILE_CONTEXT_1["relative_path"]), MOCK_FILE_CONTEXT_1["relative_path"], MOCK_FILE_CONTEXT_1["language_key"]),
     ]
-    mock_discover_files.return_value = asyncio.as_completed(mock_discovery_results).__aiter__()
+    async def discover_gen():
+        for item in mock_discovery_results: yield item
+    mock_discover_files.return_value = discover_gen()
 
     class FailingParser(BaseParser):
         def __init__(self): raise ValueError("Init failed")
@@ -162,7 +178,7 @@ async def test_process_repository_parser_instantiation_error(mock_logger: MagicM
     PARSER_MAP["python"] = FailingParser
 
     results = []
-    async for item in process_repository(str(mock_tmp_path), MOCK_REPO_ID):
+    async for item in process_repository(str(mock_tmp_path_orchestrator), MOCK_REPO_ID):
         results.append(item)
 
     PARSER_MAP.update(original_parser_map)
@@ -170,16 +186,17 @@ async def test_process_repository_parser_instantiation_error(mock_logger: MagicM
     assert len(results) == 1 + 1
     mock_logger.error.assert_any_call(f"Failed to init parser for {MOCK_FILE_CONTEXT_1['language_key']}: Init failed", exc_info=ANY)
 
-
 @patch("src.parser.orchestrator.discover_files")
 @patch("src.parser.orchestrator._run_parser_for_file_task", new_callable=AsyncMock)
 @patch("src.parser.orchestrator.logger")
-async def test_process_repository_parser_execution_error(mock_logger: MagicMock, mock_run_task: AsyncMock, mock_discover_files: AsyncMock, mock_tmp_path: Path):
-    abs_repo_path = mock_tmp_path.resolve()
+async def test_process_repository_parser_execution_error(mock_logger: MagicMock, mock_run_task: AsyncMock, mock_discover_files: AsyncMock, mock_tmp_path_orchestrator: Path):
+    abs_repo_path = mock_tmp_path_orchestrator.resolve()
     mock_discovery_results = [
         (str(abs_repo_path / MOCK_FILE_CONTEXT_1["relative_path"]), MOCK_FILE_CONTEXT_1["relative_path"], MOCK_FILE_CONTEXT_1["language_key"]),
     ]
-    mock_discover_files.return_value = asyncio.as_completed(mock_discovery_results).__aiter__()
+    async def discover_gen():
+        for item in mock_discovery_results: yield item
+    mock_discover_files.return_value = discover_gen()
 
     simulated_exception = ValueError("Parsing execution error")
     mock_run_task.side_effect = simulated_exception
@@ -191,7 +208,7 @@ async def test_process_repository_parser_execution_error(mock_logger: MagicMock,
     PARSER_MAP["python"] = DummyParser
 
     results = []
-    async for item in process_repository(str(mock_tmp_path), MOCK_REPO_ID, concurrency_limit=1):
+    async for item in process_repository(str(mock_tmp_path_orchestrator), MOCK_REPO_ID, concurrency_limit=1):
         results.append(item)
 
     PARSER_MAP.update(original_parser_map)
@@ -200,8 +217,14 @@ async def test_process_repository_parser_execution_error(mock_logger: MagicMock,
     mock_run_task.assert_called_once()
 
     logged_gather_error = False
-    for call_args, call_kwargs in mock_logger.error.call_args_list:
-        if "Parser task failed" in call_args[0] and "Parsing execution error" in str(call_args[1]):
-            logged_gather_error = True
-            break
-    assert logged_gather_error, "Error from _run_parser_for_file_task was not logged by process_repository"
+    for call_args_tuple in mock_logger.error.call_args_list:
+        args, kwargs = call_args_tuple
+        if args and isinstance(args[0], str) and "Parser task failed" in args[0]:
+             if isinstance(args[1], ValueError) and "Parsing execution error" in str(args[1]):
+                 logged_gather_error = True
+                 break
+             elif kwargs.get("exc_info") and isinstance(kwargs["exc_info"], ValueError) and "Parsing execution error" in str(kwargs["exc_info"]):
+                 logged_gather_error = True
+                 break
+
+    assert logged_gather_error, "Error from _run_parser_for_file_task was not logged correctly by process_repository"

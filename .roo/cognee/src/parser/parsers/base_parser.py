@@ -1,4 +1,3 @@
-# src/parser/parsers/base_parser.py
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator
 from pydantic import BaseModel

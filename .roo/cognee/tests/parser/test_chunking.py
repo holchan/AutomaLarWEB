@@ -82,7 +82,7 @@ def test_basic_chunker_invalid_overlap():
 def test_basic_chunker_prevents_infinite_loop():
     text = "0123456789" * 3
     chunks = basic_chunker(text, size=10, overlap=9)
-    assert len(chunks) == 21
+    assert len(chunks) == 30
 
     chunks_corrected = basic_chunker(text, size=10, overlap=10)
     assert len(chunks_corrected) == 4

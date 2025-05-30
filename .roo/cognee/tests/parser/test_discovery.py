@@ -46,6 +46,7 @@ def create_test_repo_for_discovery(tmp_path: Path) -> Path:
     (repo_dir / "native" / "processor.cpp").touch()
     (repo_dir / "native" / "processor.hpp").touch()
     (repo_dir / "native" / "main.rs").touch()
+    (repo_dir / "config.xml").touch()
 
     for ignored_dir_name in list(IGNORED_DIRS)[:3]:
         if ignored_dir_name == "__pycache__": continue
@@ -62,7 +63,6 @@ def create_test_repo_for_discovery(tmp_path: Path) -> Path:
     (repo_dir / ".DS_Store").touch()
     (repo_dir / "package-lock.json").touch()
     (repo_dir / "some_file.swp").touch()
-    (repo_dir / "config.xml").touch()
     (repo_dir / "Makefile").touch()
     return repo_dir
 
@@ -70,6 +70,7 @@ async def test_discover_files_finds_supported(create_test_repo_for_discovery: Pa
     repo_path_str = str(create_test_repo_for_discovery)
     results = await run_discovery_test_helper(repo_path_str)
     expected = sorted([
+        {"rel": "config.xml", "type": "xml"},
         {"rel": os.path.join("docs", "api.mdx"), "type": "markdown"},
         {"rel": os.path.join("docs", "guide.md"), "type": "markdown"},
         {"rel": os.path.join("infra", "Dockerfile"), "type": "dockerfile"},
@@ -87,7 +88,7 @@ async def test_discover_files_finds_supported(create_test_repo_for_discovery: Pa
         {"rel": os.path.join("src", "styles.css"), "type": "css"},
     ], key=lambda x: x["rel"])
     actual_rel_type = [{"rel": r["rel"], "type": r["type"]} for r in results]
-    assert len(results) == len(expected)
+    assert len(results) == len(expected), f"Expected {len(expected)}, got {len(actual_rel_type)}"
     assert actual_rel_type == expected
     for r in results:
         expected_abs = os.path.join(repo_path_str, r["rel"])
@@ -107,11 +108,10 @@ async def test_discover_files_ignores_correctly(create_test_repo_for_discovery: 
     ignored_or_unsupported_relative_paths.add(".DS_Store")
     ignored_or_unsupported_relative_paths.add("package-lock.json")
     ignored_or_unsupported_relative_paths.add("some_file.swp")
-    ignored_or_unsupported_relative_paths.add("config.xml")
     ignored_or_unsupported_relative_paths.add("Makefile")
     found_relative_paths = {r["rel"] for r in results}
     intersection = found_relative_paths.intersection(ignored_or_unsupported_relative_paths)
-    assert not intersection
+    assert not intersection, f"Found unexpected files: {intersection}"
 
 async def test_discover_files_nonexistent_path():
     non_existent_path = "/path/that/absolutely/does/not/exist/at/all"

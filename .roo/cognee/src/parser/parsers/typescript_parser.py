@@ -3,7 +3,7 @@ from ..entities import TextChunk, CodeEntity, Relationship, ParserOutput
 from ..chunking import basic_chunker
 from ..utils import read_file_content, get_node_text, logger, TSNODE_TYPE
 from .treesitter_setup import get_parser, get_language
-from pydantic import BaseModel
+from .base_parser import BaseParser
 
 TYPESCRIPT_QUERIES = {
     "imports": """

@@ -82,6 +82,7 @@ services:
         WEB_WORKSPACE_PATH: ${WEB_WORKSPACE_PATH:-/automalarweb}
         WORKSPACE_PATH: ${WORKSPACE_PATH:-}
     environment:
+      - LOG_LEVEL=${COGNEE_LOG_LEVEL:-INFO}
       - WEB_WORKSPACE_PATH=${WEB_WORKSPACE_PATH:-/automalarweb}
       - WORKSPACE_PATH=${WORKSPACE_PATH:-}
       - BUILD_PATH=${WEB_COGNEE_BUILD_PATH:-/opt/cognee}

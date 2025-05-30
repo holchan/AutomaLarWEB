@@ -1,4 +1,3 @@
-# src/parser/parsers/treesitter_setup.py
 import os
 import traceback
 from typing import Dict, Any, Optional
@@ -8,8 +7,13 @@ try: import tree_sitter_python as tspython
 except ImportError: tspython = None; logger.debug("tree_sitter_python binding not found.")
 try: import tree_sitter_javascript as tsjavascript
 except ImportError: tsjavascript = None; logger.debug("tree_sitter_javascript binding not found.")
-try: import tree_sitter_typescript as tstypescript_module
-except ImportError: tstypescript_module = None; logger.debug("tree_sitter_typescript binding package not found.")
+try: import tree_sitter_typescript.language_typescript as tstypescript_lang
+except ImportError:
+    try: import tree_sitter_typescript as tstypescript_module
+    except ImportError: tstypescript_module = None; logger.debug("tree_sitter_typescript binding package not found.")
+    else: tstypescript_lang = getattr(tstypescript_module, 'language_typescript', None) if tstypescript_module else None
+else: tstypescript_module = None
+
 try: import tree_sitter_c as tsc
 except ImportError: tsc = None; logger.debug("tree_sitter_c binding not found.")
 try: import tree_sitter_cpp as tscpp
@@ -24,51 +28,59 @@ try:
 except ImportError as e:
     logger.error(f"Tree-sitter core library not found or failed to import: {e}. Tree-sitter parsing will be disabled.")
     TS_CORE_AVAILABLE = False
-    Language = None
-    Parser = None
+    Language = Any
+    Parser = Any
 
 LANGUAGES: Dict[str, Language] = {}
 PARSERS: Dict[str, Parser] = {}
 
 LanguageModuleInput = Optional[Any]
 
-def _load_language(lang_name: str, lang_module: LanguageModuleInput):
-    """Helper function to load a single tree-sitter language."""
+def _load_language(lang_name: str, lang_module_or_entry_point: LanguageModuleInput):
     if not TS_CORE_AVAILABLE:
         logger.debug(f"Skipping load for '{lang_name}': Core library not available.")
         return
-    if lang_module is None:
-        logger.debug(f"Skipping load for '{lang_name}': Language binding module not installed or import failed.")
+
+    language_entry_point = None
+    if lang_module_or_entry_point is None:
+        logger.debug(f"Skipping load for '{lang_name}': Language binding module/entry point not provided or import failed.")
         return
 
     logger.info(f"Attempting to load tree-sitter language: {lang_name}")
     try:
-        language_callable = None
-        if hasattr(lang_module, 'language') and callable(lang_module.language):
-            language_callable = lang_module.language
-        elif lang_name == "typescript" and hasattr(lang_module, 'language_typescript') and callable(lang_module.language_typescript):
-            language_callable = lang_module.language_typescript
+        if callable(lang_module_or_entry_point):
+            language_entry_point = lang_module_or_entry_point
+        elif hasattr(lang_module_or_entry_point, 'language') and callable(getattr(lang_module_or_entry_point, 'language')):
+            language_entry_point = getattr(lang_module_or_entry_point, 'language')
+        elif lang_name == "typescript" and tstypescript_module and hasattr(tstypescript_module, 'language_typescript') and callable(getattr(tstypescript_module, 'language_typescript')):
+             language_entry_point = getattr(tstypescript_module, 'language_typescript')
 
-        if not language_callable:
-            logger.error(f"Could not find language callable for {lang_name} in the imported module {lang_module}.")
+
+        if not language_entry_point:
+            logger.error(f"Could not find language entry point for {lang_name} in the provided module.")
             return
 
-        language_raw = language_callable()
-
-        language_obj = Language(language_raw)
+        language_obj = language_entry_point()
 
         if not isinstance(language_obj, Language):
-            logger.error(f"Loading '{lang_name}' failed: Expected tree_sitter.Language, got {type(language_obj)}.")
-            return
+             try:
+                 wrapped_language_obj = Language(language_obj)
+                 if isinstance(wrapped_language_obj, Language):
+                     language_obj = wrapped_language_obj
+                 else:
+                    logger.error(f"Loading '{lang_name}' failed: Expected tree_sitter.Language, got {type(language_obj)} after direct call and after wrapping.")
+                    return
+             except Exception as wrap_e:
+                logger.error(f"Loading '{lang_name}' failed during Language wrapping: {wrap_e}. Original type was {type(language_obj)}.")
+                return
+
 
         LANGUAGES[lang_name] = language_obj
         parser = Parser()
-        parser.set_language(language_obj)
+        parser.language = language_obj
         PARSERS[lang_name] = parser
         logger.info(f"Successfully loaded and configured Language/Parser for: {lang_name}")
 
-    except AttributeError as ae:
-        logger.error(f"AttributeError loading language '{lang_name}': {ae}. Check binding compatibility.", exc_info=True)
     except Exception as e:
         tb_str = traceback.format_exc()
         logger.error(f"Unexpected error loading language '{lang_name}': {e}\n{tb_str}")
@@ -76,26 +88,16 @@ def _load_language(lang_name: str, lang_module: LanguageModuleInput):
 logger.info("Loading available tree-sitter languages...")
 _load_language("python", tspython)
 _load_language("javascript", tsjavascript)
-_load_language("typescript", tstypescript_module)
+_load_language("typescript", tstypescript_lang if tstypescript_lang else tstypescript_module)
 _load_language("c", tsc)
 _load_language("cpp", tscpp)
 _load_language("rust", tsrust)
 logger.info("Finished attempting to load tree-sitter languages.")
 
 def get_parser(language_key: str) -> Optional[Parser]:
-    """Gets the pre-configured tree-sitter parser instance for a given language key."""
     if not TS_CORE_AVAILABLE: return None
-    parser = PARSERS.get(language_key)
-    if parser is None:
-        if language_key in ["python", "javascript", "typescript", "c", "cpp", "rust"]:
-            logger.warning(f"Tree-sitter parser for language '{language_key}' not available (binding installed but loading failed?).")
-    return parser
+    return PARSERS.get(language_key)
 
 def get_language(language_key: str) -> Optional[Language]:
-    """Gets the tree-sitter Language object for a given language key."""
     if not TS_CORE_AVAILABLE: return None
-    language = LANGUAGES.get(language_key)
-    if language is None:
-        if language_key in ["python", "javascript", "typescript", "c", "cpp", "rust"]: # Add expected keys
-            logger.warning(f"Tree-sitter language object for '{language_key}' not available (binding installed but loading failed?).")
-    return language
+    return LANGUAGES.get(language_key)

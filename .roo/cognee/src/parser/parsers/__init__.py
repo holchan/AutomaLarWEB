@@ -1,5 +1,3 @@
-# src/parser/parsers/__init__.py
-
 from .base_parser import BaseParser
 from .markdown_parser import MarkdownParser
 from .python_parser import PythonParser

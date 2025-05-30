@@ -67,6 +67,6 @@ async def test_parse_dockerfile_from_test_data(parser: DockerfileParser, tmp_pat
     full_text = "".join(c.chunk_content for c in chunks)
     assert "FROM python:3.9-slim" in full_text
     assert "WORKDIR /app" in full_text
-    assert "COPY requirements.txt ." in full_text
+    assert "COPY . /app" in full_text
     assert "RUN pip install --no-cache-dir -r requirements.txt" in full_text
-    assert "CMD [\"python\", \"app.py\"]" in full_text
+    assert 'CMD ["python", "app.py"]' in full_text

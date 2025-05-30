@@ -15,9 +15,11 @@ except ImportError:
     pytest.skip("Skipping adapter tests: Failed to import parser entities", allow_module_level=True)
 
 try:
-    from src.custom_datapoints import DataPoint, MetaData, \
-                                               RepositoryNode, SourceFileNode, \
-                                               TextChunkNode, CodeEntityNode
+    from src.parser.custom_datapoints import (
+        DataPoint, MetaData,
+        RepositoryNode, SourceFileNode, TextChunkNode,
+        CodeEntityNode
+    )
 except ImportError:
     pytest.skip("Skipping adapter tests: Failed to import custom datapoint nodes", allow_module_level=True)
 

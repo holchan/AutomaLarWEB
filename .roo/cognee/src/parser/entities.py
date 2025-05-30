@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
+from datetime import datetime, timezone
 
 class Repository(BaseModel):
     """Represents the root repository being processed."""
@@ -40,4 +41,6 @@ class Relationship(BaseModel):
     target_id: str # String ID of the target node
     type: str      # Type of relationship (e.g., "DEFINED_IN", "IMPORTS", "EXTENDS", "IMPLEMENTS", "PART_OF", "CONTAINS", "IMPLEMENTS_TRAIT")
     properties: Optional[Dict[str, Any]] = None
+
+ParserOutput = Union[TextChunk, CodeEntity, Relationship]
 
