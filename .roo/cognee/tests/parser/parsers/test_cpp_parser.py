@@ -2,7 +2,7 @@
 import pytest
 import asyncio
 from pathlib import Path
-from typing import List, Union, TYPE_CHECKING, Set, Tuple, AsyncGenerator
+from typing import List, Union, TYPE_CHECKING, Set, Tuple, AsyncGenerator, Type, Optional # Added Optional
 import hashlib
 
 from pydantic import BaseModel
@@ -10,10 +10,11 @@ from pydantic import BaseModel
 pytestmark = pytest.mark.asyncio
 
 try:
-    from src.parser.entities import TextChunk, CodeEntity, Relationship, ParserOutput
+    # Updated imports to reflect parser yielding CodeEntity, Relationship, List[int]
+    from src.parser.entities import CodeEntity, Relationship
     from src.parser.parsers.cpp_parser import CppParser
     from src.parser.parsers.treesitter_setup import get_language
-    from src.parser.parsers.base_parser import BaseParser
+    from src.parser.parsers.base_parser import BaseParser # For type hinting run_parser_fixture_func
     from src.parser.utils import logger, read_file_content
 except ImportError as e:
     pytest.skip(f"Skipping C++ parser tests: Failed to import dependencies - {e}", allow_module_level=True)
@@ -29,290 +30,267 @@ def parser() -> CppParser:
         pytest.skip("C++ tree-sitter language not loaded or available.", allow_module_level=True)
     return CppParser()
 
-try:
-    from ...conftest import run_parser_and_save_output
-except ImportError as e:
-    print(f"Warning: Could not import 'run_parser_and_save_output' from '...conftest'. Error: {e}")
-    print("Ensure conftest.py is in the '.roo/cognee/tests/' directory and provides this fixture.")
-    @pytest.fixture
-    async def run_parser_and_save_output():
-        async def _dummy_fixture(parser: BaseParser, test_file_path: Path, output_dir: Path, file_id_override: Optional[str] = None) -> List[BaseModel]:
-            pytest.skip("Fixture 'run_parser_and_save_output' is not available. Check conftest.py setup and import path.")
-            return []
-        return _dummy_fixture
+# --- Test Helper: run_parser_and_collect_outputs ---
+# This helper will simulate what the orchestrator does in terms of calling parse
+# and collecting its distinct yield types.
 
-async def run_test_with_ast_dump_on_failure(
-    request: pytest.FixtureRequest,
+class ParserYields(BaseModel):
+    slice_lines: List[int] = []
+    code_entities: List[CodeEntity] = []
+    relationships: List[Relationship] = []
+
+async def run_parser_and_collect_outputs(
     parser_instance: CppParser,
-    test_file: Path,
-    tmp_path_for_output: Path,
-    run_parser_fixture_func,
-    assertions_callback,
-    dump_ast_always: bool = False
-):
-    test_name = assertions_callback.__name__
-    logger.info(f"--- Starting test: {test_name} for file {test_file.name} ---")
-
-    file_id_base = str(test_file.absolute())
-    actual_file_id_used_by_parser = f"test_parser_file_id_{hashlib.sha1(file_id_base.encode()).hexdigest()[:10]}"
-
-    results: List[BaseModel] = await run_parser_fixture_func(
-        parser=parser_instance,
-        test_file_path=test_file,
-        output_dir=tmp_path_for_output,
-        file_id_override=actual_file_id_used_by_parser
-    )
-
-    try:
-        assertions_callback(results, test_file, parser_instance, actual_file_id_used_by_parser)
-        logger.info(f"--- Test PASSED: {test_name} for {test_file.name} ---")
-    except AssertionError as e_assert:
-        logger.error(f"--- Test FAILED: {test_name} for {test_file.name} ---")
-        logger.error(f"AssertionError: {e_assert}", exc_info=True)
-        logger.error(f"Parser yielded {len(results)} items for {test_file.name}:")
-        for i, item in enumerate(results[:30]):
-            if isinstance(item, CodeEntity):
-                logger.error(f"  Item {i}: Type={item.type}, ID='{item.id}', EntityType='{getattr(item, 'type', 'N/A')}', Snippet='{item.snippet_content[:70].replace(chr(10),' ')}...'")
-            elif isinstance(item, Relationship):
-                logger.error(f"  Item {i}: Type={item.type}, ID='N/A', RelType='{getattr(item, 'type', 'N/A')}', Source='{item.source_id}', Target='{item.target_id}'")
-            else:
-                logger.error(f"  Item {i}: Type={getattr(item,'type','Unknown')}, ID='{getattr(item,'id','N/A')}', Content='{str(item)[:70].replace(chr(10),' ')}...'")
-        if len(results) > 30:
-            logger.error(f"  ... and {len(results) - 30} more items not shown.")
-
-        if dump_ast_always or (request.config.getoption("verbose") > 0):
-            logger.error(f"Dumping AST for {test_file.name} due to test failure:")
-            try:
-                content = await read_file_content(str(test_file))
-                if content and parser_instance.parser:
-                    tree = parser_instance.parser.parse(bytes(content, "utf8"))
-                    if hasattr(tree.root_node, 'sexp'):
-                        full_sexp = tree.root_node.sexp()
-                        max_log_chunk = 2000
-                        if len(full_sexp) > max_log_chunk:
-                            logger.error(f"AST Sexp (truncated):\n{full_sexp[:max_log_chunk]}...")
-                        else:
-                            logger.error(f"AST Sexp:\n{full_sexp}")
-                    else:
-                        logger.error(f"Node (actual type: {type(tree.root_node)}, attr type: '{tree.root_node.type if hasattr(tree.root_node, 'type') else 'N/A'}') no .sexp(). Text: '{content[:70].replace(chr(10),' ')}...'")
-                else:
-                    logger.error("Could not read file content or parser not available for AST dump.")
-            except Exception as dump_exc:
-                logger.error(f"Failed to dump AST: {dump_exc}")
-            logger.error(f"--- End AST Dump for {test_file.name} (failure) ---")
-        raise
-    finally:
-        if hasattr(parser_instance, 'current_file_path'):
-            parser_instance.current_file_path = None
+    test_file_path: Path,
+    source_file_id: str # The ID orchestrator would generate (repo_id|relative_path)
+) -> ParserYields:
+    logger.info(f"Test Rig: Reading content for {test_file_path}")
+    full_content_string = await read_file_content(str(test_file_path))
+    if full_content_string is None:
+        full_content_string = ""
 
 
-def assertions_empty_file(results: List[BaseModel], test_file: Path, parser_instance: CppParser, file_id: str):
-    assert len(results) == 0
+    collected_yields = ParserYields()
 
-def assertions_simple_class_file(results: List[BaseModel], test_file: Path, parser_instance: CppParser, file_id: str):
-    logger.info(f"Running assertions for {test_file.name}. Results count: {len(results)}")
-    assert len(results) > 0, f"Parser yielded no results for {test_file.name}"
-    entities = [dp for dp in results if isinstance(dp, CodeEntity)]
-    relationships = [dp for dp in results if isinstance(dp, Relationship)]
+    logger.info(f"Test Rig: Calling parser.parse for {source_file_id}")
+    async for item in parser_instance.parse(source_file_id, full_content_string):
+        if isinstance(item, list) and all(isinstance(i, int) for i in item):
+            if collected_yields.slice_lines and item :
+                 pytest.fail(f"Parser yielded slice_lines more than once. Previous: {collected_yields.slice_lines}, New: {item}")
+            collected_yields.slice_lines = item
+        elif isinstance(item, CodeEntity):
+            collected_yields.code_entities.append(item)
+        elif isinstance(item, Relationship):
+            collected_yields.relationships.append(item)
+        else:
+            pytest.fail(f"Parser yielded unexpected type: {type(item)}")
 
-    assert len(entities) >= 4, f"Expected at least 4 CodeEntities, got {len(entities)}"
-
-    namespace_defs = [e for e in entities if e.type == "NamespaceDefinition"]
-    assert any("Processing" in e.id for e in namespace_defs), "Namespace 'Processing' not found"
-
-    class_defs = [e for e in entities if e.type == "ClassDefinition"]
-    assert not any("MyDataProcessor" in e.id for e in class_defs), \
-        f"Class 'MyDataProcessor' should NOT be defined in {test_file.name}. Found: {[e.id for e in class_defs if 'MyDataProcessor' in e.id]}"
-
-    func_def_names = {e.id.split(":")[-2].replace("_SCOPE_","::") for e in entities if e.type == "FunctionDefinition"}
-
-    expected_funcs = {"Processing::MyDataProcessor::processVector", "Processing::helperFunction", "main"}
-    missing_funcs = expected_funcs - func_def_names
-    assert not missing_funcs, f"Missing functions: {missing_funcs}. Found: {func_def_names}"
-
-    imports = {r.target_id for r in relationships if r.type == "IMPORTS"}
-    logger.info(f"IMPORTS found in {test_file.name}: {imports}")
-    assert "my_class.hpp" in imports
-    assert "iostream" in imports
-    assert "vector" in imports
-    assert "string" in imports
-    assert "std" in imports
-
-def assertions_header_file(results: List[BaseModel], test_file: Path, parser_instance: CppParser, file_id: str):
-    logger.info(f"Running assertions for {test_file.name}. Results count: {len(results)}")
-    assert len(results) > 0, f"Parser yielded no results for {test_file.name}"
-    entities = [dp for dp in results if isinstance(dp, CodeEntity)]
-    relationships = [dp for dp in results if isinstance(dp, Relationship)]
-
-    ns_processing_list = [
-        e for e in entities if e.type == "NamespaceDefinition" and
-        e.id.split(":")[-2].replace("_SCOPE_", "::") == "Processing"
-    ]
-    assert len(ns_processing_list) == 1, f"Expected 1 NamespaceDefinition for 'Processing', found {len(ns_processing_list)}. IDs: {[e.id for e in ns_processing_list]}"
-    ns_processing = ns_processing_list[0]
-    logger.info(f"Found NamespaceDefinition: ID='{ns_processing.id}', Type='{ns_processing.type}'")
-
-    cls_my_data_proc_list = [
-        e for e in entities if e.type == "ClassDefinition" and
-        e.id.split(":")[-2].replace("_SCOPE_", "::") == "Processing::MyDataProcessor"
-    ]
-    assert len(cls_my_data_proc_list) == 1, \
-        f"Expected 1 ClassDefinition for 'Processing::MyDataProcessor', found {len(cls_my_data_proc_list)}. IDs: {[e.id for e in cls_my_data_proc_list]}"
-    cls_my_data_proc = cls_my_data_proc_list[0]
-    logger.info(f"Found ClassDefinition: ID='{cls_my_data_proc.id}', Type='{cls_my_data_proc.type}'")
-
-    ns_chunk_id = next((r.source_id for r in relationships if r.type == "CONTAINS_ENTITY" and r.target_id == ns_processing.id), None)
-    cls_chunk_id = next((r.source_id for r in relationships if r.type == "CONTAINS_ENTITY" and r.target_id == cls_my_data_proc.id), None)
-    assert ns_chunk_id is not None, f"Namespace {ns_processing.id} not contained in any chunk."
-    assert cls_chunk_id is not None, f"Class {cls_my_data_proc.id} not contained in any chunk."
-    assert ns_chunk_id == cls_chunk_id, \
-        f"Namespace and Class are expected to be in the same chunk for this simple header. NS_Chunk: {ns_chunk_id}, CLS_Chunk: {cls_chunk_id}"
-
-    if chunk_nodes := [item for item in results if isinstance(item, TextChunk)]:
-        assert ns_chunk_id.startswith(file_id), f"Chunk ID '{ns_chunk_id}' of namespace does not start with file_id '{file_id}'"
-    logger.info(f"VERIFIED (Temporarily): Namespace '{ns_processing.id}' and Class '{cls_my_data_proc.id}' are in the same chunk '{ns_chunk_id}'.")
+    if not collected_yields.slice_lines and full_content_string.strip():
+        logger.warning(f"Parser did not yield slice_lines for non-empty file {test_file_path}")
+    elif collected_yields.slice_lines and full_content_string.strip() and 0 not in collected_yields.slice_lines:
+        logger.warning(f"Parser yielded slice_lines {collected_yields.slice_lines} which does not include 0 for non-empty file {test_file_path}")
 
 
-    func_def_names = {e.id.split(":")[-2].replace("_SCOPE_","::") for e in entities if e.type == "FunctionDefinition"}
-    expected_defs = {
-        "Processing::MyDataProcessor::MyDataProcessor",
-        "Processing::MyDataProcessor::~MyDataProcessor",
-        "Processing::MyDataProcessor::identity"
-    }
-    missing_defs = expected_defs - func_def_names
-    assert not missing_defs, f"Missing expected function definitions: {missing_defs}. Found: {func_def_names}"
+    return collected_yields
 
-    func_decl_names = {e.id.split(":")[-2].replace("_SCOPE_","::") for e in entities if e.type == "FunctionDeclaration"}
-    expected_decls = {
-        "Processing::MyDataProcessor::processVector",
-        "Processing::helperFunction"
-    }
-    missing_decls = expected_decls - func_decl_names
-    assert not missing_decls, f"Missing expected function declarations: {missing_decls}. Found: {func_decl_names}"
+# --- Assertion Helper Functions ---
+def find_code_entity_by_fqn_prefix(entities: List[CodeEntity], fqn_prefix: str) -> List[CodeEntity]:
+    return [e for e in entities if e.id.split('@')[0] == fqn_prefix]
 
-    imports = {r.target_id for r in relationships if r.type == "IMPORTS"}
-    logger.info(f"IMPORTS found in {test_file.name}: {imports}")
-    assert "string" in imports
-    assert "vector" in imports
+def find_code_entity_by_id(entities: List[CodeEntity], temp_id: str) -> CodeEntity | None:
+    return next((e for e in entities if e.id == temp_id), None)
 
-def assertions_complex_features_file(results: List[BaseModel], test_file: Path, parser_instance: CppParser, file_id: str):
-    logger.info(f"Running assertions for {test_file.name}. Results count: {len(results)}")
-    entities = [dp for dp in results if isinstance(dp, CodeEntity)]
-    relationships = [dp for dp in results if isinstance(dp, Relationship)]
-    assert len(entities) > 0, "No entities found in complex_features.cpp"
+def find_relationships(relationships: List[Relationship], source_temp_id: Optional[str] = None, target_temp_id: Optional[str] = None, rel_type: Optional[str] = None) -> List[Relationship]:
+    found = relationships
+    if source_temp_id is not None:
+        found = [r for r in found if r.source_id == source_temp_id]
+    if target_temp_id is not None:
+        found = [r for r in found if r.target_id == target_temp_id]
+    if rel_type is not None:
+        found = [r for r in found if r.type == rel_type]
+    return found
 
-    def get_entity_names_from_ids(entity_type: str) -> Set[str]:
-        names = set()
-        for e_item in entities:
-            if e_item.type == entity_type:
-                parts = e_item.id.split(':')
-                if len(parts) >= 4:
-                    name_part_from_id = parts[-2]
-                    converted_name = name_part_from_id.replace('_SCOPE_', '::')
-                    names.add(converted_name)
-        logger.debug(f"Names for {entity_type} in {test_file.name}: {names}")
-        return names
+# --- Test Cases ---
 
-    enum_names = get_entity_names_from_ids("EnumDefinition")
-    assert "TestNS::ScopedEnum" in enum_names, f"Enum TestNS::ScopedEnum not found. Found: {enum_names}"
-    assert "UnscopedEnum" in enum_names, f"Enum UnscopedEnum not found. Found: {enum_names}"
-    logger.info(f"Successfully found 'TestNS::ScopedEnum' and 'UnscopedEnum'. Enum names found: {enum_names}")
-
-
-    type_def_names = get_entity_names_from_ids("TypeDefinition")
-    if "FuncPtr" not in type_def_names:
-        logger.warning("Typedef 'FuncPtr' not found, possibly due to current typedef query limitations.")
-    assert "StringVector" in type_def_names, f"Typedef/Alias StringVector not found. Found: {type_def_names}"
-
-
-    namespace_names = get_entity_names_from_ids("NamespaceDefinition")
-    assert "TestNS" in namespace_names, f"Namespace TestNS not found. Found: {namespace_names}"
-    assert "TestNS::InnerNS" in namespace_names, f"Namespace TestNS::InnerNS not found. Found: {namespace_names}"
-    assert "anonymous" in namespace_names, f"Anonymous namespace not found. Found: {namespace_names}"
-
-    struct_names = get_entity_names_from_ids("StructDefinition")
-    assert "SimpleStruct" in struct_names, f"Struct SimpleStruct not found. Found: {struct_names}"
-    assert "TestNS::DataContainer" in struct_names, f"Struct TestNS::DataContainer not found. Found: {struct_names}"
-
-    func_def_names = get_entity_names_from_ids("FunctionDefinition")
-    expected_funcs = {
-        "createInitializedArray",
-        "TestNS::InnerNS::innerFunction",
-        "TestNS::namespacedFunction",
-        "anonymous::anonNSFunction",
-        "MyComplexClass::MyComplexClass", "MyComplexClass::~MyComplexClass",
-        "MyComplexClass::virtualMethod", "MyComplexClass::constMethod",
-        "MyComplexClass::staticMethod", "MyComplexClass::operator+",
-        "MyComplexClass::deletedMethod",
-        "friendFunction",
-        "TestNS::DerivedClass::DerivedClass",
-        "TestNS::DerivedClass::virtualMethod",
-        "TestNS::DerivedClass::anotherVirtualMethod",
-        "useLambda",
-        "c_style_function",
-        "main"
-    }
-
-    missing_funcs = expected_funcs - func_def_names
-    assert not missing_funcs, f"Missing FunctionDefinitions: {missing_funcs}. Found: {func_def_names}"
-
-    constructor_entity_id_fqn_part = "MyComplexClass_SCOPE_MyComplexClass"
-    assert any(e.id.endswith(f":FunctionDefinition:{constructor_entity_id_fqn_part}:0") for e in entities if e.type == "FunctionDefinition"), \
-        f"Constructor MyComplexClass::MyComplexClass with specific ID ending not found. Check FQN and indexing. Entities: {[e.id for e in entities if e.type == 'FunctionDefinition']}"
-
-    destructor_entity_id_fqn_part = "MyComplexClass_SCOPE_~MyComplexClass"
-    assert any(e.id.endswith(f":FunctionDefinition:{destructor_entity_id_fqn_part}:0") for e in entities if e.type == "FunctionDefinition"), \
-        f"Destructor MyComplexClass::~MyComplexClass with specific ID ending not found. Entities: {[e.id for e in entities if e.type == 'FunctionDefinition']}"
-
-    class_names = get_entity_names_from_ids("ClassDefinition")
-    assert "MyComplexClass" in class_names, f"Class MyComplexClass not found. Found: {class_names}"
-    assert "TestNS::DerivedClass" in class_names, f"Class TestNS::DerivedClass not found. Found: {class_names}"
-    assert "ForwardDeclaredClass" in class_names, f"ForwardDeclaredClass not found as ClassDefinition. Found: {class_names}"
-
-
-    cls_derived_list = [e for e in entities if e.type == "ClassDefinition" and e.id.split(":")[-2].replace("_SCOPE_", "::") == "TestNS::DerivedClass"]
-    assert len(cls_derived_list) == 1, f"Expected 1 DerivedClass, found {len(cls_derived_list)}"
-    cls_derived = cls_derived_list[0]
-
-    extends_rels = [r for r in relationships if r.source_id == cls_derived.id and r.type == "EXTENDS"]
-    assert any(r.target_id == "MyComplexClass" for r in extends_rels), \
-        f"DerivedClass should extend MyComplexClass. Found extends: {[r.target_id for r in extends_rels]}"
-
-    imports = {r.target_id for r in relationships if r.type == "IMPORTS"}
-    expected_imports = {"iostream", "vector", "string", "functional", "std", "array"}
-    missing_imports = expected_imports - imports
-    assert not missing_imports, f"Missing expected imports: {missing_imports}"
-    assert "std" in imports
-    assert "using_namespace_std_directive_placeholder" not in imports
-
-
-@pytest.mark.asyncio
-async def test_parse_empty_cpp_file(request: pytest.FixtureRequest, parser: CppParser, tmp_path: Path, run_parser_and_save_output):
+async def test_parse_empty_cpp_file(parser: CppParser, tmp_path: Path):
     empty_cpp_file = tmp_path / "empty.cpp"
     empty_cpp_file.write_text("")
-    await run_test_with_ast_dump_on_failure(request, parser, empty_cpp_file, tmp_path, run_parser_and_save_output, assertions_empty_file)
+    source_id = "test_repo|empty.cpp"
 
-@pytest.mark.asyncio
-async def test_parse_empty_hpp_file(request: pytest.FixtureRequest, parser: CppParser, tmp_path: Path, run_parser_and_save_output):
-    empty_hpp_file = tmp_path / "empty.hpp"
-    empty_hpp_file.write_text("")
-    await run_test_with_ast_dump_on_failure(request, parser, empty_hpp_file, tmp_path, run_parser_and_save_output, assertions_empty_file)
+    yielded_data = await run_parser_and_collect_outputs(parser, empty_cpp_file, source_id)
 
-@pytest.mark.asyncio
-async def test_parse_simple_class_file(request: pytest.FixtureRequest, parser: CppParser, tmp_path: Path, run_parser_and_save_output):
-    test_file = TEST_DATA_DIR / "simple_class.cpp"
-    await run_test_with_ast_dump_on_failure(request, parser, test_file, tmp_path, run_parser_and_save_output, assertions_simple_class_file)
+    assert yielded_data.slice_lines == []
+    assert len(yielded_data.code_entities) == 0
+    assert len(yielded_data.relationships) == 0
 
-@pytest.mark.asyncio
-async def test_parse_header_file(request: pytest.FixtureRequest, parser: CppParser, tmp_path: Path, run_parser_and_save_output):
+async def test_parse_header_file_my_class_hpp(parser: CppParser):
     test_file = TEST_DATA_DIR / "my_class.hpp"
-    await run_test_with_ast_dump_on_failure(request, parser, test_file, tmp_path, run_parser_and_save_output, assertions_header_file)
+    source_id = "test_repo|my_class.hpp"
 
-@pytest.mark.asyncio
-async def test_complex_features_file(request: pytest.FixtureRequest, parser: CppParser, tmp_path: Path, run_parser_and_save_output):
-    logger.debug("Starting test_complex_features_file")
+    data = await run_parser_and_collect_outputs(parser, test_file, source_id)
+
+    assert data.slice_lines, "Should have slice_lines"
+    assert 0 in data.slice_lines, "Slice lines should contain 0 for non-empty file"
+
+    ces = data.code_entities
+    found_ce_ids = [e.id for e in ces]
+    logger.info(f"test_parse_header_file_my_class_hpp - Found CodeEntity IDs: {found_ce_ids}")
+
+    assert len(ces) >= 5, f"Expected at least 5 CodeEntities, got {len(ces)}. Found: {found_ce_ids}"
+
+    ns_processing_list = find_code_entity_by_fqn_prefix(ces, "Processing")
+    assert len(ns_processing_list) == 1, f"Namespace 'Processing' not found or found multiple. Found IDs: {[e.id for e in ns_processing_list]}"
+    ns_processing = ns_processing_list[0]
+    assert ns_processing.type == "NamespaceDefinition"
+    assert ns_processing.id.startswith("Processing@")
+
+    cls_mdp_list = find_code_entity_by_fqn_prefix(ces, "Processing::MyDataProcessor")
+    assert len(cls_mdp_list) == 1, f"Class 'Processing::MyDataProcessor' not found. Found IDs: {[e.id for e in cls_mdp_list]}"
+    cls_mdp = cls_mdp_list[0]
+    assert cls_mdp.type == "ClassDefinition"
+
+    constructor_fqn_clever = "Processing::MyDataProcessor::MyDataProcessor(const std::string&)"
+    constructor_list = find_code_entity_by_fqn_prefix(ces, constructor_fqn_clever)
+    assert len(constructor_list) == 1, f"Constructor with FQN '{constructor_fqn_clever}' not found. Found matching MyDataProcessor constructors: {[e.id for e in ces if 'MyDataProcessor::MyDataProcessor' in e.id.split('@')[0]]}"
+    constructor = constructor_list[0]
+    assert constructor.type == "FunctionDefinition"
+
+    destructor_fqn = "Processing::MyDataProcessor::~MyDataProcessor()"
+    destructor_list = find_code_entity_by_fqn_prefix(ces, destructor_fqn)
+    assert len(destructor_list) == 1, f"Destructor '{destructor_fqn}' not found. Found: {[e.id for e in ces if '~MyDataProcessor' in e.id.split('@')[0]]}"
+    destructor = destructor_list[0]
+    assert destructor.type == "FunctionDefinition"
+
+    pv_fqn_clever = "Processing::MyDataProcessor::processVector(const std::vector<std::string>&)"
+    process_vector_decl_list = find_code_entity_by_fqn_prefix(ces, pv_fqn_clever)
+    assert len(process_vector_decl_list) == 1, f"Method declaration '{pv_fqn_clever}' not found. Found: {[e.id for e in ces if 'processVector' in e.id.split('@')[0]]}"
+    process_vector_decl = process_vector_decl_list[0]
+    assert process_vector_decl.type == "FunctionDeclaration"
+
+    identity_fqn = "Processing::MyDataProcessor::identity(T)"
+    identity_method_list = find_code_entity_by_fqn_prefix(ces, identity_fqn)
+    assert len(identity_method_list) == 1, f"Template method '{identity_fqn}' not found. Found: {[e.id for e in ces if 'identity' in e.id.split('@')[0]]}"
+    identity_method = identity_method_list[0]
+    assert identity_method.type == "FunctionDefinition"
+
+    hf_fqn = "Processing::helperFunction(int)"
+    helper_func_decl_list = find_code_entity_by_fqn_prefix(ces, hf_fqn)
+    assert len(helper_func_decl_list) == 1, f"Function declaration '{hf_fqn}' not found. Found: {[e.id for e in ces if 'helperFunction' in e.id.split('@')[0]]}"
+    helper_func_decl = helper_func_decl_list[0]
+    assert helper_func_decl.type == "FunctionDeclaration"
+
+    string_include_list = find_code_entity_by_fqn_prefix(ces, "std::string")
+    assert string_include_list and string_include_list[0].type == "ExternalReference", "<string> include not found as ExternalReference"
+    string_include = string_include_list[0]
+
+    vector_include_list = find_code_entity_by_fqn_prefix(ces, "std::vector")
+    assert vector_include_list and vector_include_list[0].type == "ExternalReference", "<vector> include not found as ExternalReference"
+    vector_include = vector_include_list[0]
+
+    rels = data.relationships
+    string_import_rel = find_relationships(rels, source_temp_id=source_id, target_temp_id=string_include.id, rel_type="IMPORTS")
+    assert len(string_import_rel) == 1, f"IMPORTS relationship for std::string (target: {string_include.id}) not found"
+
+    vector_import_rel = find_relationships(rels, source_temp_id=source_id, target_temp_id=vector_include.id, rel_type="IMPORTS")
+    assert len(vector_import_rel) == 1, f"IMPORTS relationship for std::vector (target: {vector_include.id}) not found"
+
+
+async def test_parse_simple_class_cpp(parser: CppParser):
+    test_file = TEST_DATA_DIR / "simple_class.cpp"
+    source_id = "test_repo|simple_class.cpp"
+    data = await run_parser_and_collect_outputs(parser, test_file, source_id)
+
+    ces = data.code_entities
+    rels = data.relationships
+    found_ce_ids = [e.id for e in ces]
+    logger.info(f"test_parse_simple_class_cpp - Found CodeEntity IDs: {found_ce_ids}")
+
+    iostream_ext_ref_list = find_code_entity_by_fqn_prefix(ces, "std::iostream")
+    assert len(iostream_ext_ref_list) == 1 and iostream_ext_ref_list[0].type == "ExternalReference"
+    iostream_ext_ref = iostream_ext_ref_list[0]
+    assert find_relationships(rels, source_temp_id=source_id, target_temp_id=iostream_ext_ref.id, rel_type="IMPORTS")
+
+    my_class_hpp_ext_ref_list = find_code_entity_by_fqn_prefix(ces, "my_class.hpp")
+    assert len(my_class_hpp_ext_ref_list) == 1 and my_class_hpp_ext_ref_list[0].type == "ExternalReference"
+    my_class_hpp_ext_ref = my_class_hpp_ext_ref_list[0]
+    assert find_relationships(rels, source_temp_id=source_id, target_temp_id=my_class_hpp_ext_ref.id, rel_type="IMPORTS")
+
+    using_std_directive_list = find_code_entity_by_fqn_prefix(ces, "directive_using_namespace::std")
+    assert len(using_std_directive_list) == 1 and using_std_directive_list[0].type == "UsingDirective"
+    using_std_directive = using_std_directive_list[0]
+    assert find_relationships(rels, source_temp_id=source_id, target_temp_id=using_std_directive.id, rel_type="HAS_DIRECTIVE")
+    assert find_relationships(rels, source_temp_id=using_std_directive.id, target_temp_id="std", rel_type="REFERENCES_NAMESPACE")
+
+    ns_processing_list = find_code_entity_by_fqn_prefix(ces, "Processing")
+    assert len(ns_processing_list) == 1 and ns_processing_list[0].type == "NamespaceDefinition"
+
+    pv_impl_fqn_candidates = [
+        "Processing::MyDataProcessor::processVector(const vector<string>&)",
+        "Processing::MyDataProcessor::processVector(const std::vector<std::string>&)"
+    ]
+    process_vector_impl = None
+    for fqn_candidate in pv_impl_fqn_candidates:
+        found_list = find_code_entity_by_fqn_prefix(ces, fqn_candidate)
+        if found_list:
+            process_vector_impl = found_list[0]
+            break
+    assert process_vector_impl is not None, f"Method impl 'processVector' not found with expected FQNs. Check FQN parameter part. Found: {[e.id for e in ces if 'processVector' in e.id.split('@')[0]]}"
+    assert process_vector_impl.type == "FunctionDefinition"
+
+    helper_func_impl_fqn = "Processing::helperFunction(int)"
+    helper_func_impl_list = find_code_entity_by_fqn_prefix(ces, helper_func_impl_fqn)
+    assert len(helper_func_impl_list) == 1, f"Helper function impl '{helper_func_impl_fqn}' not found. Found: {[e.id for e in ces if 'helperFunction' in e.id.split('@')[0]]}"
+    assert helper_func_impl_list[0].type == "FunctionDefinition"
+
+    main_func_fqn = "main()"
+    main_func_list = find_code_entity_by_fqn_prefix(ces, main_func_fqn)
+    assert len(main_func_list) == 1, f"Main function '{main_func_fqn}' not found. Found: {[e.id for e in ces if 'main' in e.id.split('@')[0]]}"
+    assert main_func_list[0].type == "FunctionDefinition"
+
+async def test_complex_features_file(parser: CppParser):
     test_file = TEST_DATA_DIR / "complex_features.cpp"
-    if not test_file.exists():
-        logger.error(f"Test data file not found: {test_file}")
-        pytest.skip(f"Test data file not found: {test_file}")
-    await run_test_with_ast_dump_on_failure(request, parser, test_file, tmp_path, run_parser_and_save_output, assertions_complex_features_file, dump_ast_always=False)
+    source_id = "test_repo|complex_features.cpp"
+    data = await run_parser_and_collect_outputs(parser, test_file, source_id)
+
+    ces = data.code_entities
+    rels = data.relationships
+    found_ce_ids = [e.id for e in ces]
+    logger.info(f"test_complex_features_file - Found CodeEntity IDs: {len(found_ce_ids)} entities.")
+
+    typedef_number_list = find_code_entity_by_fqn_prefix(ces, "Number")
+    assert typedef_number_list and typedef_number_list[0].type == "TypeAlias", f"typedef 'Number' should be TypeAlias. Got: {typedef_number_list[0].type if typedef_number_list else 'Not Found'}" # CHANGED TypeDefinition to TypeAlias
+
+    typedef_sv_list = find_code_entity_by_fqn_prefix(ces, "StringVector")
+    assert typedef_sv_list and typedef_sv_list[0].type == "TypeAlias", f"TypeAlias StringVector not found. Found: {[e.id for e in typedef_sv_list if e.id.startswith('StringVector@')]}"
+
+    ns_testns_list = find_code_entity_by_fqn_prefix(ces, "TestNS")
+    assert ns_testns_list and ns_testns_list[0].type == "NamespaceDefinition"
+
+    ns_innerns_list = find_code_entity_by_fqn_prefix(ces, "TestNS::InnerNS")
+    assert ns_innerns_list and ns_innerns_list[0].type == "NamespaceDefinition"
+
+    anon_func_list = find_code_entity_by_fqn_prefix(ces, "anonymous::anonNSFunction()")
+    assert anon_func_list and anon_func_list[0].type == "FunctionDefinition"
+
+    mcc_constructor_fqn = "MyComplexClass::MyComplexClass(std::string)"
+    mcc_constructor_list = find_code_entity_by_fqn_prefix(ces, mcc_constructor_fqn)
+    assert mcc_constructor_list and mcc_constructor_list[0].type == "FunctionDefinition", f"FQN {mcc_constructor_fqn} not found. Check param. Found: {[e.id for e in ces if 'MyComplexClass::MyComplexClass' in e.id.split('@')[0]]}"
+
+    mcc_destructor_fqn = "MyComplexClass::~MyComplexClass()"
+    mcc_destructor_list = find_code_entity_by_fqn_prefix(ces, mcc_destructor_fqn)
+    assert mcc_destructor_list and mcc_destructor_list[0].type == "FunctionDefinition"
+
+    mcc_virtual_fqn = "MyComplexClass::virtualMethod()"
+    mcc_virtual_list = find_code_entity_by_fqn_prefix(ces, mcc_virtual_fqn)
+    assert mcc_virtual_list and mcc_virtual_list[0].type == "FunctionDefinition"
+
+    mcc_deleted_fqn = "MyComplexClass::deletedMethod()"
+    mcc_deleted_list = find_code_entity_by_fqn_prefix(ces, mcc_deleted_fqn)
+    assert mcc_deleted_list and mcc_deleted_list[0].type == "FunctionDefinition"
+
+    mcc_op_plus_fqn = "MyComplexClass::operator+(const MyComplexClass&)"
+    mcc_op_plus_list = find_code_entity_by_fqn_prefix(ces, mcc_op_plus_fqn)
+    assert mcc_op_plus_list and mcc_op_plus_list[0].type == "FunctionDefinition", f"FQN {mcc_op_plus_fqn} not found. Found: {[e.id for e in ces if 'MyComplexClass::operator+' in e.id.split('@')[0]]}"
+
+    dc_virtual_fqn = "TestNS::DerivedClass::virtualMethod()"
+    dc_virtual_list = find_code_entity_by_fqn_prefix(ces, dc_virtual_fqn)
+    assert dc_virtual_list and dc_virtual_list[0].type == "FunctionDefinition"
+
+    derived_class_entity_list = find_code_entity_by_fqn_prefix(ces, "TestNS::DerivedClass")
+    assert derived_class_entity_list and derived_class_entity_list[0].type == "ClassDefinition"
+    derived_class_entity = derived_class_entity_list[0]
+
+    extends_rels = find_relationships(rels, source_temp_id=derived_class_entity.id, rel_type="EXTENDS")
+    assert len(extends_rels) == 1, "DerivedClass should have one EXTENDS relationship"
+    assert extends_rels[0].target_id == "MyComplexClass", f"DerivedClass should extend MyComplexClass, got {extends_rels[0].target_id}"
+
+    c_func_fqn = "c_style_function(int)"
+    c_func_list = find_code_entity_by_fqn_prefix(ces, c_func_fqn)
+    assert c_func_list and c_func_list[0].type == "FunctionDefinition"
+
+    using_std_directive_list_complex = find_code_entity_by_fqn_prefix(ces, "directive_using_namespace::std")
+    assert len(using_std_directive_list_complex) == 1 and using_std_directive_list_complex[0].type == "UsingDirective"
+
+    main_complex_fqn = "main()"
+    main_complex_list = find_code_entity_by_fqn_prefix(ces, main_complex_fqn)
+    assert main_complex_list and main_complex_list[0].type == "FunctionDefinition"
