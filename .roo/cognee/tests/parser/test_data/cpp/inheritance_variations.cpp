@@ -1,61 +1,58 @@
 // .roo/cognee/tests/parser/test_data/cpp/inheritance_variations.hpp
-#pragma once // Include guard. Slice Point.
-#include <string> // ExtRef: std::string. Slice Point.
+#pragma once
+#include <string>
 
-namespace InheritanceTest { // NS: InheritanceTest. Slice Point.
+namespace InheritanceTest {
 
-    class Base1 { // ClassDef: InheritanceTest::Base1. Slice Point.
+    class Base1 {
     public:
-        virtual ~Base1() = default; // DestructorDef: InheritanceTest::Base1::~Base1(). Slice Point.
-        virtual void commonMethod() = 0; // MethodDecl: InheritanceTest::Base1::commonMethod(). Slice Point. (Pure virtual)
-        void base1Method() {} // MethodDef: InheritanceTest::Base1::base1Method(). Slice Point.
+        virtual ~Base1() = default;
+        virtual void commonMethod() = 0;
+        void base1Method() {}
     };
 
-    class Base2 { // ClassDef: InheritanceTest::Base2. Slice Point.
+    class Base2 {
     public:
         std::string name_base2;
-        void base2Method() {} // MethodDef: InheritanceTest::Base2::base2Method(). Slice Point.
+        void base2Method() {}
     };
 
-    template<typename T> // TemplateClass. Slice Point for template, then for class.
-    class TemplatedBase { // ClassDef: InheritanceTest::TemplatedBase.
+    template<typename T>
+    class TemplatedBase {
     public:
         T templated_data;
-        void templatedBaseMethod(T val) { templated_data = val; } // MethodDef: InheritanceTest::TemplatedBase::templatedBaseMethod(T). Slice Point.
+        void templatedBaseMethod(T val) { templated_data = val; }
     };
 
-    // Single Inheritance
-    class DerivedSingle : public Base1 { // ClassDef: InheritanceTest::DerivedSingle. EXTENDS Base1. Slice Point.
+    class DerivedSingle : public Base1 {
     public:
-        void commonMethod() override {} // MethodDef: InheritanceTest::DerivedSingle::commonMethod(). Slice Point.
-        void derivedSingleMethod() {} // MethodDef: InheritanceTest::DerivedSingle::derivedSingleMethod(). Slice Point.
+        void commonMethod() override {}
+        void derivedSingleMethod() {}
     };
 
-    // Multiple Inheritance
-    class DerivedMultiple : public Base1, private Base2 { // ClassDef: InheritanceTest::DerivedMultiple. EXTENDS Base1, EXTENDS Base2. Slice Point.
+    class DerivedMultiple : public Base1, private Base2 {
     public:
-        void commonMethod() override {} // MethodDef: InheritanceTest::DerivedMultiple::commonMethod(). Slice Point.
-        void derivedMultipleMethod() { // MethodDef: InheritanceTest::DerivedMultiple::derivedMultipleMethod(). Slice Point.
+        void commonMethod() override {}
+        void derivedMultipleMethod() {
             name_base2 = "from_derived_multiple";
-            base2Method(); // CallSite: base2Method (implicitly this->base2Method)
+            base2Method();
         }
     };
 
-    // Inheriting from a templated class
-    class DerivedFromTemplate : public TemplatedBase<int> { // ClassDef: InheritanceTest::DerivedFromTemplate. EXTENDS TemplatedBase<int>. Slice Point.
+    class DerivedFromTemplate : public TemplatedBase<int> {
     public:
-        void useTemplatedFeature() { // MethodDef: InheritanceTest::DerivedFromTemplate::useTemplatedFeature(). Slice Point.
+        void useTemplatedFeature() {
             templated_data = 100;
-            templatedBaseMethod(200); // CallSite: templatedBaseMethod (implicitly this->templatedBaseMethod)
+            templatedBaseMethod(200);
         }
     };
 
-    class IndependentClass { // ClassDef: InheritanceTest::IndependentClass. Slice Point.
+    class IndependentClass {
         int id;
     };
 
-    struct DerivedStruct : Base1 { // StructDef: InheritanceTest::DerivedStruct. EXTENDS Base1. Slice Point.
-         void commonMethod() override {} // MethodDef: InheritanceTest::DerivedStruct::commonMethod(). Slice Point.
+    struct DerivedStruct : Base1 {
+         void commonMethod() override {}
     };
 
-} // namespace InheritanceTest
+}
