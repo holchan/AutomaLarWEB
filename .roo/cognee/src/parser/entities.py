@@ -42,5 +42,24 @@ class Relationship(BaseModel):
     type: str      # Type of relationship (e.g., "DEFINED_IN", "IMPORTS", "EXTENDS", "IMPLEMENTS", "PART_OF", "CONTAINS", "IMPLEMENTS_TRAIT")
     properties: Optional[Dict[str, Any]] = None
 
-ParserOutput = Union[TextChunk, CodeEntity, Relationship]
+class CallSiteReference(BaseModel):
+    """
+    Represents a detected call site within the code before full resolution.
+    """
+    calling_entity_temp_id: str
+    called_name_expr: str
+    line_of_call_0_indexed: int
+    source_file_id_of_call_site: str
+    raw_arg_text: Optional[str] = None
+    argument_count: int
+
+ParserOutput = Union[List[int], CodeEntity, Relationship, CallSiteReference]
+
+OrchestratorPhaseAOutputUnion = Union[
+    Repository,
+    SourceFile,
+    TextChunk,
+    CodeEntity,
+    Relationship
+]
 
