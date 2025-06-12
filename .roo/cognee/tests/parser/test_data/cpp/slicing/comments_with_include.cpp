@@ -1,4 +1,3 @@
-// .roo/cognee/tests/parser/test_data/cpp/slicing/comments_with_include.cpp
 // This is a top-level comment. Line 0.
 
 #include <iostream> // Line 2 (0-indexed is 2). ExternalReference: std::iostream

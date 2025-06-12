@@ -1,4 +1,3 @@
-// .roo/cognee/tests/parser/test_data/cpp/simple_class.cpp
 #include <iostream>
 #include <vector>
 #include <string>

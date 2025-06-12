@@ -1,4 +1,3 @@
-// .roo/cognee/tests/parser/test_data/cpp/slicing/forward_declarations.hpp
 #pragma once // Line 0
 
 class MyForwardClass; // Line 2. Forward class declaration.

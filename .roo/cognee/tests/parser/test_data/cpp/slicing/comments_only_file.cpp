@@ -1,4 +1,3 @@
-// .roo/cognee/tests/parser/test_data/cpp/slicing/comments_only_file.cpp
 // This is a comment.
 // So is this.
 

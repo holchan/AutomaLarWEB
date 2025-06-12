@@ -1,4 +1,3 @@
-// .roo/cognee/tests/parser/test_data/cpp/calls_specific.cpp
 #include <iostream>
 #include <vector>
 #include <string>

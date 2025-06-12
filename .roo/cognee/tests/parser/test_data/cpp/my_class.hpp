@@ -1,4 +1,3 @@
-// .roo/cognee/tests/parser/test_data/cpp/my_class.hpp
 #ifndef MY_CLASS_HPP
 #define MY_CLASS_HPP
 

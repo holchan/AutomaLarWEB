@@ -1,4 +1,3 @@
-// .roo/cognee/tests/parser/test_data/cpp/inheritance_variations.hpp
 #pragma once // Include guard
 #include <string> // For std::string
 

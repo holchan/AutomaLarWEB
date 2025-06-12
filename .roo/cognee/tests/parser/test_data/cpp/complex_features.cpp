@@ -1,4 +1,3 @@
-// .roo/cognee/tests/parser/test_data/cpp/complex_features.cpp
 #include <iostream>
 #include <vector>
 #include <string>

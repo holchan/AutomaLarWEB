@@ -1,5 +1,3 @@
-// .roo/cognee/tests/parser/test_data/cpp/slicing_edge_cases.cpp
-
 // File 1: Only comments but with an include
 // Expected: slice_lines=[0], 1 ExternalReference CodeEntity for iostream, associated with chunk 0.
 #include <iostream> // ExternalReference: std::iostream
