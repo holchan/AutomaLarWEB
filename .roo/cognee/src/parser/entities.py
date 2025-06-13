@@ -53,7 +53,12 @@ class CallSiteReference(BaseModel):
     raw_arg_text: Optional[str] = None
     argument_count: int
 
-ParserOutput = Union[List[int], CodeEntity, Relationship, CallSiteReference]
+ParserOutput = Union[
+    List[int],
+    CodeEntity,   
+    Relationship,
+    CallSiteReference
+]
 
 OrchestratorPhaseAOutputUnion = Union[
     Repository,
