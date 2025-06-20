@@ -243,10 +243,15 @@ CPP_QUERIES = {
                     (field_expression ; For member calls like obj.method() or ptr->method()
                         field: _      ; The actual field_identifier, operator_name, etc.
                     )
-                    (qualified_identifier ; For Ns::func(), Class::static_method()
-                        name: [ (identifier) (operator_name) (destructor_name) ]
+                    (qualified_identifier ; For Ns::func(), Class::static_method(), and Ns::template_func<T>()
+                        name: [
+                            (identifier)
+                            (operator_name)
+                            (destructor_name)
+                            (template_function)
+                        ]
                     )
-                    (template_function) ; For calls to template functions like my_template_func<int>()
+                    (template_function) ; For calls to global template functions like my_template_func<int>()
                     (parenthesized_expression) ; For calls like (func_ptr)()
                 ] @function_node_for_call
                 arguments: (argument_list) @arguments
@@ -272,6 +277,21 @@ CPP_QUERIES = {
             )
             ( ;; Pattern 4: Delete expressions
               (delete_expression) @call_site_delete
+            )
+            ( ;; Pattern 5: Stack-based constructor calls
+              (declaration
+                type: [
+                  (type_identifier) @name
+                  (qualified_identifier) @name
+                  (template_type) @name
+                ]
+                declarator: (init_declarator
+                  value: [
+                    (argument_list) @arguments
+                    (initializer_list) @arguments
+                  ]
+                )
+              ) @call_site_constructor
             )
         ]
         """,
@@ -470,7 +490,8 @@ class CppParser(BaseParser):
             current_climb_node = current_climb_node.parent
 
         # Construct prefix from gathered scope names
-        scope_prefix_parts = [s for s in reversed(scopes_reversed) if s and s != "anonymous" and s != "anonymous_template_entity"]
+        # FIX 1: The `s != "anonymous"` filter was removed to correctly handle entities in anonymous namespaces.
+        scope_prefix_parts = [s for s in reversed(scopes_reversed) if s and s != "anonymous_template_entity"]
 
         # Combine prefix with base name, handling qualified identifiers
         final_fqn_parts = []
@@ -542,9 +563,12 @@ class CppParser(BaseParser):
                     unique_parts.append(current_part)
 
         final_unique_parts = [part for part in unique_parts if part is not None] # Remove any Nones that slipped through
-        # If FQN starts with "anonymous" and not global "::", remove leading "anonymous"
-        if len(final_unique_parts) > 1 and final_unique_parts[0] == "anonymous" and not leading_colons:
-            final_unique_parts.pop(0)
+
+        # FIX 2: This block was removing the "anonymous::" prefix, which contradicts the requirement to
+        # qualify entities from anonymous namespaces. It has been commented out/disabled.
+        # if len(final_unique_parts) > 1 and final_unique_parts[0] == "anonymous" and not leading_colons:
+        #     final_unique_parts.pop(0)
+
         # If only "anonymous" remains, or if it was an anonymous namespace
         if not final_unique_parts and "anonymous" in unique_parts: # unique_parts could be ["anonymous"]
             final_unique_parts = ["anonymous"]
@@ -1091,24 +1115,24 @@ class CppParser(BaseParser):
 
 
                     elif call_site_constructor_node:
+                        # This handles both `new` and stack-based constructor calls due to the new query pattern
                         name_node_for_constructor = call_captures_dict.get("name", [None])[0]
                         if name_node_for_constructor:
                             called_name_expr = self._get_node_name_text(name_node_for_constructor, content_bytes)
 
-                        arguments_node_new = call_captures_dict.get("arguments", [None])[0]
-                        if arguments_node_new and arguments_node_new.type == "argument_list":
-                            raw_arg_text_val_full = get_node_text(arguments_node_new, content_bytes)
-                            raw_arg_text_val = raw_arg_text_val_full.strip("()") if raw_arg_text_val_full else ""
-                            arg_count_val = len(arguments_node_new.named_children)
-                        else:
-                            init_list_node = actual_call_node.child_by_field_name("initializer_list")
-                            if init_list_node:
-                                raw_arg_text_val_full = get_node_text(init_list_node, content_bytes)
+                        arguments_node = call_captures_dict.get("arguments", [None])[0]
+                        if arguments_node:
+                            if arguments_node.type == "argument_list":
+                                raw_arg_text_val_full = get_node_text(arguments_node, content_bytes)
+                                raw_arg_text_val = raw_arg_text_val_full.strip("()") if raw_arg_text_val_full else ""
+                                arg_count_val = len(arguments_node.named_children)
+                            elif arguments_node.type == "initializer_list":
+                                raw_arg_text_val_full = get_node_text(arguments_node, content_bytes)
                                 raw_arg_text_val = raw_arg_text_val_full.strip("{}") if raw_arg_text_val_full else ""
-                                arg_count_val = len(init_list_node.named_children)
-                            else:
-                                raw_arg_text_val = ""
-                                arg_count_val = 0
+                                arg_count_val = len(arguments_node.named_children)
+                        else: # No arguments
+                            raw_arg_text_val = ""
+                            arg_count_val = 0
 
                     elif call_site_node_direct:
                         function_node_for_call = call_captures_dict.get("function_node_for_call", [None])[0]
