@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+    "local": [
+    {
+      "id": "${WORKSPACE_PATH:-/automalar}",
+      "include_patterns": [""],
+      "ignore_patterns": ["${WEB_WORKSPACE_PATH:-/automalarweb}"]
+    }
+  ],
+  "projects": [
+    {
+      "id": "${WORKSPACE_PATH:-/automalar}${WEB_WORKSPACE_PATH:-/automalarweb}",
+      "path": "${WEB_WORKSPACE_PATH:-/automalarweb}",
+      "url": "${WEB_REPO_LINK_AUTOMALARWEB:-https://github.com/holchan/AutomaLarWEB.git}",
+      "branch": "main",
+      "include_patterns": [""],
+      "ignore_patterns": ["/.roo/cognee/uv.lock"]
+    }
+  ],
+  "stack": [
+    {
+      "id": "ggerganov/llama_cpp",
+      "url": "https://github.com/ggerganov/llama.cpp.git",
+      "branch": "master",
+      "include_patterns": ["common/**", "ggml*.c", "ggml*.h"],
+      "ignore_patterns": ["docs/**", "tests/**"]
+    }
+  ]
+}
