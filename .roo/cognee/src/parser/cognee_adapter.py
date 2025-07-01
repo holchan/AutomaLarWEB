@@ -1,115 +1,61 @@
-from typing import List, Dict, Any, AsyncGenerator, Optional, Tuple, Union
-from pydantic import BaseModel as ParserBaseModel
+from typing import List, Dict, Any, Union
 import uuid
 
 from .utils import logger
+from .entities import Repository, SourceFile, TextChunk, CodeEntity, Relationship
 
-from .entities import (
-    Repository as ParserRepository, SourceFile as ParserSourceFile,
-    TextChunk as ParserTextChunk, CodeEntity as ParserCodeEntity,
-    Relationship as ParserRelationship
-)
-from .custom_datapoints import (
-    DataPoint, MetaData,
-    RepositoryNode, SourceFileNode, TextChunkNode,
-    CodeEntityNode
-)
+from cognee.modules.data.models.base import DataPoint, MetaData
 
 CogneeEdgeTuple = Tuple[uuid.UUID, uuid.UUID, str, Dict[str, Any]]
-OrchestratorStreamItem = Union[
-    ParserRepository,
-    Tuple[ParserSourceFile, Dict[str, str]],
-    ParserTextChunk, ParserCodeEntity, ParserRelationship
-]
 
-async def adapt_parser_to_graph_elements(
-    parser_entity_stream: AsyncGenerator[OrchestratorStreamItem, None]
+def adapt_parser_entities_to_graph_elements(
+    parser_entities: List[Union[Repository, SourceFile, TextChunk, CodeEntity, Relationship]]
 ) -> Tuple[List[DataPoint], List[CogneeEdgeTuple]]:
-    p_nodes_map: Dict[str, ParserBaseModel] = {}
-    p_relationships_list: List[ParserRelationship] = []
+    logger.info(f"ADAPTER: Starting adaptation of {len(parser_entities)} parser entities.")
 
-    async for item_from_orchestrator in parser_entity_stream:
-        p_entity: ParserBaseModel
-        if isinstance(item_from_orchestrator, tuple) and \
-           len(item_from_orchestrator) == 2 and \
-           isinstance(item_from_orchestrator[0], ParserSourceFile) and \
-           isinstance(item_from_orchestrator[1], dict):
-            p_entity = item_from_orchestrator[0]
-            p_nodes_map[p_entity.id] = p_entity
-        elif isinstance(item_from_orchestrator, (ParserRepository, ParserTextChunk, ParserCodeEntity)):
-            p_entity = item_from_orchestrator
-            p_nodes_map[p_entity.id] = p_entity
-        elif isinstance(item_from_orchestrator, ParserRelationship):
-            p_relationships_list.append(item_from_orchestrator)
-        else:
-            logger.warning(f"Adapter: Unknown item type from orchestrator: {type(item_from_orchestrator)}")
+    p_nodes_map: Dict[str, Union[Repository, SourceFile, TextChunk, CodeEntity]] = {
+        item.id: item for item in parser_entities if hasattr(item, 'id') and not isinstance(item, Relationship)
+    }
+    p_relationships_list: List[Relationship] = [
+        item for item in parser_entities if isinstance(item, Relationship)
+    ]
 
     cognee_nodes_map: Dict[str, DataPoint] = {}
-    edge_tuples_for_cognee: List[CogneeEdgeTuple] = []
 
     for p_slug_id, p_node in p_nodes_map.items():
-        cognee_node_instance: Optional[DataPoint] = None
-        cognee_node_uuid = uuid.uuid4()
+        cognee_node_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, p_slug_id)
 
-        if isinstance(p_node, ParserRepository):
-            cognee_node_instance = RepositoryNode(
-                id=cognee_node_uuid,
-                slug_id=p_node.id,
-                path=p_node.path,
-                type=p_node.type
-            )
-        elif isinstance(p_node, ParserSourceFile):
-            cognee_node_instance = SourceFileNode(
-                id=cognee_node_uuid,
-                slug_id=p_node.id,
-                file_path=p_node.file_path,
-                timestamp=p_node.timestamp,
-                type=p_node.type
-            )
-        elif isinstance(p_node, ParserTextChunk):
-            cognee_node_instance = TextChunkNode(
-                id=cognee_node_uuid,
-                slug_id=p_node.id,
-                start_line=p_node.start_line, end_line=p_node.end_line,
-                chunk_content=p_node.chunk_content,
-                type=p_node.type
-            )
-        elif isinstance(p_node, ParserCodeEntity):
-            cognee_node_instance = CodeEntityNode(
-                id=cognee_node_uuid,
-                slug_id=p_node.id,
-                snippet_content=p_node.snippet_content,
-                type=p_node.type
-            )
+        metadata_payload = MetaData(p_node.model_dump())
+        metadata_payload["node_type"] = p_node.type
+        metadata_payload["slug_id"] = p_slug_id
 
-        if cognee_node_instance:
-            cognee_nodes_map[p_slug_id] = cognee_node_instance
+        index_fields = ["slug_id", "node_type"]
+        if isinstance(p_node, SourceFile):
+            index_fields.extend(["repo_id_str", "relative_path_str", "version_id_str"])
+        elif isinstance(p_node, Repository):
+             index_fields.extend(["path"])
 
-    for p_rel in p_relationships_list:
-        source_cognee_node = cognee_nodes_map.get(p_rel.source_id)
+        metadata_payload["index_fields"] = sorted(list(set(index_fields)))
 
-        if not source_cognee_node:
-            logger.warning(f"Adapter: Source node for slug_id '{p_rel.source_id}' not found for relationship.")
-            continue
-
-        rel_type_upper = p_rel.type.upper()
-
-        if rel_type_upper == "IMPORTS":
-            logger.debug(f"Adapter: 'IMPORTS' relationship from {p_rel.source_id} to literal '{p_rel.target_id}' is dropped.")
-            continue
-
-        target_cognee_node = cognee_nodes_map.get(p_rel.target_id)
-        if not target_cognee_node:
-            logger.warning(f"Adapter: Target node for slug_id '{p_rel.target_id}' not found for relationship type '{rel_type_upper}'.")
-            continue
-
-        edge_props = p_rel.properties or {}
-        edge_tuple: CogneeEdgeTuple = (
-            source_cognee_node.id,
-            target_cognee_node.id,
-            rel_type_upper,
-            edge_props
+        cognee_node_instance = DataPoint(
+            id=cognee_node_uuid,
+            type=p_node.type,
+            metadata=metadata_payload
         )
+        cognee_nodes_map[p_slug_id] = cognee_node_instance
+
+    edge_tuples_for_cognee = []
+    for p_rel in p_relationships_list:
+        source_node = cognee_nodes_map.get(p_rel.source_id)
+        target_node = cognee_nodes_map.get(p_rel.target_id)
+
+        if not source_node or not target_node:
+            logger.warning(f"ADAPTER: Skipping edge due to missing node: {p_rel.source_id} -> {p_rel.target_id}")
+            continue
+
+        edge_tuple = (source_node.id, target_node.id, p_rel.type.upper(), p_rel.properties or {})
         edge_tuples_for_cognee.append(edge_tuple)
 
-    return list(cognee_nodes_map.values()), edge_tuples_for_cognee
+    final_node_list = list(cognee_nodes_map.values())
+    logger.info(f"ADAPTER: Finished. Produced {len(final_node_list)} nodes and {len(edge_tuples_for_cognee)} edges.")
+    return final_node_list, edge_tuples_for_cognee
