@@ -108,8 +108,15 @@ class Relationship(BaseModel):
     target_id: str = Field(description="ID of the target node.")
     type: str = Field(description="Type of relationship (e.g., 'DEFINED_IN', 'IMPORTS', 'EXTENDS', 'IMPLEMENTS', 'PART_OF', 'CONTAINS', 'IMPLEMENTS_TRAIT', 'REFERENCES_SYMBOL').")
 
+AdaptableNode = Union[Repository, SourceFile, TextChunk, CodeEntity, PendingLink, ResolutionCache]
+
 ParserOutput = Union[
-    List[int], # For slice_lines.
-    CodeEntity, # Temp. CodeEntities from parser.
+    List[int],
+    CodeEntity,
     RawSymbolReference
+]
+
+OrchestratorOutput = Union[
+    AdaptableNode,
+    Relationship,
 ]
