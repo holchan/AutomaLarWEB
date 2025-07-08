@@ -293,64 +293,338 @@ This is a tiered system where each tier operates on a different level of confide
 
 ---
 
-#### **ii. Component 1: The "Janitor" (The Quiescence Trigger)**
+### **B. The Linking Engine: Component 1 - The "Janitor" (The Quiescence Trigger)**
 
-This is the gatekeeper for all advanced linking. It is a simple, robust, and low-impact background process.
+#### **i. The Core Philosophy**
 
-*   **Primary Job:** To monitor the activity level of each repository branch and determine when an "ingestion session" has become quiescent (inactive).
+The philosophy of the Janitor is **"Patient, Non-Intrusive Observation."**
 
-*   **The Mechanism (`IngestionHeartbeat` node):**
-    1.  Every time the Orchestrator successfully processes a file, it makes one final call: `update_heartbeat()`. This "pings" a special node (e.g., `heartbeat://automalar/web@main`), setting its `last_activity_timestamp` to `now()`.
-    2.  This means that as long as files are being rapidly ingested, this timestamp is constantly being refreshed.
+Its job is not to be "smart." Its job is to be a simple, reliable, and low-impact background process that answers one critical question: **"Has the 'ingestion storm' for a given repository branch passed?"**
 
-*   **The Janitor's Workflow:**
-    1.  **Trigger:** Runs on a simple, periodic schedule (e.g., a cron job or `asyncio.sleep(60)`). It is not event-driven; it is a poller.
-    2.  **Query:** It performs a single, fast query: "Find all `IngestionHeartbeat` nodes where `status` is `'active'`."
-    3.  **The Check:** For each active heartbeat it finds, it asks the crucial question: **"Has it been more than 60 seconds since `last_activity_timestamp`?"**
-    4.  **The Action:**
-        *   If the answer is **NO**, the ingestion is still active. The Janitor does nothing and goes back to sleep.
-        *   If the answer is **YES**, the ingestion has gone quiet. The Janitor now "flips the switch" for the next tier. It updates all `PendingLink` nodes for that repository from `status: PENDING_RESOLUTION` to `status: READY_FOR_HEURISTICS`. It also updates the heartbeat's status to `quiescent` to prevent re-triggering.
+*   **Patient:** It does not try to predict the end of an ingestion session. It simply waits for a pre-defined period of inactivity (quiescence). This is a robust, time-tested pattern for handling bursty, asynchronous event streams.
+*   **Non-Intrusive:** It never modifies the core code graph (`CodeEntity`, `Relationship`, etc.). Its only job is to observe the `IngestionHeartbeat` nodes and update the `status` of `PendingLink` nodes. It acts as a "promoter," moving work from one queue to another.
+*   **Observer:** It is the only component that uses time as a trigger. This is a conscious architectural decision. We have isolated the system's only time-based logic into this single, simple component, making the rest of the system purely event-driven and deterministic.
 
-*   **Rationale:** This is the robust, time-based solution we designed. It is not a fragile timer. It is a **state check**. It solves the problem of "how do we know when the ingestion is done?" in a simple, reliable way without complex job tracking.
+#### **ii. The Workflow and Code Implementation**
+
+The Janitor is a long-running asynchronous task. In a real production system, this would be a standalone microservice or a managed background worker. For our design, we can represent it as a single `async` function that runs in a loop.
+
+**1. The `IngestionHeartbeat` Node:**
+*   This is the simple "state machine" that the Janitor observes. It's a single node per repository branch in the graph.
+*   The Orchestrator's only responsibility is to "ping" this node at the end of every successful `process_single_file` transaction by calling `graph_utils.update_heartbeat()`. This keeps the `last_activity_timestamp` fresh.
+
+**2. The Janitor's Main Loop:**
+*   **Code Implementation (in `linking_engine.py`):**
+    ```python
+    # .roo/cognee/src/parser/linking_engine.py
+    import asyncio
+    from datetime import datetime, timezone, timedelta
+
+    from .utils import logger
+    from .entities import LinkStatus
+    # We need the graph utils to interact with the database
+    from .graph_utils import find_nodes_with_filter, update_pending_link_status, update_node_metadata
+
+    QUIESCENCE_PERIOD_SECONDS = 60 # This should be configurable
+
+    async def run_janitor_worker(stop_event: asyncio.Event):
+        """
+        The main loop for the Janitor worker. Runs periodically to detect
+        quiescent ingestion sessions and promote pending links.
+        """
+        log_prefix = "LINKING_ENGINE(Janitor)"
+        logger.info(f"{log_prefix}: Starting worker...")
+
+        while not stop_event.is_set():
+            try:
+                logger.debug(f"{log_prefix}: Running periodic check for quiescent repositories.")
+
+                # 1. Find all active heartbeats
+                active_heartbeats = await find_nodes_with_filter({
+                    "type": "IngestionHeartbeat",
+                    "status": "active"
+                })
+
+                now = datetime.now(timezone.utc)
+
+                for heartbeat_node in active_heartbeats:
+                    last_activity_str = heartbeat_node.attributes.get("last_activity_timestamp", "")
+                    if not last_activity_str:
+                        continue
+
+                    last_activity_dt = datetime.fromisoformat(last_activity_str)
+
+                    # 2. The Check: Has it been inactive long enough?
+                    if now - last_activity_dt > timedelta(seconds=QUIESCENCE_PERIOD_SECONDS):
+                        repo_id_with_branch = heartbeat_node.id.replace("heartbeat://", "")
+                        logger.info(f"{log_prefix}: Quiescence detected for '{repo_id_with_branch}'. Promoting pending links.")
+
+                        # 3. The Action: Promote the links and update the heartbeat
+                        await promote_pending_links_for_repo(repo_id_with_branch)
+                        await update_node_metadata(
+                            heartbeat_node.id,
+                            {"status": "quiescent"}
+                        )
+
+            except Exception as e:
+                logger.error(f"{log_prefix}: An error occurred during the check: {e}", exc_info=True)
+
+            # Wait for the next cycle
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=QUIESCENCE_PERIOD_SECONDS)
+            except asyncio.TimeoutError:
+                pass # This is expected, just means it's time for the next loop
+
+        logger.info(f"{log_prefix}: Stop event received. Shutting down.")
+
+    async def promote_pending_links_for_repo(repo_id_with_branch: str):
+        """
+        Finds all PENDING_RESOLUTION links for a repo and promotes them
+        to READY_FOR_HEURISTICS.
+        """
+        # This function would need a way to update nodes in bulk, or it would
+        # iterate and update them one by one.
+
+        pending_links_to_promote = await find_nodes_with_filter({
+            "type": "PendingLink",
+            "status": LinkStatus.PENDING_RESOLUTION.value,
+            "repo_id_str": repo_id_with_branch # Assuming PendingLink nodes have this metadata
+        })
+
+        if not pending_links_to_promote:
+            return
+
+        logger.info(f"Promoting {len(pending_links_to_promote)} pending links for '{repo_id_with_branch}'.")
+
+        for link_node in pending_links_to_promote:
+            # This is where a bulk update method would be more efficient.
+            await update_pending_link_status(link_node.id, LinkStatus.READY_FOR_HEURISTICS)
+
+    ```
+    *(Note: This implementation assumes `PendingLink` nodes will be tagged with their `repo_id_str` in their metadata for efficient querying. This is a small but important detail for the `cognee_adapter` to handle.)*
+
+#### **iii. The Rationale and Trade-offs (The Honest Assessment)**
+
+*   **What this Solves:** This is the most robust, non-invasive way to solve the "when is the ingestion session over?" problem. It does not require a complex external job scheduler or stateful orchestration logic. The state is stored and managed entirely within the graph itself.
+*   **The Trade-off (Latency):** The primary compromise is a built-in delay. A link that requires Tier 2 resolution will not be created instantly. It will only be created after the `QUIESCENCE_PERIOD_SECONDS` has elapsed *and* the Janitor and Heuristic Resolver workers have run. For most use cases, a delay of 1-2 minutes for complex, graph-wide linking is a very acceptable price to pay for correctness and architectural simplicity.
+*   **The Robustness:** This system is highly robust to failure. If the Janitor worker crashes, it will simply restart on its next scheduled run and pick up where it left off by querying the graph for active heartbeats. No state is lost. If a file is updated during the quiescent period, its `process_single_file` call will simply flip the heartbeat's status back to `active`, correctly and automatically pausing any further Tier 2 resolution until the system goes quiet again.
 
 ---
 
-#### **iii. Component 2: The "Heuristic Resolver" (Tier 2)**
+### **C. The Linking Engine: Component 2 - The "Deterministic Graph Resolver" (Tier 2)**
 
-This worker is the "detective" that solves the majority of the remaining cases using the full power of the now-stable graph.
+#### **i. The Core Philosophy**
 
-*   **Primary Job:** To resolve links that were not certain enough for the Tier 1 real-time resolver. It handles absolute imports and ambiguous names.
+The philosophy of this component is **"Certainty Through a Complete Worldview."**
 
-*   **The Heuristic Resolver's Workflow:**
-    1.  **Trigger:** It is a background worker that continuously polls for a simple condition: "Find all `PendingLink` nodes where `status` is `'ready_for_heuristics'`."
-    2.  **The Resolution Chain:** For each `PendingLink` it finds, it executes a prioritized chain of graph queries based on the `RawSymbolReference` data stored in the debt node.
-        *   **Query 1 (External Link by Canonical Name):** Does the reference point to an absolute import like `pandas`? If so, query for a `Repository` node with `provides_import_id == "pandas"`. If found, search within that repository for the target symbol.
-        *   **Query 2 (Internal Link by FQN Suffix - The C++ Case):** Does the reference seem to be a partially qualified name like `MyProject::MyClass`? If so, query for all `CodeEntity` nodes whose FQN *ends with* `::MyProject::MyClass`.
-        *   *(More heuristics can be added here over time without changing the architecture.)*
-    3.  **The Action:**
-        *   **If one and only one target is found:** The link is unambiguous. The worker creates the final `Relationship`, creates a `ResolutionCache` entry with `method: HEURISTIC_MATCH`, and **deletes** the `PendingLink` node. The debt is paid.
-        *   **If multiple targets are found:** The link is genuinely ambiguous. The worker updates the `PendingLink`'s status to `READY_FOR_LLM`.
-        *   **If zero targets are found:** This is a true "dead end" that the deterministic system cannot solve. The worker updates the `PendingLink`'s status to `READY_FOR_LLM` (to give it one last chance) or potentially `UNRESOLVABLE`.
+Unlike the Tier 1 resolver, which only has the context of a single file, this Tier 2 worker runs **after** an entire ingestion session is complete and the graph is "quiescent." It therefore has a complete, stable "worldview" of all the code in the repository for that session.
 
-*   **Rationale:** This tier is where the deep, graph-wide analysis happens. By waiting until the ingestion session is quiescent, its queries are safe from race conditions and have the most complete possible information to work with.
+Its primary job is to resolve links that were ambiguous at the single-file level but become clear when the entire repository's context is available. It is not a "heuristic" engine in the sense of guessing. It is a **deterministic query engine** that runs a prioritized chain of high-confidence queries. It only succeeds if it finds **one and only one** logical answer.
 
 ---
 
-#### **iv. Component 3: The "LLM Resolver" (Tier 3)**
+#### **ii. The Workflow and Code Implementation**
 
-This is the court of last resort. It is an optional, "enrichment" service that is explicitly designed to be slow, expensive, and powerful.
+**1. The Trigger:**
+*   This worker is triggered by the **`Janitor`**. After the `IngestionHeartbeat` for a repository goes quiescent, the Janitor promotes all of that repo's `PendingLink`s from `PENDING_RESOLUTION` to `READY_FOR_HEURISTICS`.
+*   This worker is a simple, stateless background process that polls for this specific status.
+    > **Query:** "Find all `PendingLink` nodes where `status` is `'ready_for_heuristics'`."
 
-*   **Primary Job:** To use generative AI to attempt to resolve the truly difficult or ambiguous links that the deterministic resolvers could not.
+**2. The Prioritized Resolution Chain:**
+*   For each `PendingLink` it finds, it takes the `RawSymbolReference` data and begins a chain of queries. It stops at the first query that returns a single, unambiguous result.
 
-*   **The LLM Resolver's Workflow:**
-    1.  **Trigger:** A background worker that polls for `PendingLink`s with `status: READY_FOR_LLM`.
-    2.  **The Cache Check (Crucial for Cost-Saving):** For each `PendingLink`, it first constructs the deterministic ID for its corresponding `ResolutionCache` node. It queries the graph: "Does a `ResolutionCache` node with this ID already exist?"
-        *   If **YES**, the question has already been answered. It uses the `resolved_target_id` from the cache, creates the final `Relationship`, and deletes the `PendingLink`. The LLM is not called.
-    3.  **The Prompt Construction:** If there is no cache hit, it constructs a rich, detailed prompt for the LLM, including the source code snippet, the `RawSymbolReference`, and the list of ambiguous candidates found by the Tier 2 resolver.
-    4.  **The LLM Call:** It makes the expensive API call to the LLM.
-    5.  **The Action:** It parses the LLM's response.
-        *   If the LLM provides a single, confident answer, the worker creates the final `Relationship`.
-        *   It then **creates a new `ResolutionCache` node** to store the answer, ensuring this question is never asked again.
-        *   It deletes the `PendingLink` node.
+**The Code Logic (Inside the Tier 2 Worker):**
 
-*   **Rationale:** This tier provides a path to solving problems that are impossible for static analysis alone. By making it asynchronous, triggered only by "stale" and vetted debts, and by implementing a persistent cache, we use this powerful tool intelligently and efficiently.
+```python
+# A conceptual function inside the Tier 2 worker
+async def run_tier2_resolution_for_link(tx, pending_link: PendingLink):
+    ref_data = pending_link.reference_data
+    context = ref_data.context
+
+    # --- Attempt 1: High-Confidence External Link Resolution ---
+    if context.import_type == ImportType.ABSOLUTE:
+        # This handles 'import pandas' or 'import com.google.guava'
+        top_level_module = context.path_parts[0]
+        target_id = await resolve_external_link(tx, top_level_module, ref_data.target_expression)
+        if target_id:
+            # SUCCESS!
+            await create_final_link(tx, pending_link, target_id, ResolutionMethod.HEURISTIC_MATCH)
+            return
+
+    # --- Attempt 2: High-Confidence Internal Link Resolution (Exact FQN Match) ---
+    # This handles cases where Tier 1 failed due to processing order.
+    # e.g., app.py references MyClass, but models.py hadn't been processed yet.
+    target_id = await resolve_internal_link_by_fqn(tx, ref_data.target_expression)
+    if target_id:
+        # SUCCESS!
+        await create_final_link(tx, pending_link, target_id, ResolutionMethod.HEURISTIC_MATCH)
+        return
+
+    # --- If all deterministic attempts fail, promote to Tier 3 ---
+    await promote_link_for_llm(tx, pending_link)
+```
+
+Now, let's look at the implementation of those helper functions.
+
+**A. `resolve_external_link` (The `import_id` Query):**
+
+*   **How it Works:** This function looks for a library that has been explicitly "registered" with our system via the `import_id` hint during its ingestion.
+*   **Code Implementation (in `linking_engine.py`):**
+    ```python
+    async def resolve_external_link(tx, module_name: str, full_target_expr: str) -> Optional[str]:
+        # Query 1: Find the repository that provides this module name.
+        repo_nodes = await find_nodes_with_filter(tx, {"provides_import_id": module_name, "type": "Repository"})
+
+        if len(repo_nodes) != 1:
+            if len(repo_nodes) > 1:
+                logger.warning(f"Ambiguous import_id '{module_name}'. Found multiple provider repos. Cannot resolve.")
+            return None # Fails if zero or more than one repo provides this name.
+
+        target_repo_id = repo_nodes[0].id
+
+        # Query 2: Find the EXPORTED symbol within that repository.
+        # This is a complex query that needs to find the CodeEntity with a matching
+        # canonical_fqn AND an incoming `EXPORTS` relationship from the library's entry point.
+        # This logic would be encapsulated in a graph_utils function.
+        target_entity = await find_exported_symbol_in_repo(tx, target_repo_id, full_target_expr)
+
+        return target_entity.id if target_entity else None
+    ```
+
+**B. `resolve_internal_link_by_fqn` (The Exact Match Query):**
+
+*   **How it Works:** This is the safety net for internal links that failed in Tier 1 simply due to processing order. Now that the whole repo is ingested, we can search for an exact match of the FQN across the entire project.
+*   **Code Implementation (in `linking_engine.py`):**
+    ```python
+    async def resolve_internal_link_by_fqn(tx, target_fqn: str, repo_id: str) -> Optional[str]:
+        # This query looks for a CodeEntity with a matching FQN *within the same repository*.
+        # The canonical_fqn would be stored in the node's metadata.
+        entity_nodes = await find_nodes_with_filter(
+            tx,
+            {"canonical_fqn": target_fqn, "repo_id_str": repo_id, "type": "CodeEntity"}
+        )
+
+        if len(entity_nodes) == 1:
+            return entity_nodes[0].id # Unambiguous success!
+
+        if len(entity_nodes) > 1:
+            # This can happen with function overloading. A future enhancement could
+            # use argument types from the RawSymbolReference to pick the right one.
+            # For now, we declare it ambiguous.
+            logger.warning(f"Ambiguous internal FQN '{target_fqn}'. Found {len(entity_nodes)} candidates.")
+
+        return None # Fails if zero or more than one match.
+    ```
+
+**C. The Final Action Functions (`create_final_link` and `promote_link_for_llm`):**
+
+*   These are simple helper functions that perform the final graph mutations.
+*   **Code Implementation (in `linking_engine.py`):**
+    ```python
+    async def create_final_link(tx, pending_link: PendingLink, target_id: str, method: ResolutionMethod):
+        ref_data = pending_link.reference_data
+        # 1. Create the final Relationship
+        await save_graph_data(tx, [], [
+            (ref_data.source_entity_id, target_id, ref_data.reference_type, ref_data.context.get("properties", {}))
+        ])
+        # 2. Create the cache entry so we never have to solve this again
+        await save_graph_data(tx, [
+            ResolutionCache(id=pending_link.id, resolved_target_id=target_id, method=method)
+        ], [])
+        # 3. Delete the debt node
+        await delete_pending_link(tx, pending_link.id)
+        logger.info(f"Successfully resolved link {pending_link.id} via {method.value}.")
+
+    async def promote_link_for_llm(tx, pending_link: PendingLink):
+        # Here we could add logic to check if the link is "worthy" of an LLM call.
+        # For now, we just promote it.
+        await update_pending_link_status(tx, pending_link.id, LinkStatus.READY_FOR_LLM)
+        logger.info(f"Promoting link {pending_link.id} to LLM tier.")
+    ```
+
+#### **iii. The Rationale and Trade-offs**
+
+This Tier 2 design is the embodiment of our **"Accuracy-First"** principle.
+
+*   **What it Covers:** It perfectly handles the two most common types of non-local links: imports from known third-party libraries and calls between files in the same project.
+*   **What it DOES NOT Cover (The Compromise):** It **intentionally does not** use "fuzzy" or "heuristic" matching like the `ends with` suffix search. This means that a C++ call like `MyProject::MyClass()` that was made from a file with `using namespace MyCompany;` will **fail** this tier, because the `target_expression` does not match the `canonical_fqn` of `MyCompany::MyProject::MyClass`.
+*   **Why this is the Right Choice:** This failure is a good thing. It means the Tier 2 resolver has correctly identified a problem that is **not deterministically solvable** with the information it has. It is a genuinely ambiguous link. By refusing to guess, it maintains the integrity of the graph and correctly passes this "hard problem" to the Tier 3 LLM, which is the only tool equipped to handle it.
+
+---
+
+### **D. The Linking Engine: Component 3 - The "LLM Consultant" and "Repair" Subsystem**
+
+This is the final and most advanced part of our linking engine. It's designed to be **patient, efficient, and event-driven**. Its primary job is not just to call an LLM, but to intelligently manage the entire lifecycle of a "hard problem."
+
+This subsystem is composed of two distinct workers that act on specific graph states.
+
+---
+
+#### **Component 3A: The "LLM Consultant" Worker (The Question Asker)**
+
+*   **Core Philosophy:** This worker's job is to ask **good questions**. It does not try to solve the problem itself. It gathers all available context for a difficult linking problem, calls the LLM for a "consultation," and then stores the LLM's "expert opinion" as a new, richer piece of evidence in the graph.
+
+*   **The Trigger:** This worker is triggered by the **`Janitor`**. After an ingestion session goes quiescent, the Janitor promotes `PendingLink` nodes to `READY_FOR_HEURISTICS`. After the Tier 2 Heuristic Resolver runs, any remaining, truly ambiguous links are promoted to `READY_FOR_LLM`. This worker polls for that specific status.
+    > **Query:** "Find all `PendingLink` nodes where `status` is `'ready_for_llm'`."
+
+*   **The Workflow and Code Logic:**
+    1.  **Cache Check:** For each `PendingLink`, it first checks the `ResolutionCache` to avoid asking a question that has already been answered. This is our primary cost-saving mechanism.
+    2.  **Batched Prompt Construction:** As we designed, it will group all `PendingLink`s from the same source file (`e.g., file_A.cpp`) into a **single, batched API call**.
+    3.  **The Prompt:** The prompt is a structured "case file" that includes the full source code of `file_A.cpp`, followed by a list of each unresolved reference, its line of code, and any ambiguous candidates found by the Tier 2 resolver. It will request a structured JSON response using a Pydantic model (`LLMResolutionBatch`).
+    4.  **The LLM Call:** It uses the `cognee.llm.get_completion` interface to make the API call.
+    5.  **The Action (This is the critical change):** The worker **does not** create the final `Relationship`. It does not try to verify the answer. Its only job is to update the `PendingLink` node with the LLM's advice.
+
+    *   **Code Example (The action after receiving the LLM response):**
+        ```python
+        # Inside the LLM worker, after receiving the llm_response_batch
+        for result in llm_response_batch.results:
+            pending_link_id = result.link_id
+            llm_hint_fqn = result.resolved_canonical_fqn
+
+            if llm_hint_fqn:
+                # The LLM gave a confident answer. Update the debt node.
+                # It is no longer waiting for the LLM, it's now waiting for a specific target.
+                await update_pending_link(
+                    tx,
+                    link_id=pending_link_id,
+                    new_status=LinkStatus.AWAITING_TARGET,
+                    new_metadata={"awaits_fqn": llm_hint_fqn, "confidence": result.confidence}
+                )
+            else:
+                # The LLM itself was unsure. This is a true dead end.
+                await update_pending_link(
+                    tx,
+                    link_id=pending_link_id,
+                    new_status=LinkStatus.UNRESOLVABLE,
+                    new_metadata={"reason": result.reasoning}
+                )
+        ```
+*   **Result:** The `PendingLink` has now evolved. It's no longer a simple "debt"; it's a "smart debt" that now explicitly states: **"I am waiting for the `CodeEntity` with the canonical FQN `'MyCompany::Core::BaseClass'` to appear in the graph."**
+
+---
+
+#### **Component 3B: The "Repair Worker" (The Link-Maker)**
+
+*   **Core Philosophy:** This worker is a simple, fast, and highly efficient event listener. Its only job is to react to new information being added to the graph and pay off any "smart debts" that were waiting for that exact piece of information.
+
+*   **The Trigger:** This worker is **event-driven**. It is triggered every time the Orchestrator successfully creates and saves a new `CodeEntity` node. (In a real system, this would be a message queue or a database trigger. For our design, we can model it as an async task that is called at the end of `process_single_file`).
+    > **The Event:** `event = {'new_entity_created': True, 'canonical_fqn': 'MyCompany::Core::BaseClass', 'entity_id': '...'}`
+
+*   **The Workflow and Code Logic:**
+    1.  **Receive the Event:** The worker gets the `canonical_fqn` of the newly created entity.
+    2.  **The Query (The "Debt Collector"):** It performs a single, fast, indexed query against the graph.
+        > **Query:** "Find all `PendingLink` nodes where `status` is `'awaiting_target'` AND `awaits_fqn` is `'MyCompany::Core::BaseClass'`.
+
+    3.  **The Action (This is the final step):** For every `PendingLink` it finds:
+        *   **It now has everything it needs:**
+            *   The `source_entity_id` (from the `PendingLink.reference_data`).
+            *   The `target_id` (from the `entity_id` in the event).
+            *   The `reference_type` (from the `PendingLink.reference_data`).
+        *   **It creates the final `Relationship`** and saves it to the graph.
+        *   **It creates a `ResolutionCache` node** to store the successful resolution.
+        *   **It deletes the `PendingLink` node.** The debt is paid.
+
+*   **Rationale:** This two-worker design is the robust solution to all the problems we discussed.
+    *   **No Wasted Calls:** The `LLM Consultant` asks a question once. The answer is stored.
+    *   **No Race Conditions:** The `Repair Worker` only creates a link after the target has been verifiably created in the graph.
+    *   **Event-Driven and Autonomous:** The system heals itself automatically as new code is ingested. There are no timers or external triggers required for this final linking step.
