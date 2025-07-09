@@ -1,14 +1,102 @@
-### **Blueprint: Knowledge Graph Data Layer**
+# **Knowledge Graph Data Layer Blueprint**
 
-### **1. The Core Philosophy: "Progressive Enrichment of Provable Truth"**
+### **1. Executive Summary: The Core Philosophy**
+
+#### **Progressive Enrichment of Provable Truth**
 
 At its heart, this system is designed to solve one of the hardest problems in software engineering: creating a deep, reliable, and queryable understanding of a complex, evolving codebase. Our goal is not merely to parse files; it is to create a living, queryable **"digital brain"** for a repository, which understands not just what the code *is*, but *how it connects* and *why*.
 
 This philosophy was forged through a rigorous process of debate and refinement. It is founded on a deep skepticism of "magic" solutions and a commitment to building a system that is, above all, **trustworthy**. We have explicitly rejected fragile heuristics, external configuration files, and any process that requires a developer to be an expert on our system's internals.
 
-This philosophy rests on three foundational pillars:
+#### **System Benefits and Guarantees**
+
+##### **Reliability Guarantees**
+- **Atomic Operations:** Every file processing operation is wrapped in a database transaction
+- **Idempotency:** Processing the same file content multiple times has no effect
+- **Provable Truth:** The system never creates relationships it cannot prove
+- **Graceful Degradation:** Missing links are preferred over incorrect ones
+
+##### **Performance Characteristics**
+- **Real-time Tier 1:** Fast, deterministic processing for high-confidence operations
+- **Asynchronous Tiers 2-3:** Complex operations run in background without blocking ingestion
+- **Intelligent Caching:** LLM responses and resolution results are cached to prevent redundant work
+- **Event-driven Architecture:** Self-healing system that responds to new information automatically
+
+##### **Scalability Features**
+- **Language Agnostic:** Adding new languages requires only implementing the parser interface
+- **Horizontal Scaling:** Workers can be distributed across multiple processes/machines
+- **Incremental Processing:** Only changed files need reprocessing
+- **Efficient Querying:** Graph structure enables fast traversal and complex queries
+
+#### **The Relationship Catalog: Describing the "Knowledge" in the Graph**
+
+The ultimate goal of this entire system is to produce a rich, queryable set of `Relationship` nodes. These edges are what transform a disconnected collection of code entities into a true knowledge graph. Each relationship type is designed to answer a specific, high-value question a developer would ask about the codebase.
+
+The relationships are created at different stages by different components, based on the level of confidence and context required.
 
 ---
+
+#### **Category 1: Structural & Definitional Relationships (The "Where")**
+
+These relationships form the physical and logical backbone of the graph. They are unambiguous and are created with **100% confidence** by the **Orchestrator** during its Tier 1, real-time processing.
+
+**`CONTAINS_CHUNK`**
+*   **Direction:** `(SourceFile) -> [CONTAINS_CHUNK] -> (TextChunk)`
+*   **Purpose:** Describes the physical hierarchy of a file. It answers the question: "What are the constituent text blocks of this specific version of this file?"
+*   **Creation:** The Orchestrator creates these immediately after running the `generate_text_chunks_from_slice_lines` function.
+
+**`DEFINES_CODE_ENTITY`**
+*   **Direction:** `(TextChunk) -> [DEFINES_CODE_ENTITY] -> (CodeEntity)`
+*   **Purpose:** Links a piece of code to the specific text block where it is defined. It answers: "In which part of `main.py` is the `run()` function actually located?"
+*   **Creation:** The Orchestrator creates these after finalizing a `CodeEntity`'s ID by mapping it back to its parent `TextChunk` via line numbers.
+
+---
+
+#### **Category 2: High-Confidence Semantic Relationships (The "How")**
+
+These relationships describe how code elements interact according to the explicit, unambiguous rules of the language. They are created with **~99% confidence**, either by the **Orchestrator (Tier 1)** if the context is perfect, or by the **Linking Engine (Tier 2)** using deterministic, exact-match queries.
+
+**`IMPORTS`**
+*   **Direction:** `(SourceFile) -> [IMPORTS] -> (SourceFile)`
+*   **Purpose:** Tracks direct, file-level dependencies within the same repository. It answers: "What other files will be immediately affected if I change `utils.py`?"
+*   **Creation:** Created by the Tier 1 resolver if the `RawSymbolReference` from the parser has a clear, resolvable relative path.
+
+**`EXTENDS` / `IMPLEMENTS`**
+*   **Direction:** `(Child Class: CodeEntity) -> [EXTENDS] -> (Parent Class: CodeEntity)`
+*   **Purpose:** Models the inheritance hierarchy, fundamental to Object-Oriented Programming. It answers: "What is the parent class of `MyExtendedClass`?" or "Show me all classes that implement the `Serializable` interface."
+*   **Creation:** Created by the Tier 1 or Tier 2 resolver when it can unambiguously link a child class to its parent based on the `RawSymbolReference`.
+
+**`CALLS` (Internal)**
+*   **Direction:** `(Calling Function: CodeEntity) -> [CALLS] -> (Called Function: CodeEntity)`
+*   **Purpose:** This is the most important relationship for understanding runtime behavior. It answers: "Who calls the `calculate_total()` function?"
+*   **Creation:** Same as `EXTENDS`. It is only created by the deterministic resolvers (Tier 1 or 2) when there is a high-confidence, unambiguous link between a caller and a callee *within the same repository*.
+
+**`USES_LIBRARY`**
+*   **Direction:** `(SourceFile) -> [USES_LIBRARY] -> (ExternalReference)`
+*   **Purpose:** Creates a high-level, factual link to an external dependency. It answers: "Which files in my project have a dependency on the `pandas` library?"
+*   **Creation:** Created by the Tier 1 Orchestrator. When it receives a `RawSymbolReference` for an `ABSOLUTE` import and its internal heuristic determines the module is not local, it creates this link to a canonical `external-library://` beacon node. This is a 100% confident statement that a dependency *exists*, without guessing at the details.
+
+---
+
+#### **Category 3: Inferred & AI-Enriched Relationships (The "Hidden How")**
+
+These are the most complex relationships. They are created with **lower or variable confidence** and are primarily the responsibility of the **Tier 2 (Heuristic)** and **Tier 3 (LLM)** resolvers.
+
+**`CALLS` (External or Ambiguous)**
+*   **Direction:** `(Calling Function: CodeEntity) -> [CALLS] -> (Called Function: CodeEntity)`
+*   **Purpose:** To create deep links into external libraries or resolve ambiguous internal calls.
+*   **Creation:**
+    *   **Tier 2:** Creates the link if its graph-wide query for an `import_id` or an exact `canonical_fqn` returns a single, unambiguous result.
+    *   **Tier 3:** Creates the link based on the verified output of an LLM, for cases that were too ambiguous for the deterministic resolvers. The resulting `Relationship` should have a property indicating it was AI-generated (e.g., `properties: {'method': 'TIER_3_LLM'}`).
+
+**`REFERENCES_SYMBOL`**
+*   **Direction:** `(CodeEntity) -> [REFERENCES_SYMBOL] -> (CodeEntity or ExternalReference)`
+*   **Purpose:** To capture "weaker" connections that aren't direct calls or inheritance. This is our solution for the C++ macro problem. It answers: "What other symbols does the `LOG` macro depend on?"
+*   **Creation:** When the parser reports a reference from inside a macro body (e.g., from `LOG` to `fprintf`), the linking engine will attempt to resolve it. If it fails, it will create a link: `(LOG:MacroDefinition) -> [REFERENCES_SYMBOL] -> (fprintf:ExternalReference)`. This honestly represents the hidden dependency without claiming it's a direct call.
+
+---
+
+### **2. Foundational Architecture Principles**
 
 #### **Pillar 1: The Principle of the Focused Expert (The Parser's Role)**
 
@@ -16,24 +104,17 @@ This philosophy rests on three foundational pillars:
 
 *   **The Context & Why It's Crucial:** We realized that trying to build linking logic (e.g., "what file does this `#include` point to?") inside every single parser would be a nightmare of duplicated, fragile, and language-specific code. It would make adding a new language a monumental task.
 
-    Instead, we radically simplify the parser's role. It doesn't link; it **reports**. For every definition it finds, it yields a `CodeEntity`. For every reference it finds (a call, an inheritance, an import), it yields a rich, structured `RawSymbolReference` object. This report is its "dossier" on the reference, containing every contextual clue it can gather *from within that single file*:
-    *   Is the import syntactically `relative` or `absolute`?
-    *   What is the literal text of the symbol being referenced?
-    *   What `using namespace` directives are active in its scope?
+    Instead, we radically simplify the parser's role. It doesn't link; it **reports**. For every definition it finds, it yields a `CodeEntity`. For every reference it finds (a call, an inheritance, an import), it yields a rich, structured `RawSymbolReference` object. This report is its "dossier" on the reference, containing every contextual clue it can gather *from within that single file*.
 
 *   **The Analogy:** The parser is an **expert witness at a crime scene**. It doesn't solve the case. It perfectly and factually reports: "I found these footprints, of this size, pointing in this direction. I also found these fingerprints on the doorknob."
-
----
 
 #### **Pillar 2: The Principle of Centralized Intelligence (The Orchestrator's Role)**
 
 *   **What It Is:** The Orchestrator is the single, universal "Deterministic Resolver." It is completely language-agnostic. Its only job is to take the standardized reports (`RawSymbolReference`) from any parser and apply a single, consistent set of rules to them.
 
-*   **The Context & Why It's Crucial:** This solves the maintainability and consistency problem. All the "clever" linking logic lives in one place. If we improve our heuristic for resolving a C++ call, that same improvement can be applied to a Java call without touching the parsers. This is a **Tier 1, Real-Time** resolver, meaning it only attempts to create links that can be resolved with **zero ambiguity** based on the context provided (e.g., a direct relative path). For everything else, it creates a `PendingLink` "debt" node, honestly acknowledging what it doesn't know yet.
+*   **The Context & Why It's Crucial:** This solves the maintainability and consistency problem. All the "clever" linking logic lives in one place. This is a **Tier 1, Real-Time** resolver, meaning it only attempts to create links that can be resolved with **zero ambiguity** based on the context provided. For everything else, it creates a `PendingLink` "debt" node, honestly acknowledging what it doesn't know yet.
 
 *   **The Analogy:** The Orchestrator is the **detective back at headquarters**. It receives the forensic reports from all the expert witnesses at all the different crime scenes. It is the only one with the "big picture" view (the live graph) and is responsible for connecting the dots.
-
----
 
 #### **Pillar 3: The Principle of Provable Truth & Graceful Enrichment**
 
@@ -42,56 +123,83 @@ This philosophy rests on three foundational pillars:
 *   **The Context & Why It's Crucial:** This principle solves the "race condition" and "expensive operation" problems that plagued our earlier designs.
     1.  **Provable Truth:** The Tier 1 resolver only makes high-confidence links. For everything else, it creates a `PendingLink` debt. The graph is always in a correct, if momentarily incomplete, state. It never lies.
     2.  **Graceful Enrichment:** The system autonomously "pays" these debts later. The **Linking Engine** is a set of asynchronous background workers that only run when the system is ready.
-        *   **The Trigger is Quiescence:** The system knows it's "ready" by using an `IngestionHeartbeat` node. Only after a repository has stopped receiving new file updates for a configurable period (e.g., 60 seconds) are the more complex resolvers triggered. This is a robust, event-driven solution, not a dumb timer.
-        *   **The Tiers are Patient:** The Tier 2 (Heuristic) and Tier 3 (LLM) resolvers only operate on these "matured" debts, ensuring they have the most complete possible view of the graph before making a decision. This prevents wasted LLM calls on problems that would have solved themselves.
-    3.  **The Cache is the Memory:** The `ResolutionCache` ensures that once an expensive question is answered (especially by an LLM), it is never asked again, making the system efficient and intelligent over time.
+        *   **The Trigger is Quiescence:** The system knows it's "ready" by using an `IngestionHeartbeat` node. Only after a repository has stopped receiving new file updates for a configurable period (e.g., 60 seconds) are the more complex resolvers triggered.
+        *   **The Tiers are Patient:** The Tier 2 (Deterministic) and Tier 3 (LLM) resolvers only operate on these "matured" debts, ensuring they have the most complete possible view of the graph.
+    3.  **The Cache is the Memory:** The `ResolutionCache` ensures that once an expensive question is answered (especially by an LLM), it is never asked again.
 
 *   **The Analogy:** The graph starts as a collection of accurate but disconnected **island chains** (the files). The Tier 1 resolver builds the bridges within each island chain. The Tier 2 and Tier 3 resolvers are the **ferry services** and **international airlines** that run on a schedule, patiently waiting to build the robust connections between the islands once they are fully mapped.
 
+---
 
-### **2. The Final Data Contracts (`entities.py`): The Universal Language of the System**
+### **3. Data Contracts (`entities.py`): The Universal Language of the System**
 
-This file is the most critical piece of the entire project. It is the **formal contract** that defines how our disparate components—the Parsers, the Orchestrator, the Linking Engine, and the Graph Adapter—communicate. Every model in this file was designed through a rigorous process of elimination and refinement to be as robust, clear, and universally applicable as possible.
+#### **i. The Core Philosophy of Our Data Contracts**
 
-The core principle behind these data models is to **separate factual reporting from interpretive resolution.** Parsers report facts using `CodeEntity` and `RawSymbolReference`. The Orchestrator and Linking Engine interpret these facts to create the final graph, using `PendingLink` and `ResolutionCache` to manage the process.
+This file is the most critical piece of the entire project. It is the **formal, typed contract** that defines how our disparate components—the Parsers, the Orchestrator, the Linking Engine, and the Graph Adapter—communicate. It is the single source of truth for the structure of our data.
 
-Here is a detailed breakdown of each key data model and its purpose.
+The core principle behind these data models is to **separate factual reporting from interpretive resolution.** Parsers are "witnesses" that report facts (`CodeEntity`, `RawSymbolReference`). The Orchestrator and Linking Engine are "detectives" that interpret these facts to build the final graph, using `PendingLink` and `ResolutionCache` to manage the complex, asynchronous process of solving the case.
+
+Every model and field in this file was designed through a rigorous process of debate and refinement to be as robust, clear, and universally applicable as possible, while making conscious, well-understood compromises.
 
 ---
 
-#### **The Input Contract: `FileProcessingRequest`**
+#### **ii. The Core Graph Models: ID Structure and Metadata Philosophy**
 
-This is the sole entry point for all work into the system. It is a self-contained "work order" that provides the Orchestrator with everything it needs to process a single file without needing any other external context.
+This section defines the final structure of the core graph nodes. Our design philosophy is to **prioritize queryability and explicit data over opaque IDs.**
 
-```python
-class FileProcessingRequest(BaseModel):
-    # --- Core File Identification ---
-    absolute_path: str
-    repo_path: str
-    repo_id: str # e.g., "automalar/web"
-
-    # --- Versioning Context ---
-    branch: str # e.g., "main"
-    commit_index: str # e.g., "00765"
-
-    # --- Action to Perform ---
-    is_delete: bool
-
-    # --- CRITICAL, OPTIONAL HINTS for External Linking ---
-    import_id: Optional[str] = None
-    root_namespace: Optional[str] = None
-```
-**Context and Rationale:**
-*   The first set of fields (`absolute_path`, `repo_path`, etc.) are the mandatory coordinates needed to place the file's nodes correctly within the graph's hierarchy.
-*   `is_delete` is a simple boolean flag that cleanly separates the "delete" action from the "upsert" action, making the Orchestrator's logic simpler.
-*   **`import_id` (formerly `canonical_name`):** This is our key compromise for robust external linking. When the caller ingests a library (like `pandas`), it provides this hint (`import_id="pandas"`). This "stamps" the resulting `Repository` node in the graph, making it discoverable by other projects that `import pandas`. It is the crucial, human-provided piece of information that makes cross-repository linking possible without magic.
-*   **`root_namespace`:** This solves the "Java problem." For languages where the import syntax is always absolute (e.g., `import com.mycompany.project.utils.Helper`), this hint tells the Orchestrator the "base package" for the current project (`"com.mycompany.project"`). This allows it to deterministically distinguish an internal import from an external one, a problem that is otherwise unsolvable without fragile heuristics.
+*   **The ID is a Unique Key:** The `id` field for every entity is a globally unique, human-readable string that serves as its primary key. It is designed for direct lookups and for establishing hierarchical context.
+*   **Fields are for Querying:** Any data attribute that might be used to filter, sort, or find a group of nodes (e.g., `branch`, `start_line`, `commit_index`) **must** be stored as an explicit, typed field in the Pydantic model. This ensures the data can be properly indexed and efficiently queried by the graph database. We will **never** parse IDs to perform queries.
+*   **The Orchestrator is the ID Authority:** The Orchestrator is solely responsible for constructing the final, composite ID strings, including any presentation logic like zero-padding numbers. The Pydantic models store the raw data.
 
 ---
+**`Repository`**
+*   **ID Format:** `"<repo_id>@<branch>"`
+*   **Example ID:** `"automalar/web@main"`
+*   **Key Fields:**
+    *   `repo_id: str`: (e.g., `"automalar/web"`) - To query for all branches of a single repository.
+    *   `branch: str`: (e.g., `"main"`) - To query for all repositories on a specific branch.
 
-#### **The Parser's Report: `RawSymbolReference` and `ReferenceContext`**
+**`SourceFile`**
+*   **ID Format:** `"<repository_id>|<relative_path>@<version_string>"`
+    *   The `version_string` is `"<zero_padded_commit_index>-<zero_padded_local_save>"`.
+*   **Example ID:** `"automalar/web@main|src/main.py@00234-432"`
+*   **Key Fields:**
+    *   `relative_path: str`: (e.g., `"src/main.py"`) - To query for all versions and branches of a single file.
+    *   `commit_index: int`: (e.g., `234`) - Stored as a raw integer for efficient numerical queries.
+    *   `local_save: int`: (e.g., `432`) - Stored as a raw integer for sorting and querying.
+    *   `content_hash: str`: A SHA256 hash of the file content for idempotency.
 
-This is the universal "forensic report" that every parser, regardless of language, must generate. It replaces the old, ambiguous `Relationship` and `CallSiteReference` outputs.
+---
+*(This replaces the previous "TextChunk" and "CodeEntity" sections in the blueprint's "Core Graph Models" documentation)*
+
+**`TextChunk`**
+*   **ID Format:** `"<source_file_id>|<chunk_index>@<start_line>-<end_line>"`
+*   **Example ID:** `"...|src/main.py@00234-432|0@1-12"`
+*   **Rationale:**
+    *   The `chunk_index` (`0`) ensures uniqueness within the file.
+    *   Including the `@<start_line>-<end_line>` (`@1-12`) in the ID string provides immediate, human-readable context without needing to inspect the node's properties. It makes debugging and manual graph exploration much easier.
+*   **Key Fields:**
+    *   `start_line: int`: **(Critical)** Stored as a separate, indexed field for efficient range queries (e.g., "find the chunk containing line 42").
+    *   `end_line: int`: **(Critical)** Same reason. We prioritize queryability.
+    *   `chunk_content: str`: The raw text of the chunk.
+
+**`CodeEntity`**
+*   **ID Format:** `"<text_chunk_id>|<local_fqn>@<start_line>-<end_line>"`
+*   **Example ID:** `"...|0@1-12|MyClass::my_method@9-11"`
+*   **Rationale:**
+    *   The `local_fqn` provides uniqueness within the chunk.
+    *   Including the `@<start_line>-<end_line>` (`@9-11`) provides immediate, human-readable context for the location and span of the code entity.
+*   **Key Fields:**
+    *   `start_line: int`, `end_line: int`: **(Critical)** Stored as separate, indexed fields to enable features like "go to definition" and to quickly find all entities within a specific line range.
+    *   `canonical_fqn: Optional[str]`: The parser's best-effort, language-specific canonical FQN. This is the primary key used for cross-file linking in the Tier 2 resolver.
+    *   `type: str`: (e.g., `"ClassDefinition"`, `"MacroDefinition"`).
+    *   `snippet_content: str`: The raw text of the entity's definition.
+
+#### **iii. The Parser's Universal Report: `RawSymbolReference` and `ReferenceContext`**
+
+These two models are the most critical part of the **"Sufficient Context Reporter"** philosophy. They are the standardized "forensic report" that every parser, regardless of language, must create. This is how we achieve a language-agnostic linking engine.
+
+**The Core Idea:** Instead of yielding a simple `Relationship` with a string `target_id` (which is just a guess), the parser yields a `RawSymbolReference`. This object doesn't contain a guess; it contains **evidence**. It captures the literal text the developer wrote (`target_expression`) and, crucially, all the surrounding clues in a structured `ReferenceContext`.
 
 ```python
 class ImportType(str, Enum):
@@ -106,25 +214,28 @@ class ReferenceContext(BaseModel):
 class RawSymbolReference(BaseModel):
     source_entity_id: str
     target_expression: str
-    reference_type: str # "INHERITANCE", "FUNCTION_CALL", "INCLUDE"
+    reference_type: str
     context: ReferenceContext
 ```
+
 **Context and Rationale:**
-*   We replaced a generic `dict` with a **strongly-typed `ReferenceContext` object**. This was a critical decision for robustness. It creates a formal contract that every parser *must* adhere to, eliminating "magic string" keys and preventing an entire class of bugs. It makes the system self-documenting and easier to maintain.
-*   `import_type: ImportType`: We elevated this from a simple boolean (`is_external`) to an `Enum`. This allows parsers to provide more nuanced, syntactic facts (`relative` vs. `absolute`) without having to make a premature decision about whether a link is internal or external. The Orchestrator makes that final decision.
-*   `path_parts: List[str]`: This is a universal way to represent a namespace or module path (`['com', 'google', 'guava']`) that works for any language, unlike a single FQN string with language-specific delimiters.
-*   `target_expression`: This stores the *literal text* from the code (`pd.DataFrame`). This is crucial because it's the ground truth of what the developer wrote. The linking engine's job is to resolve this expression to a final entity.
+*   **The Problem We Solved:** In earlier designs, we struggled with how a C++ parser and a Python parser could report imports in a way the Orchestrator could understand. A generic `dict` was proposed, but you correctly identified this as fragile and a source of "magic string" bugs.
+*   **The Solution:** The `ReferenceContext` is a **strongly-typed, formal contract**. It forces every parser to speak the same language.
+    *   A Python parser seeing `from .utils import helper` creates a `ReferenceContext(import_type=RELATIVE, path_parts=['.', 'utils'], ...)`
+    *   A C++ parser seeing `#include <vector>` creates a `ReferenceContext(import_type=ABSOLUTE, path_parts=['vector'], ...)`
+*   **The Benefit:** The Orchestrator's logic becomes simple and universal. It doesn't need `if language == 'python': ... elif language == 'cpp': ...`. It just looks at the `import_type` and knows exactly how to interpret the `path_parts`. This is the key to a maintainable, multi-language system.
 
 ---
 
-#### **The Linking Engine's State Machine: `PendingLink` and `ResolutionCache`**
+#### **iv. The Linking Engine's State Machine: `PendingLink` and `ResolutionCache`**
 
-These are the internal "bookkeeping" nodes that allow our system to be autonomous, self-healing, and efficient. They are the heart of the asynchronous Tier 2 and Tier 3 resolvers.
+These models are the "bookkeeping" tools that enable our **"Progressive Enrichment"** philosophy. They are the physical manifestation of our system's memory and its "to-do" list, allowing it to be autonomous, self-healing, and efficient.
 
 ```python
 class LinkStatus(str, Enum):
     PENDING_RESOLUTION = "pending_resolution"
     READY_FOR_HEURISTICS = "ready_for_heuristics"
+    AWAITING_TARGET = "awaiting_target" # For when an LLM provides a hint
     READY_FOR_LLM = "ready_for_llm"
     UNRESOLVABLE = "unresolvable"
     RESOLVED = "resolved"
@@ -134,22 +245,31 @@ class PendingLink(BaseModel):
     status: LinkStatus
     created_at: datetime
     reference_data: RawSymbolReference
+    awaits_fqn: Optional[str] = None # The FQN hint provided by the LLM
 
 class ResolutionCache(BaseModel):
     id: str # The same deterministic hash as the PendingLink
     resolved_target_id: str
     method: ResolutionMethod
 ```
+
 **Context and Rationale:**
-*   **`PendingLink`:** This is our "debt" node. Instead of the Orchestrator failing silently when a link can't be made, it creates a permanent, queryable record in the graph. This is the key to our **eventually consistent** design. The system never forgets a link it needs to make.
-*   **`LinkStatus` (Enum):** Using an `Enum` for the status is a critical robustness improvement. It defines the explicit lifecycle of a `PendingLink` (e.g., `PENDING -> READY_FOR_HEURISTICS -> READY_FOR_LLM -> RESOLVED`). This prevents bugs from typos and makes the state machine logic clear and safe.
-*   **`ResolutionCache`:** This is our solution to the "wasted LLM call" problem. It is our system's persistent **memory**. When an expensive operation (like an LLM call) successfully answers a linking question, the answer is stored in this cache. The deterministic `id` (a hash of the question) ensures that the next time the exact same linking problem arises, the system will find the answer in the cache first, saving time and money.
 
-### **3. The Component Responsibilities**
+*   **The Problem We Solved:** How can a system handle links when the target file might not have been processed yet? And how can we avoid re-doing expensive LLM calls for the same problem?
+*   **The Solution:**
+    1.  **`PendingLink` (The "Debt"):** When the Orchestrator fails to make a high-confidence link during real-time ingestion, it doesn't give up. It creates a `PendingLink` node in the graph. This is our system's persistent "to-do" list. It's a promise that the system will try to resolve this link later.
+    2.  **`LinkStatus` (The "Workflow Engine"):** This `Enum` is the state machine. It defines the exact lifecycle of a debt. A `PendingLink` is created as `PENDING_RESOLUTION`. The "Janitor" worker promotes it to `READY_FOR_HEURISTICS`. The "Heuristic Resolver" might solve it, or promote it to `READY_FOR_LLM`. This explicit status field is what allows our different background workers to coordinate without interfering with each other. It is far more robust than a simple boolean flag or magic strings. The addition of `AWAITING_TARGET` was a critical insight to handle the case where the LLM provides a hint for a target that doesn't exist *yet*.
+    3.  **`ResolutionCache` (The "Memory"):** This is our solution to the "wasted LLM call" problem. An LLM call is the most expensive operation in our system. When the LLM successfully provides an answer for a `PendingLink`, we store that answer in a `ResolutionCache` node. The `id` of the cache node is a deterministic hash of the original question, just like the `PendingLink`'s id. The next time the LLM worker picks up a similar debt, it will **check the cache first**. If an answer exists, it uses it for free, avoiding a redundant API call.
 
-### **A. The Parser (e.g., `CppParser`) - The "Sufficient Context Reporter"**
+This state machine, implemented as queryable nodes in the graph, is what allows our system to be both **eventually consistent** and **fiscally responsible**.
 
-#### **i. The Core Philosophy**
+---
+
+## **4. System Components**
+
+### **Component A: The Parser - The "Sufficient Context Reporter"**
+
+#### **Core Philosophy**
 
 The single most important architectural decision we made was to redefine the parser's job. In earlier, flawed designs, the parser was a "Reporter and Guesser." It tried to find code and then guess at the relationships between them. This made the parser fragile, complex, and difficult to maintain, especially in a multi-language environment.
 
@@ -161,7 +281,7 @@ Its contract is to yield only two types of objects:
 
 Crucially, **it never yields `Relationship` objects.** The parser does not link; it only provides the evidence needed for a separate component (the Orchestrator) to do the linking.
 
-#### **ii. What the Parser DOES (Its Mandate)**
+#### **Parser Responsibilities**
 
 **1. Yield `slice_lines` for Chunking:**
 *   **Action:** As its very first action, the parser must identify all top-level definition nodes (classes, functions, namespaces, etc.) in the file. It yields a single `List[int]` containing the starting line number of each of these definitions.
@@ -211,13 +331,13 @@ Crucially, **it never yields `Relationship` objects.** The parser does not link;
     )
     ```
 
-#### **iii. Known Limitations and Conscious Compromises (The Honest Assessment)**
+#### **Known Limitations and Conscious Compromises**
 
-A robust blueprint must be honest about its boundaries. We have made several conscious trade-offs to prioritize simplicity, speed, and language-agnosticism over perfect, compiler-level accuracy.
+We have made several conscious trade-offs to prioritize simplicity, speed, and language-agnosticism over perfect, compiler-level accuracy.
 
-*   **The C++ Preprocessor:** This is the most significant compromise. The parser operates on the code **as written**, not as compiled.
+*   **Compiled Languages:** This is the most significant compromise. The parser operates on the code **as written**, not as compiled. For cpp as example:
     *   **What IS Covered:** We will create `CodeEntity` nodes for `MacroDefinition` and `RawSymbolReference` nodes for `MACRO_CALL`. We can even find symbol references *inside* simple macro bodies (`REFERENCES_SYMBOL`). This provides immense value.
-    *   **What is NOT Covered:** Conditional compilation (`#ifdef`) and token-pasting (`##`). The graph will represent all possible code paths from `#ifdef` blocks, and it will not understand symbols generated by token-pasting. We have decided that requiring a pre-processing step is an unacceptable burden on the user.
+    *   **What is NOT Covered:** Conditional compilation (`#ifdef`) and token-pasting (`##`). The graph will represent all possible code paths from `#ifdef` blocks, and it will not understand symbols generated by token-pasting. We have decided that requiring a pre-processing step is an unacceptable burden.
 
 *   **File-Local FQN Generation:** The parser's `_get_fqn_for_node` is a powerful heuristic, not a perfect algorithm.
     *   **What IS Covered:** It will correctly identify namespaces and parent classes for the vast majority of standard code structures.
@@ -225,18 +345,19 @@ A robust blueprint must be honest about its boundaries. We have made several con
 
 *   **Wildcard Imports:** For languages like Python, we explicitly do not support resolving symbols from wildcard imports (`from .utils import *`). The parser cannot provide sufficient context, and our core principle is to **never guess**. The parser will simply not yield a `RawSymbolReference` for calls to symbols imported this way.
 
+---
 
-### **B. The Orchestrator (`orchestrator.py`) - The "Tier 1 Real-Time Resolver"**
+### **Component B: The Orchestrator - The "Tier 1 Real-Time Resolver"**
 
-#### **i. The Core Philosophy**
+#### **Core Philosophy**
 
 The Orchestrator's philosophy is one of **Speed, Safety, and Honesty.** It operates under a strict set of rules designed to ensure that the graph is always in a consistent state and that every action taken is based on high-confidence, provable information.
 
 *   **Speed:** It is designed to be the fast, real-time part of the system. Its job is to process a single file as quickly as possible. To achieve this, it **defers** any complex or ambiguous linking tasks. It does the "easy" work now and leaves the "hard" work for the asynchronous workers.
-*   **Safety (Atomicity):** Its primary job is to process a `FileProcessingRequest` **atomically**. This means the entire operation—from deleting old versions to adding new nodes and creating links—is wrapped in a single database transaction. If any part of the process fails (e.g., a parser error, a bug in the Orchestrator), the entire transaction is rolled back. The graph is never left in a broken, half-updated state. This is a non-negotiable guarantee.
+*   **Safety (Atomicity):** Its primary job is to process a `FileProcessingRequest` **atomically**. This means the entire operation--from deleting old versions to adding new nodes and creating links--is wrapped in a single database transaction. If any part of the process fails (e.g., a parser error, a bug in the Orchestrator), the entire transaction is rolled back. The graph is never left in a broken, half-updated state. This is a non-negotiable guarantee.
 *   **Honesty (Tier 1 Resolution):** The Orchestrator is a **High-Confidence, Low-Ambiguity** resolver. It will only attempt to create a final `Relationship` if the context provided by the parser is so clear that the link is effectively proven (e.g., a direct relative import). For every other reference, it honestly admits, "I do not have enough information to resolve this with 100% certainty right now." Instead of guessing or failing, it creates a `PendingLink` "debt" node, which is a factual statement of an unresolved dependency.
 
-#### **ii. What the Orchestrator DOES (Its Mandate, Step-by-Step)**
+#### **Orchestrator Workflow**
 
 The `process_single_file` function is the main entry point and must execute a precise sequence of operations.
 
@@ -275,27 +396,27 @@ The `process_single_file` function is the main entry point and must execute a pr
 
 **7. Final Commit:**
 *   **Action:** It takes the final list of all new nodes (`CodeEntity`, `PendingLink`, etc.) and all new `Relationship`s, passes them to the `cognee_adapter`, and then saves the result to the graph using `graph_utils.save_graph_data`. Its very last action is to call `graph_utils.update_heartbeat` to signal that activity has occurred for this repository. Finally, the `with` block ensures the transaction is committed.
-*   **Rationale:** This ensures that the entire state change—new nodes, new high-confidence links, and new "debt" nodes—is saved to the graph in a single, atomic operation.
+*   **Rationale:** This ensures that the entire state change--new nodes, new high-confidence links, and new "debt" nodes--is saved to the graph in a single, atomic operation.
 
-#### **iii. What the Orchestrator DOES NOT DO (Its Boundaries)**
+#### **Orchestrator Boundaries**
 
 *   **It does NOT perform complex, graph-wide queries.** The Tier 1 resolver only looks for targets in a very specific, limited scope. All broad searches (like suffix matching FQNs) are the responsibility of the Tier 2 worker.
 *   **It does NOT call the LLM.** This is a critical boundary. The real-time ingestion path must be fast and deterministic.
 *   **It does NOT know about other files in a "batch."** Its logic is entirely focused on the single `FileProcessingRequest` it was given, making it simple, stateless, and easy to test.
 
-### **C. The Linking Engine (`linking_engine.py`) - The Asynchronous Workers**
+---
 
-#### **i. The Core Philosophy**
+### **Component C: The Linking Engine - The Asynchronous Workers**
 
-The Linking Engine's philosophy is to **never interfere with real-time ingestion**. Its job is to work patiently in the background, cleaning up the "debt" (`PendingLink` nodes) left by the fast-moving Orchestrator. It solves the fundamental race condition problem—"how do I resolve a link when the target might not exist yet?"—by simply **waiting until the initial "ingestion storm" is over.**
+#### **Core Philosophy**
+
+The Linking Engine's philosophy is to **never interfere with real-time ingestion**. Its job is to work patiently in the background, cleaning up the "debt" (`PendingLink` nodes) left by the fast-moving Orchestrator. It solves the fundamental race condition problem--"how do I resolve a link when the target might not exist yet?"--by simply **waiting until the initial "ingestion storm" is over.**
 
 This is a tiered system where each tier operates on a different level of confidence and has a different trigger, ensuring that expensive or complex operations are only performed when it's safe and efficient to do so.
 
----
+#### **Component C1: The "Janitor" - The Quiescence Trigger**
 
-### **B. The Linking Engine: Component 1 - The "Janitor" (The Quiescence Trigger)**
-
-#### **i. The Core Philosophy**
+##### **Core Philosophy**
 
 The philosophy of the Janitor is **"Patient, Non-Intrusive Observation."**
 
@@ -305,7 +426,7 @@ Its job is not to be "smart." Its job is to be a simple, reliable, and low-impac
 *   **Non-Intrusive:** It never modifies the core code graph (`CodeEntity`, `Relationship`, etc.). Its only job is to observe the `IngestionHeartbeat` nodes and update the `status` of `PendingLink` nodes. It acts as a "promoter," moving work from one queue to another.
 *   **Observer:** It is the only component that uses time as a trigger. This is a conscious architectural decision. We have isolated the system's only time-based logic into this single, simple component, making the rest of the system purely event-driven and deterministic.
 
-#### **ii. The Workflow and Code Implementation**
+##### **Janitor Workflow**
 
 The Janitor is a long-running asynchronous task. In a real production system, this would be a standalone microservice or a managed background worker. For our design, we can represent it as a single `async` function that runs in a loop.
 
@@ -403,17 +524,15 @@ The Janitor is a long-running asynchronous task. In a real production system, th
     ```
     *(Note: This implementation assumes `PendingLink` nodes will be tagged with their `repo_id_str` in their metadata for efficient querying. This is a small but important detail for the `cognee_adapter` to handle.)*
 
-#### **iii. The Rationale and Trade-offs (The Honest Assessment)**
+##### **Janitor Rationale and Trade-offs**
 
 *   **What this Solves:** This is the most robust, non-invasive way to solve the "when is the ingestion session over?" problem. It does not require a complex external job scheduler or stateful orchestration logic. The state is stored and managed entirely within the graph itself.
 *   **The Trade-off (Latency):** The primary compromise is a built-in delay. A link that requires Tier 2 resolution will not be created instantly. It will only be created after the `QUIESCENCE_PERIOD_SECONDS` has elapsed *and* the Janitor and Heuristic Resolver workers have run. For most use cases, a delay of 1-2 minutes for complex, graph-wide linking is a very acceptable price to pay for correctness and architectural simplicity.
 *   **The Robustness:** This system is highly robust to failure. If the Janitor worker crashes, it will simply restart on its next scheduled run and pick up where it left off by querying the graph for active heartbeats. No state is lost. If a file is updated during the quiescent period, its `process_single_file` call will simply flip the heartbeat's status back to `active`, correctly and automatically pausing any further Tier 2 resolution until the system goes quiet again.
 
----
+#### **Component C2: The "Deterministic Graph Resolver" - Tier 2**
 
-### **C. The Linking Engine: Component 2 - The "Deterministic Graph Resolver" (Tier 2)**
-
-#### **i. The Core Philosophy**
+##### **Core Philosophy**
 
 The philosophy of this component is **"Certainty Through a Complete Worldview."**
 
@@ -421,9 +540,7 @@ Unlike the Tier 1 resolver, which only has the context of a single file, this Ti
 
 Its primary job is to resolve links that were ambiguous at the single-file level but become clear when the entire repository's context is available. It is not a "heuristic" engine in the sense of guessing. It is a **deterministic query engine** that runs a prioritized chain of high-confidence queries. It only succeeds if it finds **one and only one** logical answer.
 
----
-
-#### **ii. The Workflow and Code Implementation**
+##### **Tier 2 Workflow**
 
 **1. The Trigger:**
 *   This worker is triggered by the **`Janitor`**. After the `IngestionHeartbeat` for a repository goes quiescent, the Janitor promotes all of that repo's `PendingLink`s from `PENDING_RESOLUTION` to `READY_FOR_HEURISTICS`.
@@ -542,7 +659,7 @@ Now, let's look at the implementation of those helper functions.
         logger.info(f"Promoting link {pending_link.id} to LLM tier.")
     ```
 
-#### **iii. The Rationale and Trade-offs**
+##### **Tier 2 Rationale and Trade-offs**
 
 This Tier 2 design is the embodiment of our **"Accuracy-First"** principle.
 
@@ -550,17 +667,13 @@ This Tier 2 design is the embodiment of our **"Accuracy-First"** principle.
 *   **What it DOES NOT Cover (The Compromise):** It **intentionally does not** use "fuzzy" or "heuristic" matching like the `ends with` suffix search. This means that a C++ call like `MyProject::MyClass()` that was made from a file with `using namespace MyCompany;` will **fail** this tier, because the `target_expression` does not match the `canonical_fqn` of `MyCompany::MyProject::MyClass`.
 *   **Why this is the Right Choice:** This failure is a good thing. It means the Tier 2 resolver has correctly identified a problem that is **not deterministically solvable** with the information it has. It is a genuinely ambiguous link. By refusing to guess, it maintains the integrity of the graph and correctly passes this "hard problem" to the Tier 3 LLM, which is the only tool equipped to handle it.
 
----
-
-### **D. The Linking Engine: Component 3 - The "LLM Consultant" and "Repair" Subsystem**
+#### **Component C3: The "LLM Consultant" and "Repair" Subsystem**
 
 This is the final and most advanced part of our linking engine. It's designed to be **patient, efficient, and event-driven**. Its primary job is not just to call an LLM, but to intelligently manage the entire lifecycle of a "hard problem."
 
 This subsystem is composed of two distinct workers that act on specific graph states.
 
----
-
-#### **Component 3A: The "LLM Consultant" Worker (The Question Asker)**
+##### **Component C3A: The "LLM Consultant" Worker (The Question Asker)**
 
 *   **Core Philosophy:** This worker's job is to ask **good questions**. It does not try to solve the problem itself. It gathers all available context for a difficult linking problem, calls the LLM for a "consultation," and then stores the LLM's "expert opinion" as a new, richer piece of evidence in the graph.
 
@@ -601,9 +714,7 @@ This subsystem is composed of two distinct workers that act on specific graph st
         ```
 *   **Result:** The `PendingLink` has now evolved. It's no longer a simple "debt"; it's a "smart debt" that now explicitly states: **"I am waiting for the `CodeEntity` with the canonical FQN `'MyCompany::Core::BaseClass'` to appear in the graph."**
 
----
-
-#### **Component 3B: The "Repair Worker" (The Link-Maker)**
+##### **Component C3B: The "Repair Worker" (The Link-Maker)**
 
 *   **Core Philosophy:** This worker is a simple, fast, and highly efficient event listener. Its only job is to react to new information being added to the graph and pay off any "smart debts" that were waiting for that exact piece of information.
 
@@ -628,3 +739,34 @@ This subsystem is composed of two distinct workers that act on specific graph st
     *   **No Wasted Calls:** The `LLM Consultant` asks a question once. The answer is stored.
     *   **No Race Conditions:** The `Repair Worker` only creates a link after the target has been verifiably created in the graph.
     *   **Event-Driven and Autonomous:** The system heals itself automatically as new code is ingested. There are no timers or external triggers required for this final linking step.
+
+#### **D. The Graph Utilities (`graph_utils.py`) - The Specialized Toolkit**
+
+*   **i. The Core Philosophy:**
+    The philosophy of this module is **Abstraction and Encapsulation**. The rest of our parser library—including the Orchestrator and all Parsers—should not know or care about the specific implementation details of the `cognee` graph database. This module acts as a clean, internal API layer that translates our system's high-level intentions (e.g., "delete this file's data") into the precise, low-level function calls required by the `cognee` graph adapter.
+
+*   **ii. Key Responsibilities:**
+    *   **Encapsulate all `cognee` imports:** This is the **only** module in our core library (besides the `cognee_adapter.py`) that will have `from cognee... import ...`. **The `parsers` and `orchestrator` must remain pure and have no knowledge of `cognee`'s internal models.**
+    *   **Provide a Stable Internal API:** It exposes a set of simple, intent-based functions like `find_nodes_with_filter` and `save_graph_data`.
+    *   **Handle Database-Specific Logic:** It contains the logic for constructing the `filter_dict` arguments and handling the responses from the `cognee` adapter.
+
+---
+
+#### **E. The Cognee Adapter (`cognee_adapter.py`) - The Shipping Department**
+
+*   **i. The Core Philosophy:**
+    The philosophy of the adapter is **Decoupling and Translation**. It is a pure, stateless function that acts as the one and only bridge between our internal data models (`entities.py`) and the specific `Node` and `Edge` objects required by the `cognee` graph engine.
+
+*   **ii. Key Responsibilities:**
+    1.  **Translate Nodes:** It takes our Pydantic models (`CodeEntity`, `PendingLink`, etc.) and converts each one into a `cognee.Node` object.
+    2.  **Translate Edges:** It takes our `Relationship` model (which uses our string IDs) and converts it into the `(source_id, target_id, type, {props})` tuple format that `graph_utils` expects.
+    3.  **Populate Metadata:** It correctly dumps our Pydantic model's data into the `attributes` dictionary of the `cognee.Node`, ensuring all our valuable context is preserved in the graph.
+
+---
+
+#### **F. The Utility Modules (`chunking.py` & `utils.py`)**
+
+*   **`chunking.py`:** A **Pure Function**. It takes file content and slice points and returns a list of `TextChunk` objects. It has no side effects and no knowledge of the rest of the system. **Your existing code for this is perfect and needs no changes.**
+*   **`utils.py`:** **Shared, Stateless Toolbox**. It contains generic helper functions (`read_file_content`, `get_node_text`, `parse_temp_code_entity_id`) that have no dependencies on any other part of our system. **Your existing code for this is perfect and needs no changes.**
+
+---
