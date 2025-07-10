@@ -86,8 +86,8 @@ These are the most complex relationships. They are created with **lower or varia
 *   **Direction:** `(Calling Function: CodeEntity) -> [CALLS] -> (Called Function: CodeEntity)`
 *   **Purpose:** To create deep links into external libraries or resolve ambiguous internal calls.
 *   **Creation:**
-    *   **Tier 2:** Creates the link if its graph-wide query for an `import_id` or an exact `canonical_fqn` returns a single, unambiguous result.
-    *   **Tier 3:** Creates the link based on the verified output of an LLM, for cases that were too ambiguous for the deterministic resolvers. The resulting `Relationship` should have a property indicating it was AI-generated (e.g., `properties: {'method': 'TIER_3_LLM'}`).
+    *   **Tier 2:** Creates the link if its prioritized chain of graph-wide queries returns a **single, unambiguous result**. This includes checking for `import_id`s, exact `canonical_fqn` matches, and using a verified suffix-match heuristic for partial FQNs.
+    *   **Tier 3:** Creates the link based on the verified output of an LLM, for cases that were too ambiguous for the deterministic and heuristic resolvers (e.g., the suffix match returned multiple candidates). The resulting `Relationship` will have a property indicating it was AI-generated (e.g., `properties: {'method': 'TIER_3_LLM'}`).
 
 **`REFERENCES_SYMBOL`**
 *   **Direction:** `(CodeEntity) -> [REFERENCES_SYMBOL] -> (CodeEntity or ExternalReference)`
@@ -530,142 +530,69 @@ The Janitor is a long-running asynchronous task. In a real production system, th
 *   **The Trade-off (Latency):** The primary compromise is a built-in delay. A link that requires Tier 2 resolution will not be created instantly. It will only be created after the `QUIESCENCE_PERIOD_SECONDS` has elapsed *and* the Janitor and Heuristic Resolver workers have run. For most use cases, a delay of 1-2 minutes for complex, graph-wide linking is a very acceptable price to pay for correctness and architectural simplicity.
 *   **The Robustness:** This system is highly robust to failure. If the Janitor worker crashes, it will simply restart on its next scheduled run and pick up where it left off by querying the graph for active heartbeats. No state is lost. If a file is updated during the quiescent period, its `process_single_file` call will simply flip the heartbeat's status back to `active`, correctly and automatically pausing any further Tier 2 resolution until the system goes quiet again.
 
-#### **Component C2: The "Deterministic Graph Resolver" - Tier 2**
+#### **Component C2: The "Heuristic & Deterministic Resolver" (Tier 2)**
 
 ##### **Core Philosophy**
 
-The philosophy of this component is **"Certainty Through a Complete Worldview."**
+The philosophy of this component is **"Certainty First, Intelligent Heuristics Second."**
 
-Unlike the Tier 1 resolver, which only has the context of a single file, this Tier 2 worker runs **after** an entire ingestion session is complete and the graph is "quiescent." It therefore has a complete, stable "worldview" of all the code in the repository for that session.
-
-Its primary job is to resolve links that were ambiguous at the single-file level but become clear when the entire repository's context is available. It is not a "heuristic" engine in the sense of guessing. It is a **deterministic query engine** that runs a prioritized chain of high-confidence queries. It only succeeds if it finds **one and only one** logical answer.
+This worker runs *after* an ingestion session is quiescent, giving it a complete and stable "worldview" of the repository. Its primary job is to resolve the vast majority of `PendingLink` debts left by the real-time Tier 1 resolver. It will first attempt to find links with 100% certainty via direct lookups. If those fail, it will then apply a powerful, but safe, heuristic (the "Verified Suffix Match") to solve more complex cases, like C++ `using namespace` ambiguities. Its guiding principle is to **maximize deterministic resolution without ever sacrificing accuracy.**
 
 ##### **Tier 2 Workflow**
 
 **1. The Trigger:**
-*   This worker is triggered by the **`Janitor`**. After the `IngestionHeartbeat` for a repository goes quiescent, the Janitor promotes all of that repo's `PendingLink`s from `PENDING_RESOLUTION` to `READY_FOR_HEURISTICS`.
-*   This worker is a simple, stateless background process that polls for this specific status.
-    > **Query:** "Find all `PendingLink` nodes where `status` is `'ready_for_heuristics'`."
+*   This worker is a simple, stateless background process that polls the graph for `PendingLink` nodes with `status: 'ready_for_heuristics'`. This status is set by the `Janitor` worker after a repository has gone quiescent.
 
 **2. The Prioritized Resolution Chain:**
-*   For each `PendingLink` it finds, it takes the `RawSymbolReference` data and begins a chain of queries. It stops at the first query that returns a single, unambiguous result.
+*   For each `PendingLink` it finds, it executes a prioritized chain of queries. It stops at the first step that produces a single, verified result. If any step produces multiple results, it promotes the link to the LLM tier with the found candidates as context.
 
 **The Code Logic (Inside the Tier 2 Worker):**
 
 ```python
 # A conceptual function inside the Tier 2 worker
 async def run_tier2_resolution_for_link(tx, pending_link: PendingLink):
-    ref_data = pending_link.reference_data
-    context = ref_data.context
-
-    # --- Attempt 1: High-Confidence External Link Resolution ---
-    if context.import_type == ImportType.ABSOLUTE:
-        # This handles 'import pandas' or 'import com.google.guava'
-        top_level_module = context.path_parts[0]
-        target_id = await resolve_external_link(tx, top_level_module, ref_data.target_expression)
-        if target_id:
-            # SUCCESS!
-            await create_final_link(tx, pending_link, target_id, ResolutionMethod.HEURISTIC_MATCH)
-            return
-
-    # --- Attempt 2: High-Confidence Internal Link Resolution (Exact FQN Match) ---
-    # This handles cases where Tier 1 failed due to processing order.
-    # e.g., app.py references MyClass, but models.py hadn't been processed yet.
-    target_id = await resolve_internal_link_by_fqn(tx, ref_data.target_expression)
+    # --- Attempt 1: High-Confidence External Link (by import_id) ---
+    target_id = await resolve_external_link_by_import_id(tx, pending_link)
     if target_id:
-        # SUCCESS!
         await create_final_link(tx, pending_link, target_id, ResolutionMethod.HEURISTIC_MATCH)
         return
 
-    # --- If all deterministic attempts fail, promote to Tier 3 ---
-    await promote_link_for_llm(tx, pending_link)
+    # --- Attempt 2: High-Confidence Internal Link (by Exact FQN Match) ---
+    target_id = await resolve_internal_link_by_exact_fqn(tx, pending_link)
+    if target_id:
+        await create_final_link(tx, pending_link, target_id, ResolutionMethod.HEURISTIC_MATCH)
+        return
+
+    # --- Attempt 3: The Verified Suffix Match Heuristic ---
+    candidate_ids = await resolve_internal_link_by_fqn_suffix(tx, pending_link)
+
+    if len(candidate_ids) == 1:
+        # The heuristic found exactly one unambiguous match. This is a success.
+        await create_final_link(tx, pending_link, candidate_ids[0], ResolutionMethod.HEURISTIC_MATCH)
+        return
+
+    # --- If all attempts fail or result in ambiguity, promote to Tier 3 ---
+    await promote_link_for_llm(tx, pending_link, candidates=candidate_ids)
 ```
 
-Now, let's look at the implementation of those helper functions.
+**Resolution Helper Functions:**
 
-**A. `resolve_external_link` (The `import_id` Query):**
+*   **`resolve_external_link_by_import_id`:** Solves links like `import pandas`. It looks for a `Repository` node with a matching `provides_import_id` hint and then searches within that repository for the target `CodeEntity`. Fails if not exactly one match is found.
+*   **`resolve_internal_link_by_exact_fqn`:** Solves links where the full name is known. It performs an exact-match query for a `CodeEntity` with a matching `canonical_fqn` within the same repository. Fails if not exactly one match is found.
+*   **`resolve_internal_link_by_fqn_suffix`:** Solves links where a partial name is used (e.g., C++ `using namespace`). It performs a suffix-based search (e.g., `LIKE '%::MyClass'`) against the `canonical_fqn` field of all `CodeEntity` nodes in the repository. It returns a list of all matching candidate IDs.
 
-*   **How it Works:** This function looks for a library that has been explicitly "registered" with our system via the `import_id` hint during its ingestion.
-*   **Code Implementation (in `linking_engine.py`):**
-    ```python
-    async def resolve_external_link(tx, module_name: str, full_target_expr: str) -> Optional[str]:
-        # Query 1: Find the repository that provides this module name.
-        repo_nodes = await find_nodes_with_filter(tx, {"provides_import_id": module_name, "type": "Repository"})
+**Final Action Functions:**
 
-        if len(repo_nodes) != 1:
-            if len(repo_nodes) > 1:
-                logger.warning(f"Ambiguous import_id '{module_name}'. Found multiple provider repos. Cannot resolve.")
-            return None # Fails if zero or more than one repo provides this name.
-
-        target_repo_id = repo_nodes[0].id
-
-        # Query 2: Find the EXPORTED symbol within that repository.
-        # This is a complex query that needs to find the CodeEntity with a matching
-        # canonical_fqn AND an incoming `EXPORTS` relationship from the library's entry point.
-        # This logic would be encapsulated in a graph_utils function.
-        target_entity = await find_exported_symbol_in_repo(tx, target_repo_id, full_target_expr)
-
-        return target_entity.id if target_entity else None
-    ```
-
-**B. `resolve_internal_link_by_fqn` (The Exact Match Query):**
-
-*   **How it Works:** This is the safety net for internal links that failed in Tier 1 simply due to processing order. Now that the whole repo is ingested, we can search for an exact match of the FQN across the entire project.
-*   **Code Implementation (in `linking_engine.py`):**
-    ```python
-    async def resolve_internal_link_by_fqn(tx, target_fqn: str, repo_id: str) -> Optional[str]:
-        # This query looks for a CodeEntity with a matching FQN *within the same repository*.
-        # The canonical_fqn would be stored in the node's metadata.
-        entity_nodes = await find_nodes_with_filter(
-            tx,
-            {"canonical_fqn": target_fqn, "repo_id_str": repo_id, "type": "CodeEntity"}
-        )
-
-        if len(entity_nodes) == 1:
-            return entity_nodes[0].id # Unambiguous success!
-
-        if len(entity_nodes) > 1:
-            # This can happen with function overloading. A future enhancement could
-            # use argument types from the RawSymbolReference to pick the right one.
-            # For now, we declare it ambiguous.
-            logger.warning(f"Ambiguous internal FQN '{target_fqn}'. Found {len(entity_nodes)} candidates.")
-
-        return None # Fails if zero or more than one match.
-    ```
-
-**C. The Final Action Functions (`create_final_link` and `promote_link_for_llm`):**
-
-*   These are simple helper functions that perform the final graph mutations.
-*   **Code Implementation (in `linking_engine.py`):**
-    ```python
-    async def create_final_link(tx, pending_link: PendingLink, target_id: str, method: ResolutionMethod):
-        ref_data = pending_link.reference_data
-        # 1. Create the final Relationship
-        await save_graph_data(tx, [], [
-            (ref_data.source_entity_id, target_id, ref_data.reference_type, ref_data.context.get("properties", {}))
-        ])
-        # 2. Create the cache entry so we never have to solve this again
-        await save_graph_data(tx, [
-            ResolutionCache(id=pending_link.id, resolved_target_id=target_id, method=method)
-        ], [])
-        # 3. Delete the debt node
-        await delete_pending_link(tx, pending_link.id)
-        logger.info(f"Successfully resolved link {pending_link.id} via {method.value}.")
-
-    async def promote_link_for_llm(tx, pending_link: PendingLink):
-        # Here we could add logic to check if the link is "worthy" of an LLM call.
-        # For now, we just promote it.
-        await update_pending_link_status(tx, pending_link.id, LinkStatus.READY_FOR_LLM)
-        logger.info(f"Promoting link {pending_link.id} to LLM tier.")
-    ```
+*   **`create_final_link`:** Called on success. Creates the final `Relationship`, creates a `ResolutionCache` entry for the answer, and deletes the `PendingLink` debt.
+*   **`promote_link_for_llm`:** Called on failure or ambiguity. Updates the `PendingLink` status to `READY_FOR_LLM`, attaching any found candidates to enrich the prompt for the Tier 3 worker.
 
 ##### **Tier 2 Rationale and Trade-offs**
 
-This Tier 2 design is the embodiment of our **"Accuracy-First"** principle.
+This Tier 2 design finds the optimal balance between accuracy and completeness.
 
-*   **What it Covers:** It perfectly handles the two most common types of non-local links: imports from known third-party libraries and calls between files in the same project.
-*   **What it DOES NOT Cover (The Compromise):** It **intentionally does not** use "fuzzy" or "heuristic" matching like the `ends with` suffix search. This means that a C++ call like `MyProject::MyClass()` that was made from a file with `using namespace MyCompany;` will **fail** this tier, because the `target_expression` does not match the `canonical_fqn` of `MyCompany::MyProject::MyClass`.
-*   **Why this is the Right Choice:** This failure is a good thing. It means the Tier 2 resolver has correctly identified a problem that is **not deterministically solvable** with the information it has. It is a genuinely ambiguous link. By refusing to guess, it maintains the integrity of the graph and correctly passes this "hard problem" to the Tier 3 LLM, which is the only tool equipped to handle it.
+*   **What it Covers:** It handles the most common high-confidence links (direct and external) and now also intelligently resolves more complex cases like C++ `using namespace` ambiguities.
+*   **The "Slow Query" Trade-off:** The suffix match heuristic can be slower than a direct lookup. This is an **acceptable trade-off** because this query runs asynchronously in a background worker and does not block real-time ingestion. We pay a small price in background processing time for a significant increase in deterministic linking.
+*   **The "Ambiguity" Feature:** When the suffix match finds multiple valid candidates, the system correctly identifies this as a "hard problem" and escalates it. It provides the LLM with a pre-vetted list of options, making the LLM's job easier and its answer more reliable. This is a feature, not a bug.
 
 #### **Component C3: The "LLM Consultant" and "Repair" Subsystem**
 
