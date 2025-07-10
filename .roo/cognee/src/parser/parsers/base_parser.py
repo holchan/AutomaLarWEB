@@ -5,7 +5,8 @@ from ..utils import logger
 
 class BaseParser(ABC):
     """
-    Defines the interface that language-specific and generic parsers must implement.
+    Defines the interface that all language-specific and generic
+    parsers must implement.
     """
     SUPPORTED_EXTENSIONS: ClassVar[List[str]] = []
 
@@ -16,16 +17,18 @@ class BaseParser(ABC):
     @abstractmethod
     async def parse(self, source_file_id: str, file_content: str) -> AsyncGenerator[ParserOutput, None]:
         """
-        Parses the content of a file.
+        Parses the content of a file and yields factual data.
 
         Args:
-            source_file_id: The final, version-aware ID for the SourceFile node.
-            file_content: The full string content of the file to be parsed.
+            source_file_id: A unique identifier for the file being parsed.
+            file_content: The full string content of the file.
 
         Yields:
-            A stream of ParserOutput union types, starting with a single List[int]
-            for slice_lines, followed by any CodeEntity, Relationship, or
-            CallSiteReference objects discovered.
+            A stream of ParserOutput union types:
+            1. A single List[int] containing the line numbers for slicing.
+            2. Zero or more CodeEntity objects for each definition found.
+            3. Zero or more RawSymbolReference objects for each reference found.
         """
         raise NotImplementedError(f"{self.parser_type} must implement the 'parse' method.")
-        yield
+        if False:
+            yield
