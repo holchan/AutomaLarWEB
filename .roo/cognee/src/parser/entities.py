@@ -11,7 +11,7 @@ class FileProcessingRequest(BaseModel):
     repo_path: str = Field(description="The relative path to the repo.")
     repo_id: str = Field(description="The repository identifier (e.g., 'automalar/web').")
     branch: str = Field(description="The name of the branch being processed (e.g., 'main').")
-    commit_index: int = Field(description="The current commit count of the branch as a zero-padded string (e.g., '00765').")
+    commit_index: int = Field(description="The current commit count of the branch as a zero-padded string (e.g., '234').")
     is_delete: bool = Field(description="DELETE removes all graph data for this file path on the specified branch or UPSERT, which parses and ingests the file's current state.")
     import_id: Optional[str] = Field(None, description="The canonical import name for this repository, if it's a library (e.g., 'pandas').")
     root_namespace: Optional[str] = Field(None, description="The root namespace for this project, for languages like Java (e.g., 'com.mycompany.project').")
@@ -26,7 +26,7 @@ class Repository(BaseModel):
 
 class SourceFile(BaseModel):
     """Represents a file within the repository."""
-    id: str = Field(description="Composite ID, Repository.id|Relative path to the file@Commit index - local version (e.g., 'microsoft/graphrag@main|src/main.py@00234-432').")
+    id: str = Field(description="Composite ID, Repository.id|Relative path to the file@Commit index - local version (e.g., 'microsoft/graphrag@main|src/main.py@234-432').")
     type: str = Field("SourceFile", frozen=True, description="Type of node.")
     relative_path: str = Field(description="Relative path to the file (e.g., 'src/main.py').")
     commit_index: int = Field(description="Commit index number, zero-padded integer, 5 decimal places (e.g., '234').")
@@ -38,7 +38,7 @@ class SourceFile(BaseModel):
 
 class TextChunk(BaseModel):
     """Represents a segment of text from a file."""
-    id: str = Field(description="Composite ID, Repository.id|SourceFile.id|index of the chunk@Start-End line (e.g., 'microsoft/graphrag@main|src/main.py@00234-432|0@1-12').")
+    id: str = Field(description="Composite ID, Repository.id|SourceFile.id|index of the chunk@Start-End line (e.g., 'microsoft/graphrag@main|src/main.py@234-432|0@1-12').")
     type: str = Field("TextChunk", frozen=True, description="Type of node.")
     chunk_content: str = Field(description="Chunk text content.")
     start_line: int = Field(description="First line index number, point to the starting line number in the source file (e.g., 1).")
@@ -47,12 +47,13 @@ class TextChunk(BaseModel):
 
 class CodeEntity(BaseModel):
     """Represents a code construct (function, class, interface, struct, enum, etc.)."""
-    id: str = Field(description="Composite ID, Repository.id|SourceFile.id|TextChunk.id|FQN@Start line (e.g., 'microsoft/graphrag@main|src/main.py@00234-432|0@1-12|FuncPtr(int)@9-11').")
+    id: str = Field(description="Composite ID, Repository.id|SourceFile.id|TextChunk.id|FQN@Start line (e.g., 'microsoft/graphrag@main|src/main.py@234-432|0@1-12|FuncPtr(int)@9-11').")
     type: str = Field(description="Specific type such as 'FunctionDefinition', 'ClassDefinition', 'InterfaceDefinition'.")
     start_line: int = Field(description="First line index number, point to the starting line number of this code entity in the source file (e.g., 9).")
     end_line: int = Field(description="Last line index number, point to the endiing line number of this code entity in the source file (e.g., 11).")
     canonical_fqn: Optional[str] = Field(None, description="The parser's best-effort, language-specific canonical FQN for this entity.")
     snippet_content: str = Field(description="Code snippet text content.")
+    metadata: Optional[Dict[str, Any]] = None
 
 class Relationship(BaseModel):
     """Represents a directed edge/relationship between two nodes (entities or files)."""
@@ -109,6 +110,7 @@ class RawSymbolReference(BaseModel):
     target_expression: str = Field(description="Literal code used for the reference (e.g., 'pd.DataFrame', 'MyClass', 'utils.helper').")
     reference_type: str = Field(description="Semantic type of the reference (e.g., 'INHERITANCE', 'FUNCTION_CALL', 'IMPORT').")
     context: ReferenceContext
+    metadata: Optional[Dict[str, Any]] = None
 
 class PendingLink(BaseModel):
     """
