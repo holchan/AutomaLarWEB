@@ -10,11 +10,7 @@ At its heart, this system creates a living, queryable **"digital brain"** for a 
 
 Our North Star is **Provable Truth**. This means the system will **never** create a [**`Relationship`**](#2.4.1-The-Relationship-Model) between two code entities that it cannot prove with a high degree of certainty based on the evidence it has gathered. An unresolved [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) is infinitely better than an incorrect one. This principle informs every component, from the [**Parsers**](#3.1-Component-A-The-Parsers) to the [**Linking Engine**](#3.5-Component-E-The-Graph-Enhancement-Engine), ensuring that the final knowledge graph is a reliable source of ground truth about the codebase. We have explicitly rejected fragile heuristics, external configuration files, and any process that requires a developer to be an expert on our system's internals.
 
----
-
 ## <a id="1.2-System-Wide-Benefits-&-Guarantees"></a>1.2 System-Wide Benefits & Guarantees
-
-This architecture is not just a theoretical design; it provides a clear set of guarantees that define its behavior and value in a real-world, production environment.
 
 ### <a id="1.2.1-Reliability-Guarantees"></a>1.2.1 Reliability Guarantees (The "It Won't Lie")
 
@@ -34,7 +30,7 @@ The system is designed to be both fast for real-time operations and efficient wi
 
 -   **Real-Time Ingestion:** The primary ingestion path, managed by the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator), is extremely fast. It performs only the most essential, high-confidence tasks and defers all complex symbol linking.
 
--   **On-Demand Asynchronous Linking:** We have explicitly rejected the inefficient model of always-on background workers. Instead, our event-driven [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) uses a [**quiescence timer**](#3.4.1-The-Quiescence-Timer) to trigger the resource-intensive [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) only when a repository is inactive.
+-   **On-Demand Asynchronous Linking:** We have explicitly rejected the inefficient model of always-on background workers. Instead, our event-driven [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) uses a [**quiescence timer**](#3.4.1-The-Quiescence-Timer) to trigger the resource-intensive [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) only when a repository is inactive(not upserting for x seconds).
 
 -   **Performant by Design (Self-Managing Indexes):** The system is self-configuring for performance. On application startup, a one-time, idempotent process detailed in the [**"Ensure on Startup" Process**](#4.2.1-The-Ensure-on-Startup-Process) connects to our chosen [**Neo4j**](#4.0-The-Database-Strategy) database and executes all necessary `CREATE INDEX ... IF NOT EXISTS` commands. This guarantees that all critical attributes are fully indexed before the first query is ever run.
 
@@ -46,47 +42,200 @@ The architecture is designed to be maintainable and adaptable over time.
 
 -   **Robust Fallbacks for Non-Code Files:** The system is designed to ingest an entire repository. The [**`Orchestrator`**](#3.3.2-The-Centralized-Fallback-Mechanism) has a centralized fallback mechanism. If a language-specific parser is given a file with no code definitions (e.g., `README.md`), it yields an empty `slice_lines` list. The Orchestrator detects this and automatically invokes the `GenericParser`, which performs intelligent, token-based chunking. This guarantees complete repository coverage.
 
-- **[1.3 The Four Pillars of the Architecture](#1.3-The-Four-Pillars)**
-  - *The "how" behind our guarantees. A breakdown of the four core design patterns that make the system work.*
-  - **[1.3.1 Pillar 1: The "Smart" Parser (The Intelligent Witness)](#1.3.1-Pillar-1-The-Smart-Parser)**
-    - `1.3.1.1 Responsibility: To Deduce, Not Just Report`
-    - `1.3.1.2 The Key Output: The possible_fqns List`
-  - **[1.3.2 Pillar 2: The Deterministic Linking Engine (The Verifier)](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine)**
-    - `1.3.2.1 Responsibility: To Verify, Not To Search`
-    - `1.3.2.2 The "Single-Hit" Rule: How Links Are Proven`
-  - **[1.3.3 Pillar 3: On-Demand Enrichment (The Conductor)](#1.3.3-Pillar-3-On-Demand-Enrichment)**
-    - `1.3.3.1 Responsibility: To Manage Quiescence, Not Poll Endlessly`
-    - `1.3.3.2 The Timer Mechanism: How It Works`
-  - **[1.3.4 Pillar 4: The Database as a Partner (The Neo4j Commitment)](#1.3.4-Pillar-4-The-Database-as-a-Partner)**
-    - `1.3.4.1 Responsibility: To Leverage Native Power`
-    - `1.3.4.2 The Role of Cypher and Programmatic Indexes`
+## <a id="1.3-The-Four-Pillars"></a>1.3 The Four Pillars of the Architecture
+
+*The "how" behind our guarantees. These four core design patterns work in concert to create a system that is trustworthy, maintainable, and efficient.*
+
+### <a id="1.3.1-Pillar-1-The-Smart-Parser"></a>1.3.1 Pillar 1: The "Smart" Parser (The Intelligent Witness)
+
+This pillar moves complexity to the edge of the system, where the most context is available.
+
+-   **<a id="1.3.1.1-Responsibility"></a>1.3.1.1 Responsibility: To Deduce, Not Just Report**
+    -   Each language-specific parser is a sophisticated component, not a simple tokenizer. Its primary responsibility is to analyze a file's AST and build a rich, file-local symbol table ([**`FileContext`**](#3.1.2-The-FileContext-A-Parser's-Local-Brain)). Using this context, it intelligently deduces a list of high-probability, fully-qualified candidates for every symbol reference it finds. This is a fundamental shift from a simple "reporter" to an "intelligent witness."
+
+-   **<a id="1.3.1.2-Key-Output"></a>1.3.1.2 The Key Output: The `possible_fqns` List**
+    -   The culmination of the parser's intelligence is the [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) field within the [**`RawSymbolReference`**](#2.2.3-The-Universal-Report) object it yields. This list of candidate FQNs is the high-quality, context-aware evidence that the rest of the system will use to make deterministic linking decisions. This approach is detailed further in the [**"Smart Parser" Implementation Strategy**](#3.1.1-The-Smart-Parser-Implementation-Strategy).
+
+### <a id="1.3.2-Pillar-2-The-Deterministic-Linking-Engine"></a>1.3.2 Pillar 2: The Deterministic Linking Engine (The Verifier)
+
+This pillar ensures that our system adheres strictly to the "Provable Truth" principle by eliminating all guesswork from the linking process.
+
+-   **<a id="1.3.2.1-Responsibility"></a>1.3.2.1 Responsibility: To Verify, Not To Search**
+    -   We have **completely eliminated** fuzzy, heuristic-based matching (like `ENDS WITH`) from our core linking engine. The [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) is now a simple, 100% deterministic verifier. It does not perform broad, expensive searches; it performs targeted verifications based on the high-quality evidence provided by the parsers. This crucial decision is documented in the [**"Smart Engine" vs. "Smart Parser" Debate**](#5.1-The-Smart-Engine-vs-Smart-Parser-Debate).
+
+-   **<a id="1.3.2.2-Single-Hit-Rule"></a>1.3.2.2 The "Single-Hit" Rule: How Links Are Proven**
+    -   The engine's only job is to take the [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) list and run a single, precise query against the graph: `... WHERE n.canonical_fqn IN $possible_fqns`. A [**`Relationship`**](#2.4.1-The-Relationship-Model) is created if, and only if, **exactly one** of those candidates already exists in the graph. This simple, powerful rule eradicates a whole class of race conditions and false positives.
+
+### <a id="1.3.3-Pillar-3-On-Demand-Enrichment"></a>1.3.3 Pillar 3: On-Demand Enrichment (The Conductor)
+
+This pillar ensures that our system is highly efficient, running resource-intensive tasks only when necessary.
+
+-   **<a id="1.3.3.1-Responsibility"></a>1.3.3.1 Responsibility: To Manage Quiescence, Not Poll Endlessly**
+    -   We have rejected the inefficient model of always-on background workers. Instead, a stateful but efficient [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) acts as the system's central conductor, listening for activity from the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator). The rationale for this major architectural pivot is detailed in the [**"Always-On Worker" vs. "On-Demand Dispatcher" Decision**](#5.2-The-Always-On-Worker-vs-On-Demand-Dispatcher-Decision).
+
+-   **<a id="1.3.3.2-Timer-Mechanism"></a>1.3.3.2 The Timer Mechanism: How It Works**
+    -   Only after a repository has been inactive for a configurable period (the [**Quiescence Timer**](#3.4.1-The-Quiescence-Timer)), does the `Dispatcher` trigger the deterministic linking tasks. This ensures that linking, which requires a complete and stable view of the graph, only happens when the "storm" of file updates is over.
+
+### <a id="1.3.4-Pillar-4-The-Database-as-a-Partner"></a>1.3.4 Pillar 4: The Database as a Partner (The Neo4j Commitment)
+
+This pillar recognizes that our choice of database is not just an implementation detail, but a core part of the system's ability to deliver on its promises of performance and reliability. Our full [**Database Strategy**](#4.0-The-Database-Strategy) is detailed later.
+
+-   **<a id="1.3.4.1-Responsibility"></a>1.3.4.1 Responsibility: To Leverage Native Power**
+    -   We have committed to **Neo4j** as our backend. This allows us to move beyond generic database operations and leverage the specific, powerful features of a market-leading graph database.
+
+-   **<a id="1.3.4.2-Cypher-and-Indexes"></a>1.3.4.2 The Role of Cypher and Programmatic Indexes**
+    -   This partnership means we can write highly performant, custom Cypher queries for tasks like our atomic versioning counter. It also means we can, and must, manage the database schema directly. The system ensures performance by programmatically creating all necessary [**indexes and constraints**](#4.2.2-The-Complete-Index-and-Constraint-Catalog) on application startup.
 
 ---
 
-### [**2.0 The Data Contracts: The System's Universal Language**](#2.0-The-Data-Contracts)
-*This section is the "Rosetta Stone." It defines the formal, typed Pydantic models that all components use to communicate, ensuring consistency and reliability.*
+# <a id="2.0-The-Data-Contracts"></a>2.0 The Data Contracts: The System's Universal Language
 
-- **[2.1 Core Philosophy: Separating Evidence from Verdict](#2.1-Core-Philosophy)**
-  - *Explains our key principle: Parsers provide `RawSymbolReference` (the evidence), and the Linking Engine makes the final `Relationship` (the verdict).*
+## <a id="2.1-Core-Philosophy"></a>2.1 Core Philosophy: Separating Evidence from Verdict
 
-- **[2.2 The Ingestion & Control Flow Models](#2.2-The-Ingestion-&-Control-Flow-Models)**
-  - *The transient data models used to manage the flow of work through the system.*
-  - **[2.2.1 The Work Order: `FileProcessingRequest`](#2.2.1-The-Work-Order)**
-  - **[2.2.2 The Parser's Output Contract: `ParserOutput`](#2.2.2-The-Parser's-Output-Contract)**
-  - **[2.2.3 The Universal Report: `RawSymbolReference`](#2.2.3-The-Universal-Report)**
-    - `2.2.3.1 The Linchpin Field: possible_fqns`
-    - `2.2.3.2 The metadata Field: Capturing Conditional Context`
-  - **[2.2.4 The Asynchronous State Machine: `PendingLink` & `LinkStatus`](#2.2.4-The-Asynchronous-State-Machine)**
-    - `2.2.4.1 The Simplified LinkStatus Enum`
+The fundamental principle behind our data models is the strict **separation of factual reporting from interpretive resolution**. This aligns perfectly with our architectural pillars:
 
-- **[2.3 The Core Graph Node Models](#2.3-The-Core-Graph-Node-Models)**
-  - *The final, persistent node structures that form our knowledge graph.*
-  - **[2.3.1 ID Formatting Strategy: Human-Readable, 1-Based, No Padding](#2.3.1-ID-Formatting-Strategy)**
-  - **[2.3.2 The `Repository` Node](#2.3.2-The-Repository-Node)**
-  - **[2.3.3 The `SourceFile` Node](#2.3.3-The-SourceFile-Node)**
-  - **[2.3.4 The `TextChunk` Node](#2.3.4-The-TextChunk-Node)**
-  - **[2.3.5 The `CodeEntity` Node](#2.3.5-The-CodeEntity-Node)**
-  - **[2.3.6 The `ExternalReference` Node](#2.3.6-The-ExternalReference-Node)**
+-   **Parsers are "Intelligent Witnesses"**: They are experts on syntax and the immediate context of a single file. They report their findings as evidence in the form of a [**`RawSymbolReference`**](#2.2.3-The-Universal-Report). This evidence includes a list of high-probability candidate FQNs, but it is still just a report, not a conclusion.
+
+-   **The `GraphEnhancementEngine` is the "Verifier"**: It acts as the judge and jury. It takes the evidence from the parser, compares it against the known facts in the graph, and delivers a final verdict by creating a [**`Relationship`**](#2.4.1-The-Relationship-Model).
+
+This separation is what allows our core linking logic to be simple, deterministic, and language-agnostic.
+
+## <a id="2.2-The-Ingestion-&-Control-Flow-Models"></a>2.2 The Ingestion & Control Flow Models
+
+These are the transient data models used to manage the flow of work through the system. They represent data "in-flight" before it is permanently stored in the graph.
+
+### <a id="2.2.1-The-Work-Order"></a>2.2.1 The Work Order: `FileProcessingRequest`
+
+This Pydantic model is the **sole input** to the entire ingestion pipeline, passed to the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator). It is a self-contained work order for a single file.
+
+-   **Key Fields (Finalized):**
+    -   `absolute_path: str`: The full path to the file on disk.
+    -   `repo_path: str`: The path to the repository root.
+    -   `repo_id: str`: The repository identifier (e.g., `automalar/web`).
+    -   `branch: str`: The branch name (e.g., `main`).
+    -   **`commit_index: int = 1`**: The commit sequence number. **Defaults to `1`** for easier use.
+    -   **`is_delete: bool = False`**: Flag for `DELETE` operations. **Defaults to `False`** (UPSERT).
+    -   `import_id: Optional[str]`: The canonical name if the repo is a library (e.g., `pandas`), used by the linking engine.
+    -   `root_namespace: Optional[str]`: The root namespace for languages like Java (e.g., `com.mycompany.project`).
+
+### <a id="2.2.2-The-Parser's-Output-Contract"></a>2.2.2 The Parser's Output Contract: `ParserOutput`
+
+This `Union` type defines the strict contract that every [**"Smart Parser"**](#3.1-Component-A-The-Parsers) must adhere to. The `Orchestrator` consumes this asynchronous stream and will only accept these three types of objects:
+
+1.  `List[int]`: A single list of **1-based** line numbers representing the recommended [**`slice_lines`**](#3.1.1-The-Smart-Parser-Implementation-Strategy) for the intelligent chunker.
+2.  `CodeEntity`: A factual report of a single code definition found in the file.
+3.  `RawSymbolReference`: A rich, evidential report of a single symbol reference found in the file.
+
+### <a id="2.2.3-The-Universal-Report"></a>2.2.3 The Universal Report: `RawSymbolReference`
+
+This model is the primary output of a "Smart Parser" and the most critical piece of evidence used by the linking engine. It is a detailed "forensic report" about a single reference.
+
+-   **`source_entity_id: str`**: The temporary ID (`FQN@line`) of the entity making the reference.
+-   **`target_expression: str`**: The literal text of the reference as written in the code (e.g., `MyClass::do_work`).
+-   **`reference_type: str`**: The semantic type of the reference (e.g., `CALLS`, `EXTENDS`, `IMPORTS`).
+-   **`possible_fqns: List[str]`**: See [**The Linchpin Field**](#2.2.3.1-The-Linchpin-Field-possible_fqns).
+-   **`metadata: Optional[Dict[str, Any]]`**: See [**Capturing Conditional Context**](#2.2.3.2-The-metadata-Field).
+
+#### <a id="2.2.3.1-The-Linchpin-Field-possible_fqns"></a>2.2.3.1 The Linchpin Field: `possible_fqns`
+This field is the cornerstone of the entire **"Smart Parser"** architecture. It is a list of high-confidence, fully-qualified names that the parser deduces a reference could resolve to, based on its analysis of the file-local context (e.g., `using` statements, aliases, local variables). This list transforms the parser from a simple reporter into an intelligent analyst, enabling the linking engine to be a simple, safe verifier.
+
+#### <a id="2.2.3.2-The-metadata-Field"></a>2.2.3.2 The `metadata` Field: Capturing Conditional Context
+This optional dictionary is our extensible mechanism for adding crucial context that isn't part of a symbol's core identity. Its primary use is to track conditional compilation. For example, a reference found inside an `#ifdef DEBUG` block would have its `metadata` populated with `{'is_conditional': True, 'condition': '#ifdef DEBUG'}`. This allows the final `Relationship` in the graph to carry this context.
+
+### <a id="2.2.4-The-Asynchronous-State-Machine"></a>2.2.4 The Asynchronous State Machine: `PendingLink` & `LinkStatus`
+
+These models are the bookkeeping tools that enable our on-demand, deterministic linking process.
+
+-   **`PendingLink`**: A temporary node stored in the graph representing an unresolved reference—a "debt" to be paid by the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine). It contains the full `RawSymbolReference` object as its payload.
+-   **`LinkStatus`**: The enum that controls the lifecycle of a `PendingLink`.
+
+#### <a id="2.2.4.1-The-Simplified-LinkStatus-Enum"></a>2.2.4.1 The Simplified `LinkStatus` Enum
+In our final, deterministic architecture, the state machine is greatly simplified. The primary states are:
+
+1.  **`PENDING_RESOLUTION`**: The initial state. The `Orchestrator` creates the link in this state. It is waiting for a quiescent period to be processed.
+2.  **`AWAITING_TARGET`**: A crucial state for our [**self-healing graph**](#3.5.2-The-Self-Healing-Graph). The linking engine has run but found zero verifiable candidates for the link. It is now patiently waiting for a new `CodeEntity` to be ingested that might satisfy one of the `possible_fqns`.
+3.  **`UNRESOLVABLE`**: A terminal state. The linking engine ran and found **more than one** verifiable candidate in the graph, making the link provably ambiguous. The system will not guess and will no longer attempt to resolve this link.
+
+### <a id="2.3-The-Core-Graph-Node-Models"></a>2.3 The Core Graph Node Models
+
+*The final, persistent node structures that form our knowledge graph. These models define the "nouns" in our system—the entities that we store and query. The structure of these nodes and their IDs is fundamental to the system's performance and clarity.*
+
+#### <a id="2.3.1-ID-Formatting-Strategy"></a>2.3.1 ID Formatting Strategy: Human-Readable, 1-Based, No Padding
+
+Our ID strategy is a core design principle that prioritizes debuggability and clarity over brevity.
+
+-   **Human-Readable `slug_id`:** Every node in the graph has a primary key named `slug_id`. This ID is a composite, human-readable string that encodes the node's hierarchical context. This makes manual graph exploration and debugging via Cypher queries significantly easier. See the [**Complete Index and Constraint Catalog**](#4.2.2-The-Complete-Index-and-Constraint-Catalog) for details on how this is indexed.
+-   **1-Based Numbering:** All numerical components within IDs and model fields (line numbers, commit indices, local save counts) are **1-based**. This aligns with the numbering that developers see in their text editors, making the data more intuitive.
+-   **No Zero-Padding:** We have rejected zero-padding for numerical components in our IDs. This keeps the IDs cleaner and simpler (e.g., `@12-3` instead of `@00012-003`).
+
+---
+
+#### <a id="2.3.2-The-Repository-Node"></a>2.3.2 The `Repository` Node
+*Represents the root of a specific repository branch.*
+
+-   **`id` Format:** `"<repo_id>@<branch>"`
+-   **Example `id`:** `"automalar/automalarweb@main"`
+-   **Key Pydantic Fields:**
+    -   `id: str`: The unique `slug_id`.
+    -   `repo_id: str`: The repository identifier (e.g., `"automalar/automalarweb"`). Used to query for all branches of a single repo.
+    -   `branch: str`: The branch name (e.g., `"main"`).
+    -   `import_id: Optional[str]`: A crucial hint provided during ingestion if this repository is a library. It stores the canonical name used to import it (e.g., `"pandas"`).
+
+---
+
+#### <a id="2.3.3-The-SourceFile-Node"></a>2.3.3 The `SourceFile` Node
+*Represents a specific, versioned instance of a single source file.*
+
+-   **`id` Format:** `"<repository_id>|<relative_path>@<commit_index>-<local_save>"`
+-   **Example `id`:** `"automalar/automalarweb@main|src/main.py@12-3"`
+-   **Key Pydantic Fields:**
+    -   `id: str`: The unique `slug_id`.
+    -   `relative_path: str`: The path to the file relative to the repository root (e.g., `"src/main.py"`).
+    -   `commit_index: int`: The commit sequence number.
+    -   `local_save: int`: The sequential version number within a single commit, generated by our [**atomic counter**](#4.3.1-Solving-the-local_save-Race-Condition).
+    -   `content_hash: str`: A SHA256 hash of the file content, used for the [**idempotency check**](#1.2.1-Reliability-Guarantees).
+
+---
+
+#### <a id="2.3.4-The-TextChunk-Node"></a>2.3.4 The `TextChunk` Node
+*Represents a contiguous block of text from a `SourceFile`, created by our [**Intelligent Packer Algorithm**](#3.2.1-The-Intelligent-Packer-Algorithm).*
+
+-   **`id` Format:** `"<source_file_id>|<chunk_index>@<start_line>-<end_line>"`
+-   **Example `id`:** `"...|src/main.py@12-3|0@1-10"`
+-   **Rationale:** The `chunk_index` ensures uniqueness within the file. Including the `@<start_line>-<end_line>` in the ID provides immediate, human-readable context during manual graph exploration.
+-   **Key Pydantic Fields:**
+    -   `id: str`: The unique `slug_id`.
+    -   `start_line: int`: The 1-based starting line number of the chunk.
+    -   `end_line: int`: The 1-based ending line number of the chunk.
+    -   `chunk_content: str`: The raw text content of the chunk.
+
+---
+
+#### <a id="2.3.5-The-CodeEntity-Node"></a>2.3.5 The `CodeEntity` Node
+*Represents a single, defined code construct like a class, function, or macro. This is one of the most important nodes for linking.*
+
+-   **`id` Format:** `"<text_chunk_id>|<local_fqn>@<start_line>-<end_line>"`
+-   **Example `id`:** `"...|0@1-10|MyClass::my_method@5-8"`
+-   **Key Pydantic Fields:**
+    -   `id: str`: The unique `slug_id`. The Orchestrator constructs this from the parser's temporary ID.
+    -   `start_line: int`, `end_line: int`: The 1-based line numbers defining the entity's span.
+    -   `canonical_fqn: str`: The parser's best-effort, language-specific canonical Fully Qualified Name. This is a **critical, indexed field** used as the primary key for all symbol linking.
+    -   `type: str`: The specific type of the entity (e.g., `"FunctionDefinition"`, `"ClassDefinition"`).
+    -   `snippet_content: str`: The raw text of the entity's definition.
+    -   `metadata: Optional[Dict[str, Any]]`: An optional dictionary for storing extra context, such as [**conditional compilation flags**](#2.2.3.2-The-metadata-Field).
+
+---
+
+#### <a id="2.3.6-The-ExternalReference-Node"></a>2.3.6 The `ExternalReference` Node
+*A lightweight "beacon" node representing a known external library or dependency. This allows us to create high-level dependency links without needing the full source code of the library.*
+
+-   **`id` Format:** `"external://<library_name>"`
+-   **Example `id`:** `"external://pandas"`
+-   **Key Pydantic Fields:**
+    -   `id: str`: The unique `slug_id`.
+    -   `type: str`: Always `"ExternalReference"`.
+    -   `library_name: str`: The canonical name of the library (e.g., `"pandas"`).
+-   **Creation:** These nodes are created by the [**Tier 1 Orchestrator**](#3.3-Component-C-The-Orchestrator) when it encounters an absolute import that it cannot resolve internally. This creates a fast, factual [**`USES_LIBRARY`**](#2.4.2-The-Relationship-Catalog) link.
 
 - **[2.4 The Core Graph Edge Model: `Relationship`](#2.4-The-Core-Graph-Edge-Model)**
   - *The final, persistent edge structure that connects our nodes.*
