@@ -237,79 +237,427 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
     -   `library_name: str`: The canonical name of the library (e.g., `"pandas"`).
 -   **Creation:** These nodes are created by the [**Tier 1 Orchestrator**](#3.3-Component-C-The-Orchestrator) when it encounters an absolute import that it cannot resolve internally. This creates a fast, factual [**`USES_LIBRARY`**](#2.4.2-The-Relationship-Catalog) link.
 
-- **[2.4 The Core Graph Edge Model: `Relationship`](#2.4-The-Core-Graph-Edge-Model)**
-  - *The final, persistent edge structure that connects our nodes.*
-  - **[2.4.1 The `Relationship` Model: The Final Verdict](#2.4.1-The-Relationship-Model)**
-  - **[2.4.2 The Relationship Catalog: A Summary of Edge Types](#2.4.2-The-Relationship-Catalog)**
+- **<a id="2.4-The-Core-Graph-Edge-Model"></a>2.4 The Core Graph Edge Model: `Relationship`**
+  - *The final, persistent edge structure that connects our nodes, representing the "knowledge" in our graph.*
+
+  - **<a id="2.4.1-The-Relationship-Model"></a>2.4.1 The `Relationship` Model: The Final Verdict**
+    - The `Relationship` is the ultimate output of our linking process. It is a simple, directed edge between two nodes in the graph. It is created only when a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) has been successfully and unambiguously resolved by either the [**Tier 1 Resolver**](#3.3.1-The-Finalized-Workflow) in the `Orchestrator` (for file-level includes) or the [**Deterministic Linking Engine**](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine) (for all other symbol links).
+    - Its key fields are `source_id`, `target_id`, `type`, and an optional `properties` dictionary which is populated from the `metadata` field of the originating [**`RawSymbolReference`**](#2.2.3-The-Universal-Report).
+
+  - **<a id="2.4.2-The-Relationship-Catalog"></a>2.4.2 The Relationship Catalog: A Summary of Edge Types**
+    - This table summarizes the primary `Relationship` types the system creates. For full details on creation logic, see the [**Relationship Catalog deep dive**](#iii-The-Relationship-Catalog).
+
+| Relationship Type | Direction | Purpose & Example |
+| :--- | :--- | :--- |
+| **`CONTAINS_CHUNK`** | `(SourceFile) -> (TextChunk)` | Structural link. "What text blocks are in this file?" |
+| **`DEFINES_CODE_ENTITY`** | `(TextChunk) -> (CodeEntity)` | Structural link. "Where is this function defined?" |
+| **`INCLUDE`** | `(SourceFile) -> (SourceFile)` | File dependency. "What headers does this file include?" |
+| **`EXTENDS` / `IMPLEMENTS`** | `(CodeEntity) -> (CodeEntity)` | Inheritance. "What is this class's parent?" |
+| **`CALLS`** | `(CodeEntity) -> (CodeEntity)` | Runtime behavior. "Who calls this function?" |
+| **`IMPORTS`** | `(CodeEntity) -> (CodeEntity)` | Symbol dependency. "Which function imports `helper`?" |
+| **`USES_LIBRARY`** | `(SourceFile) -> (ExternalReference)` | Abstract external dependency. "Does this file use `pandas`?" |
+| **`REFERENCES_SYMBOL`** | `(CodeEntity) -> (CodeEntity)` | Weak dependency. "What symbols does this macro use?" |
 
 ---
 
-### [**3.0 The Component Deep Dive: From Theory to Implementation**](#3.0-The-Component-Deep-Dive)
-*This section is the detailed engineering guide, explaining the internal logic and responsibilities of each component.*
+## <a id="3.0-The-Component-Deep-Dive"></a>3.0 The Component Deep Dive: From Theory to Implementation
 
-- **[3.1 Component A: The Parsers](#3.1-Component-A-The-Parsers)**
-  - **[3.1.1 Core Philosophy: The "Smart Parser" as an Intelligent Witness](#3.1.1-Core-Philosophy-The-Smart-Parser)**
-  - **[3.1.2 The `FileContext` Class: A Parser's Local Brain](#3.1.2-The-FileContext-Class)**
-  - **[3.1.3 The `_resolve_possible_fqns` Helper: The Prioritized Logic Chain](#3.1.3-The-resolve_possible_fqns-Helper)**
-  - **[3.1.4 Language-Specific Implementation Guides](#3.1.4-Language-Specific-Implementation-Guides)**
-    - `3.1.4.1 Guide: C++ Parser`
-    - `3.1.4.2 Guide: Python Parser`
-    - `3.1.4.3 Guide: Java Parser`
-    - `3.1.4.4 Guide: JavaScript/TypeScript Parser`
-
-- **[3.2 Component B: The Intelligent Chunker (`chunking.py`)](#3.2-Component-B-The-Intelligent-Chunker)**
-  - **[3.2.1 The "Intelligent Packer" Algorithm: A Step-by-Step Guide](#3.2.1-The-Intelligent-Packer-Algorithm)**
-
-- **[3.3 Component C: The Orchestrator (`orchestrator.py`)](#3.3-Component-C-The-Orchestrator)**
-  - **[3.3.1 The Finalized Workflow: A Step-by-Step Guide](#3.3.1-The-Finalized-Workflow)**
-  - **[3.3.2 The Centralized Fallback Mechanism: Handling Non-Code Files](#3.3.2-The-Centralized-Fallback-Mechanism)**
-
-- **[3.4 Component D: The Intelligent Dispatcher (`dispatcher.py`)](#3.4-Component-D-The-Intelligent-Dispatcher)**
-  - **[3.4.1 The Quiescence Timer: An Event-Driven Heartbeat](#3.4.1-The-Quiescence-Timer)**
-  - **[3.4.2 Supervisor Logic: Handling Asynchronous Task Failures](#3.4.2-Supervisor-Logic)**
-
-- **[3.5 Component E: The Graph Enhancement Engine (`graph_enhancement_engine.py`)](#3.5-Component-E-The-Graph-Enhancement-Engine)**
-  - **[3.5.1 The `run_deterministic_linking_task`: A Pure Verifier](#3.5.1-The-run_deterministic_linking_task)**
-  - **[3.5.2 The Self-Healing Graph: The `AWAITING_TARGET` State](#3.5.2-The-Self-Healing-Graph)**
-  - **[3.5.3 The LLM's Role (Future Work): A Constrained Tie-Breaker](#3.5.3-The-LLM's-Role)**
-
-- **[3.6 Component F: The Infrastructure & Utility Layer](#3.6-Component-F-The-Infrastructure-&-Utility-Layer)**
-  - **[3.6.1 The DAL: `graph_utils.py` as the Neo4j Gateway](#3.6.1-The-DAL)**
-  - **[3.6.2 The Translator: `cognee_adapter.py`'s Role in Indexing](#3.6.2-The-Translator)**
-  - **[3.6.3 The Application Entry Point: `main.py`'s Startup Sequence](#3.6.3-The-Application-Entry-Point)**
+*This section is the detailed engineering guide, explaining the internal logic, responsibilities, and implementation strategies for each component of the system.*
 
 ---
 
-### [**4.0 The Database Strategy: Neo4j as a First-Class Partner**](#4.0-The-Database-Strategy)
-*This section details our commitment to Neo4j and how we leverage its specific features to ensure our system is performant and robust.*
+### <a id="3.1-Component-A-The-Parsers"></a>3.1 Component A: The Parsers
 
-- **[4.1 Rationale for Choosing Neo4j](#4.1-Rationale-for-Choosing-Neo4j)**
-  - `4.1.1 The Need for Advanced String Matching`
-  - `4.1.2 The Requirement for Programmatic Index Management`
-  - `4.1.3 The Importance of a Mature, Asynchronous Python Driver`
-- **[4.2 The Definitive Indexing Strategy](#4.2-The-Definitive-Indexing-Strategy)**
-  - **[4.2.1 The "Ensure on Startup" Process](#4.2.1-The-Ensure-on-Startup-Process)**
-  - **[4.2.2 The Complete Index and Constraint Catalog](#4.2.2-The-Complete-Index-and-Constraint-Catalog)**
-    - `4.2.2.1 Unique slug_id Constraints (The Primary Keys)`
-    - `4.2.2.2 Secondary Indexes (for Query Performance)`
-    - `4.2.2.3 Composite Indexes (for Multi-Attribute Lookups)`
-- **[4.3 The Atomic Operations Strategy](#4.3-The-Atomic-Operations-Strategy)**
-  - **[4.3.1 Solving the `local_save` Race Condition with Cypher](#4.3.1-Solving-the-local_save-Race-Condition)**
-- **[4.4 High-Performance Query Patterns](#4.4-High-Performance-Query-Patterns)**
-  - **[4.4.1 The `find_code_entity_by_path` Query](#4.4.1-The-find_code_entity_by_path-Query)**
+#### <a id="3.1.1-Core-Philosophy-The-Smart-Parser"></a>3.1.1 Core Philosophy: The "Smart Parser" as an Intelligent Witness
+
+The parser is the foundation of our entire [**"Provable Truth"**](#1.1-The-Guiding-Principle) architecture. It is a stateless expert on a single language's syntax, and its only job is to be an **expert witness**. It makes **zero assumptions** about any other file or the state of the graph.
+
+Its most critical responsibility, as defined in [**Pillar 1**](#1.3.1-Pillar-1-The-Smart-Parser), is to use its deep syntactic understanding to deduce a list of high-probability, fully-qualified candidates ([**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns)) for every reference it finds. This moves the "intelligence" to the edge, where the most context is available, and eliminates the need for fragile, heuristic-based guessing in the linking engine.
+
+#### <a id="3.1.2-The-FileContext-Class"></a>3.1.2 The `FileContext` Class: A Parser's Local Brain
+
+To fulfill its role as an "Intelligent Witness," a high-quality parser must build a rich, in-memory symbol table during its single pass over a file's AST. This is the `FileContext` class. It acts as the parser's short-term memory, tracking the file-local context needed to resolve symbols accurately.
+
+A robust `FileContext` must track:
+-   **Scope Stack:** A stack of the current nested scopes (namespaces, classes, functions) to help construct FQNs.
+-   **Alias Map (`typedef`, `using`):** A mapping of aliases to their original types (e.g., `{'Vec': 'std::vector<int>'}`).
+-   **Variable Type Map:** A mapping of declared variable names to their types within a given scope (e.g., `{'my_vec': 'std::vector<int>'}`).
+-   **`using namespace` Map:** A mapping of which `using namespace` directives are active within a specific AST scope.
+-   **Import Map:** A mapping of imported symbols or aliases to their source module or file (e.g., `{'pd': 'pandas'}`).
+
+#### <a id="3.1.3-The-resolve_possible_fqns-Helper"></a>3.1.3 The `_resolve_possible_fqns` Helper: The Prioritized Logic Chain
+
+This helper function is the "brain" of the Smart Parser. When it encounters a reference, it queries the `FileContext` using a strict, prioritized logic chain to generate the `possible_fqns` list. The language-agnostic chain of logic is:
+
+1.  **Check for Variable Method Call:** Is the reference a method call on a known local variable (e.g., `my_obj.do_work()`)? If so, use the variable's known type from the `FileContext` to construct the primary FQN candidate.
+2.  **Check for Aliases:** Is the base of the reference a known `typedef` or `using` alias? If so, substitute the real type and generate a candidate.
+3.  **Check `using namespace` Directives:** For each active `using` namespace in the current scope, prepend it to the reference to generate additional candidates.
+4.  **Assume Global/Absolute:** Always include the literal reference itself as a candidate, in case it's already fully qualified.
+
+#### <a id="3.1.4-Language-Specific-Implementation-Guides"></a>3.1.4 Language-Specific Implementation Guides
+
+*This section provides detailed guides covering the context, challenges, coverage, and limitations for implementing a "Smart Parser" for each major language.*
+
+-   **<a id="3.1.4.1-Guide-C-Parser"></a>3.1.4.1 Guide: C++ Parser**
+    -   `Required Context:` Tracking `using namespace`, `typedef`, template parameters, and local variable types.
+    -   `Key Challenge:` Handling the preprocessor and operator overloading.
+    -   `Coverage Analysis (e.g., Unreal Engine):` Discussion of what is covered (standard classes, functions) versus what is not (macro expansion, full reflection data).
+    -   `Known Limitations:` Explicitly state the trade-offs regarding complex macros and template metaprogramming.
+
+-   **<a id="3.1.4.2-Guide-Python-Parser"></a>3.1.4.2 Guide: Python Parser**
+    -   `Required Context:` Tracking module imports, aliases (`import pandas as pd`), and relative imports (`from .utils import ...`).
+    -   `Key Challenge:` Dynamism and wildcard imports (`from ... import *`).
+    -   `Coverage Analysis:` How it handles standard libraries and framework-specific patterns (e.g., Django models).
+    -   `Known Limitations:` Explicitly state that wildcard imports are not resolved.
+
+-   **<a id="3.1.4.3-Guide-Java-Parser"></a>3.1.4.3 Guide: Java Parser**
+    -   `Required Context:` Tracking the `package` declaration, specific class imports, and wildcard imports (`import java.util.*`).
+    -   `Key Challenge:` Resolving symbols from wildcard imports and handling anonymous inner classes.
+    -   `Coverage Analysis:` How it handles standard Java libraries and frameworks like Spring.
+    -   `Known Limitations:` The strategy for resolving ambiguities from multiple wildcard imports.
+
+-   **<a id="3.1.4.4-Guide-JavaScriptTypeScript-Parser"></a>3.1.4.4 Guide: JavaScript/TypeScript Parser**
+    -   `Required Context:` Tracking `import`/`export` statements (default vs. named), `require()` calls, and aliases.
+    -   `Key Challenge:` The dynamic nature of module resolution and bundler-specific path aliases (e.g., `@/components`).
+    -   `Coverage Analysis:` How it handles frameworks like React, Vue, and Node.js.
+    -   `Known Limitations:` Inability to resolve module paths configured in external files like `webpack.config.js` or `tsconfig.json`.
+
+### <a id="3.2-Component-B-The-Intelligent-Chunker"></a>3.2 Component B: The Intelligent Chunker (`chunking.py`)
+
+This module is a pure function responsible for transforming a file's content and the parser's advice ([**`slice_lines`**](#ii.-Finalized-Parser-Responsibilities)) into a series of [**`TextChunk`**](#2.3.4-The-TextChunk-Node) nodes. Its design guarantees **100% content coverage** while creating semantically meaningful and efficiently sized chunks.
+
+#### <a id="3.2.1-The-Intelligent-Packer-Algorithm"></a>3.2.1 The "Intelligent Packer" Algorithm: A Step-by-Step Guide
+
+The `generate_intelligent_chunks` function is superior to simple, overlapping token-based chunking because it respects the logical structure of the code. It iterates through the file line-by-line, intelligently deciding where to "cut" a chunk based on a prioritized set of rules:
+
+1.  **Iterate and Batch:** It loops through every line of the source file, adding each line to a temporary `current_chunk_lines` list and accumulating a token count.
+2.  **Check for Cut Point:** After adding each line, it checks if it's time to finalize the current chunk. A cut is made if **any** of the following conditions are true:
+    -   The end of the file has been reached.
+    -   The **next line number** is present in the `slice_lines` list provided by the parser. This ensures we always cut *before* a significant semantic boundary.
+    -   The accumulated token count for the current chunk has exceeded the configured threshold from [**`configs.py`**](#6.2-Configuration-Management).
+3.  **Finalize Chunk:** When a cut point is identified, a new [**`TextChunk`**](#2.3.4-The-TextChunk-Node) is created from the batched lines.
+4.  **Reset and Continue:** The temporary line list and token count are reset, and the process continues until all lines are consumed.
+
+This process guarantees full file coverage and creates chunks that are both semantically coherent and efficiently sized, which is ideal for later analysis and retrieval.
 
 ---
 
-### [**5.0 Rejected Architectures & Key Decisions (The "Why We Didn't")**](#5.0-Rejected-Architectures-&-Key-Decisions)
-*This crucial section documents the "ghosts" of our past designs, explaining the reasoning behind our major architectural pivots. This provides invaluable context for future development.*
+### <a id="3.3-Component-C-The-Orchestrator"></a>3.3 Component C: The Orchestrator (`orchestrator.py`)
 
-- **[5.1 The "Smart Engine" vs. "Smart Parser" Debate](#5.1-The-Smart-Engine-vs-Smart-Parser-Debate)**
-  - **[5.1.1 Why Heuristic Linking (`ENDS WITH`) Was Rejected (Race Conditions & False Positives)](#5.1.1-Why-Heuristic-Linking-Was-Rejected)**
-- **[5.2 The "Always-On Worker" vs. "On-Demand Dispatcher" Decision](#5.2-The-Always-On-Worker-vs-On-Demand-Dispatcher-Decision)**
-  - **[5.2.1 Why the `Janitor` and `IngestionHeartbeat` Model Was Replaced (Efficiency & Simplicity)](#5.2.1-Why-the-Janitor-Model-Was-Replaced)**
-- **[5.3 The Role of the LLM: From "External Guesser" to "No Role in Linking"](#5.3-The-Role-of-the-LLM)**
-  - **[5.3.1 The "Provable Truth" Violation: Why We Rejected LLM-Based Guesswork](#5.3.1-Why-We-Rejected-LLM-Based-Guesswork)**
-  - **[5.3.2 The Final, Constrained Role of the LLM (Future Work)](#5.3.2-The-Final-Constrained-Role-of-the-LLM)**
+The `Orchestrator` is the central hub of our real-time ingestion pipeline. Its philosophy is **Speed, Safety, and Honesty**. It is a language-agnostic processor for a single file, and its primary goal is to get a file's data into the graph quickly and atomically, deferring all complex or slow operations.
+
+#### <a id="3.3.1-The-Finalized-Workflow"></a>3.3.1 The Finalized Workflow: A Step-by-Step Guide
+
+The `process_single_file` function is the main entry point, wrapped in a [**`tenacity`-based retry mechanism**](#1.2.1-Reliability-Guarantees) to handle transient database errors. The entire operation is a single, atomic transaction.
+
+1.  **Input Validation & Setup:** It validates the incoming [**`FileProcessingRequest`**](#2.2.1-The-Work-Order) and ensures all critical parsers have loaded.
+2.  **Handle Trivial Cases:** It correctly handles `DELETE` requests or empty/whitespace-only files, ensuring the graph state is accurate without invoking the full pipeline.
+3.  **Idempotency & Versioning:**
+    - It uses a `content_hash` check for **idempotency**.
+    - It calls an **atomic** [**`graph_utils`**](#3.6.1-The-DAL) function for **race-condition-proof versioning**.
+4.  **Parse & Fallback:** It calls the appropriate language-specific parser. It then implements our crucial [**centralized fallback mechanism**](#3.3.2-The-Centralized-Fallback-Mechanism).
+5.  **Assemble Graph "Island":** It creates all structural nodes ([**`Repository`**](#2.3.2-The-Repository-Node), [**`SourceFile`**](#2.3.3-The-SourceFile-Node), [**`TextChunk`**](#2.3.4-The-TextChunk-Node), [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node)) and their relationships. It is the sole authority for creating the final, permanent [**`slug_id`**](#2.3.1-ID-Formatting-Strategy) for all nodes.
+6.  **Limited Tier 1 Linking:** It performs **only** high-confidence, file-to-file [**`INCLUDE`**](#iii.-The-Relationship-Catalog) linking for unambiguous relative paths.
+7.  **Create "Debt":** For **all other** [**`RawSymbolReference`s**](#2.2.3-The-Universal-Report), it creates a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) node. All complex linking is deferred.
+8.  **Notify Dispatcher:** After the transaction successfully commits, it calls `dispatcher.notify_ingestion_activity`, cleanly handing off the "hard problems" to the next stage.
+
+#### <a id="3.3.2-The-Centralized-Fallback-Mechanism"></a>3.3.2 The Centralized Fallback Mechanism: Handling Non-Code Files
+
+This is a key feature ensuring complete repository coverage. The logic is simple but powerful and resides entirely within the `Orchestrator`.
+
+-   **The Signal:** A language-specific parser (like `CppParser`) signals that a file contains no code definitions by yielding an empty `slice_lines` list (`[]`).
+-   **The Action:** The `Orchestrator` detects this signal (`if not slice_lines and content.strip():`). It then immediately invokes the `GenericParser`.
+-   **The Result:** The `GenericParser` performs token-based chunking on the file content. This ensures that documentation (`README.md`), configuration files (`.json`), and comment-only source files are all correctly chunked and stored in the graph, making them available for semantic search and analysis.
+
+---
+
+### <a id="3.4-Component-D-The-Intelligent-Dispatcher"></a>3.4 Component D: The Intelligent Dispatcher (`dispatcher.py`)
+
+This component is the "On-Demand Conductor" of our asynchronous operations, as defined in [**Pillar 3**](#1.3.3-Pillar-3-On-Demand-Enrichment). It replaces the inefficient "always-on worker" model with an intelligent, event-driven approach.
+
+#### <a id="3.4.1-The-Quiescence-Timer"></a>3.4.1 The Quiescence Timer: An Event-Driven Heartbeat
+
+The `Dispatcher` manages the asynchronous workflow using a simple but effective in-memory timer system, avoiding the need for a separate `IngestionHeartbeat` node in the database.
+
+1.  **Activity Notification:** The `Orchestrator` calls `dispatcher.notify_ingestion_activity(repo_id)` after a successful ingestion.
+2.  **Timer Management:** The `Dispatcher` maintains a dictionary of running `asyncio.Task` objects, one for each active repository.
+3.  **Reset on Activity:** If a task already exists for the given `repo_id`, it is cancelled. A new `asyncio.sleep(QUIESCENCE_PERIOD_SECONDS)` task is then created and stored.
+4.  **Trigger on Quiescence:** If the `asyncio.sleep` task completes without being cancelled, it means the repository has been inactive. It then triggers the full enhancement cycle. This is an elegant, efficient, and purely event-driven way to manage the "ingestion storm" problem.
+
+#### <a id="3.4.2-Supervisor-Logic"></a>3.4.2 Supervisor Logic: Handling Asynchronous Task Failures
+
+The `Dispatcher` acts as a robust supervisor for the asynchronous enhancement tasks.
+
+-   **Concurrent Execution:** It uses `asyncio.gather(*tasks, return_exceptions=True)` to run the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine)'s tasks concurrently. The `return_exceptions=True` flag is critical, as it prevents one failed task from halting the others.
+-   **Failure Detection:** After the `gather` call completes, the `Dispatcher` iterates through the results. If any result is an `Exception` object, it knows a non-recoverable error has occurred.
+-   **Marking Failure:** It then calls a `graph_utils` function to update the repository's status in the graph (e.g., on a `Repository` node or a dedicated status node) to **`ENHANCEMENT_FAILED`**. This provides a clear, persistent signal for monitoring and prevents the system from endlessly retrying a broken enhancement cycle for that repository. See [**Monitoring & Alerting**](#6.3-Monitoring-&-Alerting).
+
+### <a id="3.5-Component-E-The-Graph-Enhancement-Engine"></a>3.5 Component E: The Graph Enhancement Engine (`graph_enhancement_engine.py`)
+
+This module is a library of one-shot, stateless `async` functions that are called on-demand by the [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher). Its guiding principle is our most important one: [**"Provable Truth through Contextual Analysis"**](#1.1-The-Guiding-Principle). It is a **purely deterministic verifier**, as defined in [**Pillar 2**](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine).
+
+#### <a id="3.5.1-The-run_deterministic_linking_task"></a>3.5.1 The `run_deterministic_linking_task`: A Pure Verifier
+
+This is the workhorse of our asynchronous linking process. It is a simple, safe, and powerful verifier.
+
+1.  **Trigger:** It is called by the `Dispatcher` for a quiescent repository.
+2.  **Action:** It queries the graph for all [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) nodes in that repository.
+3.  **Verification:** For each `PendingLink`, it takes the list of `possible_fqns` provided by the [**"Smart Parser"**](#1.3.1-Pillar-1-The-Smart-Parser). It then executes a single, precise query against the graph:
+    > `MATCH (n:CodeEntity) WHERE n.canonical_fqn IN $possible_fqns`
+4.  **The "Single-Hit" Rule:**
+    -   If the query returns **exactly one** `CodeEntity` node, the link is proven. A final [**`Relationship`**](#2.4.1-The-Relationship-Model) is created, and the `PendingLink` is deleted.
+    -   If the query returns **zero** results, the target entity has not been ingested yet. The `PendingLink` is updated to the `AWAITING_TARGET` status and remains in the graph, waiting to be healed.
+    -   If the query returns **more than one** result, the link is genuinely ambiguous. The `PendingLink` is updated to the terminal `UNRESOLVABLE` status to prevent further processing.
+
+#### <a id="3.5.2-The-Self-Healing-Graph"></a>3.5.2 The Self-Healing Graph: The `AWAITING_TARGET` State
+
+The `AWAITING_TARGET` status is the key to our system's ability to organically and truthfully resolve links over time without guesswork.
+
+1.  **The "Debt" is Recorded:** When the linking task runs and finds zero verifiable candidates for a `PendingLink`, it updates its status to `AWAITING_TARGET`. This is a persistent record in our graph that says, "I am a link from `Entity A`, and I am waiting for an `Entity B` with one of these specific FQNs to appear."
+2.  **New Information Arrives:** Later, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) processes a new file and creates a new `CodeEntity` that matches one of the awaited FQNs.
+3.  **The Repair Worker is Triggered:** The `Orchestrator` notifies the `Dispatcher`, which immediately triggers the `run_repair_worker` task.
+4.  **The Debt is Paid:** The `run_repair_worker` queries for any `AWAITING_TARGET` links that can now be satisfied by the newly created entities. It finds our link, verifies the match, and creates the final, correct `Relationship`.
+
+This cycle allows the graph to "heal" itself. Links are only formed when both ends of the connection are verifiably present in the graph.
+
+#### <a id="3.5.3-The-LLM's-Role"></a>3.5.3 The LLM's Role (Future Work): A Constrained Tie-Breaker
+
+We have **explicitly rejected** using an LLM to guess at external knowledge or resolve links where no candidate exists. This violates our "Provable Truth" principle.
+
+However, a potential future enhancement could use an LLM in a very constrained role:
+-   **The Scenario:** When the deterministic linking task finds **more than one** valid, existing candidate for a link (an ambiguity).
+-   **The Task:** The LLM would be given the source code and the list of existing candidates. Its only job would be to act as a "tie-breaker" and select the most likely candidate *from that pre-vetted list*.
+-   **Status:** This is deferred. Our current architecture correctly marks these cases as `UNRESOLVABLE`.
+
+---
+
+### <a id="3.6-Component-F-The-Infrastructure-&-Utility-Layer"></a>3.6 Component F: The Infrastructure & Utility Layer
+
+These modules provide the foundational services that our core components rely on.
+
+#### <a id="3.6.1-The-DAL"></a>3.6.1 The DAL: `graph_utils.py` as the Neo4j Gateway
+
+-   **Core Philosophy:** The **Data Access Layer (DAL)**. This module encapsulates all database interaction and is the only component that contains [**Neo4j**](#1.3.4-Pillar-4-The-Database-as-a-Partner)-specific Cypher queries. It provides a clean, abstract API to the rest of the system. See Section [**4.0 The Database Strategy**](#4.0-The-Database-Strategy) for full details.
+-   **Key Responsibilities:**
+    1.  **Schema Management:** Provides the `ensure_all_indexes()` function.
+    2.  **Atomic Operations:** Provides the `atomic_get_and_increment_local_save()` function.
+    3.  **Direct Query Execution:** Provides the `execute_cypher_query()` function for advanced heuristics.
+    4.  **Robustness:** All database-touching functions are hardened with a `tenacity`-based retry mechanism configured for transient Neo4j errors.
+
+#### <a id="3.6.2-The-Translator"></a>3.6.2 The Translator: `cognee_adapter.py`'s Role in Indexing
+
+-   **Core Philosophy:** A pure, stateless translator. Its sole job is to convert our internal Pydantic models (from [**`entities.py`**](#2.0-The-Data-Contracts)) into the specific `cognee.Node` and edge tuple formats required by `graph_utils.py`.
+-   **Key Responsibility:** It must correctly populate the `attributes` dictionary of each `cognee.Node`, including the crucial `index_fields` list. This list acts as a blueprint for the `ensure_all_indexes` function, effectively decoupling the definition of what needs to be indexed from the act of indexing it.
+
+#### <a id="3.6.3-The-Application-Entry-Point"></a>3.6.3 The Application Entry Point: `main.py`'s Startup Sequence
+
+-   **Core Philosophy:** A simple, single-purpose startup script.
+-   **Key Responsibilities:**
+    1.  **Initialize Schema:** Its very first action is to `await graph_utils.ensure_all_indexes()` to prepare the database, making the system self-configuring.
+    2.  **Run Application:** It then starts the main `asyncio` event loop and keeps it running. This allows the system to be active and listen for ingestion requests, which are the trigger for all other activity. See Section [**6.1 The Application Lifecycle**](#6.1-The-Application-Lifecycle) for more details.
+
+---
+
+## <a id="4.0-The-Database-Strategy"></a>4.0 The Database Strategy: Neo4j as a First-Class Partner
+
+*This section details our commitment to **Neo4j** as our backend graph database. This decision was not made lightly; it is a strategic choice that enables key features of our architecture and directly supports our core philosophy of [**"Provable Truth through Contextual Analysis"**](#1.1-The-Guiding-Principle). We treat the database not as a simple data store, but as a first-class partner in our system's logic.*
+
+---
+
+### <a id="4.1-Rationale-for-Choosing-Neo4j"></a>4.1 Rationale for Choosing Neo4j
+
+#### <a id="4.1.1-The-Need-for-Advanced-String-Matching"></a>4.1.1 The Need for Advanced String Matching
+
+-   **The Problem:** Our previous architecture relied on a powerful "Verified Suffix Match" heuristic to resolve ambiguous references, such as those caused by C++ `using namespace` directives. A generic database filter supporting only exact equality (`==`) would be insufficient, forcing us to fetch massive amounts of data and filter it in Python, which is unacceptably slow.
+-   **The Neo4j Solution:** Neo4j's native query language, **Cypher**, provides a rich set of string matching operators, including `ENDS WITH`. This allows our [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) to push this complex filtering logic directly down to the database layer.
+-   **The Benefit:** An indexed Cypher query like `... WHERE n.canonical_fqn ENDS WITH $suffix` is extremely performant. It allows us to build powerful, safe heuristics that are essential for achieving high-quality linking coverage without sacrificing performance. This was a primary driver for committing to a specific, powerful graph database rather than a generic abstraction.
+
+#### <a id="4.1.2-The-Requirement-for-Programmatic-Index-Management"></a>4.1.2 The Requirement for Programmatic Index Management
+
+-   **The Problem:** A knowledge graph of a large codebase can contain millions of nodes. Query performance is not a "nice-to-have"; it is a fundamental requirement. Queries that perform full graph scans are not viable. To ensure fast lookups, we must create database indexes on all frequently queried attributes (like `canonical_fqn`, `content_hash`, and our `slug_id`).
+-   **The Neo4j Solution:** Neo4j provides simple, powerful Cypher DDL (Data Definition Language) commands for managing the database schema. The command `CREATE INDEX index_name IF NOT EXISTS FOR (n:Label) ON (n.attribute)` is **idempotent**, meaning it is safe to run repeatedly.
+-   **The Benefit:** This idempotency enables our elegant [**"Ensure on Startup"**](#4.2.1-The-Ensure-on-Startup-Process) strategy. Our application is self-configuring. The [**`main.py`**](#3.6.3-The-Application-Entry-Point) entry point calls a `graph_utils.ensure_all_indexes()` function on boot, which executes a series of these `CREATE INDEX` commands. This guarantees that the database is always perfectly optimized for our application's query patterns without any manual intervention or complex migration scripts.
+
+#### <a id="4.1.3-The-Importance-of-a-Mature-Asynchronous-Python-Driver"></a>4.1.3 The Importance of a Mature, Asynchronous Python Driver
+
+-   **The Problem:** Our entire system, from the `Orchestrator` to the `Dispatcher`, is built on Python's `asyncio` event loop. To avoid blocking this loop and to handle I/O efficiently, our database driver must be fully `async`-native.
+-   **The Neo4j Solution:** Neo4j provides an official, mature, and well-documented `neo4j-driver` for Python that has excellent `asyncio` support. It correctly implements the standard `async with session.begin() as tx:` pattern, which is the foundation of our [**atomic and resilient transactions**](#1.2.1-Reliability-Guarantees).
+-   **The Benefit:** This allows us to write clean, modern, and non-blocking database interaction code in our [**`graph_utils.py`**](#3.6.1-The-DAL) module. It also provides specific, catchable exceptions (like `neo4j.exceptions.ServiceUnavailable`) that we use in our `tenacity`-based retry logic to make our system resilient to transient network failures.
+
+### <a id="4.2-The-Definitive-Indexing-Strategy"></a>4.2 The Definitive Indexing Strategy
+
+An effective indexing strategy is not a "nice-to-have"; it is the foundation of a performant graph database. Our strategy is designed to be **automated, idempotent, and comprehensive**, ensuring that all critical query patterns are highly optimized from the moment the application starts.
+
+#### <a id="4.2.1-The-Ensure-on-Startup-Process"></a>4.2.1 The "Ensure on Startup" Process
+
+We have adopted a simple yet powerful "Ensure on Startup" approach to manage our database schema. This eliminates the need for manual setup or complex external migration scripts.
+
+1.  **The Trigger:** The process is initiated once, and only once, when the application is launched, via our [**`main.py` entry point**](#3.6.3-The-Application-Entry-Point).
+2.  **The Action:** The `main.py` script calls a single function, `graph_utils.ensure_all_indexes()`.
+3.  **The Logic:** This function executes a series of `CREATE INDEX IF NOT EXISTS` and `CREATE CONSTRAINT IF NOT EXISTS` Cypher commands.
+4.  **Idempotency:** The `IF NOT EXISTS` clause is the key to this strategy. It makes the entire process safe to run on every application startup. If an index or constraint already exists, Neo4j simply does nothing, making the check extremely fast. If it's a new deployment, the schema is created correctly before any data is ingested.
+
+This makes our system **self-configuring and resilient.**
+
+#### <a id="4.2.2-The-Complete-Index-and-Constraint-Catalog"></a>4.2.2 The Complete Index and Constraint Catalog
+
+The `ensure_all_indexes` function is responsible for creating three types of schema objects in Neo4j.
+
+##### <a id="4.2.2.1-Unique-slug_id-Constraints"></a>4.2.2.1 Unique `slug_id` Constraints (The Primary Keys)
+
+-   **Purpose:** To guarantee the uniqueness of our human-readable [**`slug_id`**](#2.3.1-ID-Formatting-Strategy) for every major node type and to provide the fastest possible lookup for direct ID-based queries.
+-   **Mechanism:** In Neo4j, creating a `UNIQUENESS` constraint automatically creates a corresponding high-performance index. This is the preferred method for primary keys.
+-   **Implementation (Cypher):**
+    ```cypher
+    CREATE CONSTRAINT constraint_codeentity_unique_slug_id IF NOT EXISTS FOR (n:CodeEntity) REQUIRE n.slug_id IS UNIQUE
+    ```
+-   **Node Labels with this Constraint:** `Repository`, `SourceFile`, `TextChunk`, `CodeEntity`, `PendingLink`, `ResolutionCache`.
+
+##### <a id="4.2.2.2-Secondary-Indexes"></a>4.2.2.2 Secondary Indexes (for Query Performance)
+
+-   **Purpose:** To accelerate queries that filter on a single, non-unique attribute.
+-   **Mechanism:** We create standard secondary indexes on attributes that frequently appear in `WHERE` clauses.
+-   **Implementation (Cypher):**
+    ```cypher
+    CREATE INDEX idx_codeentity_canonical_fqn IF NOT EXISTS FOR (n:CodeEntity) ON (n.canonical_fqn)
+    ```
+-   **Required Indexes:**
+    -   `(SourceFile, content_hash)`: For the critical [**idempotency check**](#1.2.1-Reliability-Guarantees).
+    -   `(CodeEntity, canonical_fqn)`: For all linking queries performed by the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine).
+    -   `(PendingLink, status)`: For the enhancement engine to efficiently poll for work.
+    -   `(PendingLink, awaits_fqn)`: For the `run_repair_worker` to efficiently find and "heal" links.
+
+##### <a id="4.2.2.3-Composite-Indexes"></a>4.2.2.3 Composite Indexes (for Multi-Attribute Lookups)
+
+-   **Purpose:** To accelerate queries that filter on multiple attributes simultaneously.
+-   **Mechanism:** A composite index allows the database to satisfy a multi-part `WHERE` clause using a single, highly efficient index lookup.
+-   **Implementation (Cypher):**
+    ```cypher
+    CREATE INDEX idx_sourcefile_version_lookup IF NOT EXISTS FOR (n:SourceFile) ON (n.repo_id_str, n.relative_path_str, n.commit_index)
+    ```
+-   **Required Composite Indexes:**
+    -   `(SourceFile, (repo_id_str, relative_path_str, commit_index))`: This index is critical for the performance of the [**atomic versioning**](#4.3.1-Solving-the-local_save-Race-Condition) logic, as it allows the `MERGE` query to find the correct version counter node instantly.
+
+### <a id="4.3-The-Atomic-Operations-Strategy"></a>4.3 The Atomic Operations Strategy
+
+To ensure data integrity, especially in a potentially concurrent environment, our system relies on the database to perform key operations atomically. We have explicitly avoided error-prone "read-then-write" logic in our application code in favor of database-guaranteed atomic operations.
+
+#### <a id="4.3.1-Solving-the-local_save-Race-Condition"></a>4.3.1 Solving the `local_save` Race Condition with Cypher
+
+-   **The Problem:** A critical requirement is to assign a unique, sequential `local_save` number to each new version of a file within a given commit. A naive implementation would first query for the highest existing `local_save` number and then write a new node with that number plus one. In a concurrent environment, two processes could read the same max value (e.g., `2`), both calculate the new value as `3`, and both attempt to write a node with version `...-3`, leading to a race condition and data corruption.
+
+-   **The Neo4j Solution:** We solve this by delegating the entire operation to the database in a single, atomic Cypher query. This is implemented in the `graph_utils.atomic_get_and_increment_local_save` function.
+
+-   **The Atomic Cypher Query:**
+    ```cypher
+    // Find or create a dedicated counter node for this specific file version path
+    MERGE (v:VersionCounter { repo_id: $repo_id, path: $path, commit: $commit })
+    // If the node is new, initialize its counter to 1
+    ON CREATE SET v.count = 1
+    // If the node already exists, atomically increment its counter
+    ON MATCH SET v.count = COALESCE(v.count, 0) + 1
+    // Return the new, guaranteed-unique count
+    RETURN v.count as new_count
+    ```
+
+-   **The Guarantee:** The `MERGE` command in Neo4j, when used within a transaction, is atomic. It guarantees that even if a hundred processes call this function at the exact same time for the same file, Neo4j's internal locking mechanisms will ensure that they execute sequentially, and each one will receive a unique, incremented number (`1`, `2`, `3`, ...). This completely eliminates the race condition and ensures our [**versioning is race-condition-proof**](#1.2.1-Reliability-Guarantees).
+
+---
+
+### <a id="4.4-High-Performance-Query-Patterns"></a>4.4 High-Performance Query Patterns
+
+Our system is designed to be performant by using optimized query patterns that leverage the indexes we create.
+
+#### <a id="4.4.1-The-find_code_entity_by_path-Query"></a>4.4.1 The `find_code_entity_by_path` Query
+
+-   **The Need:** The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator)'s Tier 1 resolver needs an extremely fast way to find a specific `CodeEntity` when it has a definite file path and a fully qualified name. This is crucial for resolving direct relative includes.
+
+-   **The Optimal Query:** We leverage our "flattened" data model, where every `CodeEntity` is tagged with its parent repository and file path attributes. Combined with the [**composite index**](#4.2.2.3-Composite-Indexes) we create on these attributes, the lookup is highly efficient.
+
+-   **The Implementation (in `graph_utils.py`):**
+    ```python
+    async def find_code_entity_by_path(repo_id_with_branch: str, relative_path: Optional[str], fqn: str) -> Optional[str]:
+        params = {"repo_id": repo_id_with_branch, "fqn": fqn}
+
+        # We query on indexed properties for maximum performance
+        if relative_path:
+            query = """
+            MATCH (n:CodeEntity { repo_id_str: $repo_id, relative_path_str: $path, canonical_fqn: $fqn })
+            RETURN n.slug_id as id LIMIT 1
+            """
+            params["path"] = relative_path
+        else: # For absolute imports, search across the whole repo
+            query = """
+            MATCH (n:CodeEntity { repo_id_str: $repo_id, canonical_fqn: $fqn })
+            RETURN n.slug_id as id LIMIT 1
+            """
+
+        records = await execute_cypher_query(query, params)
+        return records[0].get("id") if records else None
+    ```
+
+-   **The Performance:** With the composite index on `(repo_id_str, relative_path_str, canonical_fqn)`, this query avoids graph traversals and full scans, executing as a near-instant index lookup. This is essential for keeping the Tier 1 ingestion path fast.
+
+---
+
+## <a id="5.0-Rejected-Architectures-&-Key-Decisions"></a>5.0 Rejected Architectures & Key Decisions (The "Why We Didn't")
+
+*This crucial section documents the "ghosts" of our past designs, explaining the reasoning behind our major architectural pivots. It provides invaluable context for future development by capturing the hard-won lessons from our design process.*
+
+---
+
+### <a id="5.1-The-Smart-Engine-vs-Smart-Parser-Debate"></a>5.1 The "Smart Engine" vs. "Smart Parser" Debate
+
+This was the most significant architectural debate and pivot in the project's history. It represents our fundamental commitment to the [**"Provable Truth"**](#1.1-The-Guiding-Principle) principle.
+
+#### <a id="5.1.1-Why-Heuristic-Linking-Was-Rejected"></a>5.1.1 Why Heuristic Linking (`ENDS WITH`) Was Rejected (Race Conditions & False Positives)
+
+-   **The Old ("Smart Engine") Architecture:** In a previous design, our parsers were simple reporters of literal text. All the "intelligence" was in a `Linking Engine` which used a powerful but dangerous heuristic: a Cypher `ENDS WITH` query. For example, if a parser saw a reference to `MyClass()`, the engine would search the entire graph for any `CodeEntity` whose `canonical_fqn` ended with `::MyClass`.
+
+-   **The Critical Flaw (The Race Condition):** This approach created a severe race condition.
+    1.  The `Orchestrator` processes `file_A.cpp`, which calls `MyClass()`.
+    2.  The `Linking Engine` runs. At this moment, only one entity exists in the graph with that suffix: `SomeOtherNamespace::MyClass`.
+    3.  The `ENDS WITH` query returns **exactly one** result. Believing it has found an unambiguous match, the engine creates a **permanent, but incorrect** `CALLS` relationship.
+    4.  Later, the `Orchestrator` processes `file_B.h`, which contains the *correct* definition: `MyNamespace::MyClass`.
+    5.  The system now has a wrong link, and no easy way to know that it needs to be "repaired." This violated our core principle of trustworthiness.
+
+-   **The Final Decision:** We **completely rejected** any form of fuzzy or heuristic-based matching in the linking engine. The risk of creating incorrect, "provably-wrong" links was too high. This led directly to the "Smart Parser" architecture, where all linking is based on an exact match against a list of high-probability candidates provided by the parser. See [**Pillar 1: The "Smart" Parser**](#1.3.1-Pillar-1-The-Smart-Parser).
+
+---
+
+### <a id="5.2-The-Always-On-Worker-vs-On-Demand-Dispatcher-Decision"></a>5.2 The "Always-On Worker" vs. "On-Demand Dispatcher" Decision
+
+This was a key decision that moved our system from a standard but inefficient pattern to a more elegant and efficient one.
+
+#### <a id="5.2.1-Why-the-Janitor-Model-Was-Replaced"></a>5.2.1 Why the `Janitor` and `IngestionHeartbeat` Model Was Replaced (Efficiency & Simplicity)
+
+-   **The Old ("Always-On") Architecture:** Our initial design for asynchronous processing involved a long-running background worker, the `Janitor`. This worker would periodically poll the database, checking for `IngestionHeartbeat` nodes to see if a repository had been inactive (quiescent) for a set period.
+
+-   **The Inefficiency:** This model, while common, is inefficient. The `Janitor` would be constantly waking up and querying the database, consuming CPU and I/O cycles, even when zero ingestion activity was happening. It was a "pull" model in an "event-driven" world.
+
+-   **The Final Decision:** We replaced this with the [**`Intelligent Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher). The `Dispatcher` is a "push" model. It does absolutely nothing until it is explicitly notified of activity by the `Orchestrator`. It then uses a simple, in-memory `asyncio.sleep` timer. This is vastly more resource-efficient, as the system is truly at rest when there is no work to do. It also simplifies the graph by removing the need for `IngestionHeartbeat` nodes.
+
+---
+
+### <a id="5.3-The-Role-of-the-LLM"></a>5.3 The Role of the LLM: From "External Guesser" to "No Role in Linking"
+
+This was a critical philosophical pivot to ensure our system adheres strictly to the "Provable Truth" mandate.
+
+#### <a id="5.3.1-Why-We-Rejected-LLM-Based-Guesswork"></a>5.3.1 The "Provable Truth" Violation: Why We Rejected LLM-Based Guesswork
+
+-   **The Old Architecture:** In one of our earlier designs, the LLM was positioned as the final tier of the linking engine. If our deterministic heuristics found zero internal candidates for a reference (e.g., a call to `pd.DataFrame`), the plan was to ask the LLM to provide the canonical FQN from its "world knowledge."
+
+-   **The Critical Flaw:** This fundamentally violated our core principle. It would mean creating a link based on information that was **external to our graph**. The LLM's answer, while likely correct for `pandas`, could be a hallucination for a less common library. We would be creating a link to an entity that did not verifiably exist in our system's "universe."
+
+-   **The Final Decision:** We **completely removed the LLM from the active linking pipeline.** The system will **never** use an LLM to guess the target of a link for which it has no internal candidates. An unresolved reference to an external library will correctly remain a `PendingLink` in the `AWAITING_TARGET` state until that library's source code is actually ingested and becomes part of our graph's ground truth.
+
+#### <a id="5.3.2-The-Final-Constrained-Role-of-the-LLM"></a>5.3.2 The Final, Constrained Role of the LLM (Future Work)
+
+While rejected for a primary linking role, we have identified a potential future use for the LLM that *does* align with our principles.
+
+-   **The Scenario:** A link is ambiguous because our deterministic linking engine found **more than one** valid, existing `CodeEntity` in our graph that matches the parser's `possible_fqns`.
+-   **The Constrained Role:** The LLM would be used as a **"Tie-Breaker."** It would be given the source code and the pre-vetted list of *existing* candidates. Its only job would be to choose the most likely candidate from that closed set.
+-   **Status:** This is a potential future enhancement. The current, V1 architecture correctly and safely marks these ambiguous links as `UNRESOLVABLE`.
 
 ---
 
