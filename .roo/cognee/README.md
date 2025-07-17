@@ -1,28 +1,30 @@
-# Knowledge Graph Data Layer (V3.1)
+# Knowledge Graph Data Layer (V3.2)
 
----
-
-# <a id="1.0-The-Core-Philosophy-&-Final-Architecture"></a>1.0 The Core Philosophy & Final Architecture
+# <a id="1.0-Core-Philosophy-&-Architecture"></a>1.0 Core Philosophy & Architecture
 
 ## <a id="1.1-The-Guiding-Principle"></a>1.1 The Guiding Principle: "Provable Truth through Contextual Analysis"
 
 At its heart, this system creates a living, queryable **"digital brain"** for a software repository. Its purpose is not merely to parse files, but to understand *how* and *why* code connects. After a rigorous process of design, debate, and refinement, we have established a core philosophy founded on a deep skepticism of "magic" solutions and a commitment to building a system that is, above all, **trustworthy**.
 
-Our North Star is **Provable Truth**. This means the system will **never** create a [**`Relationship`**](#2.4.1-The-Relationship-Model) between two code entities that it cannot prove with a high degree of certainty based on the evidence it has gathered. An unresolved [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) is infinitely better than an incorrect one. This principle informs every component, from the [**Parsers**](#3.1-Component-A-The-Parsers) to the [**Linking Engine**](#3.5-Component-E-The-Graph-Enhancement-Engine), ensuring that the final knowledge graph is a reliable source of ground truth about the codebase. We have explicitly rejected fragile heuristics, external configuration files, and any process that requires a developer to be an expert on our system's internals.
+All data must conform to a **Provable Truth** criteria. This means the system will **never** create a [**`Relationship`**](#2.4.1-The-Relationship-Model) between two code entities that it cannot prove with a high degree of certainty based on the evidence it has gathered. An unresolved [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) is prefered than an incorrect one. This principle informs every component, from the [**Parsers**](#3.1-Component-A-The-Parsers) to the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine), ensuring that the final knowledge graph is a reliable source of ground truth about the codebase. Decision where made to explicitly reject fragile heuristics, external configuration files, and any process that requires a developer knowledge of the system's internals or dependency of direct actions midst pipeline.
+
+---
 
 ## <a id="1.2-System-Wide-Benefits-&-Guarantees"></a>1.2 System-Wide Benefits & Guarantees
 
-### <a id="1.2.1-Reliability-Guarantees"></a>1.2.1 Reliability Guarantees (The "It Won't Lie")
+This planed architecture provides a clear set of guarantees that define its behavior and value in a real-world, production environment.
+
+### <a id="1.2.1-Reliability-Guarantees"></a>1.2.1 Reliability Guarantees
 
 The system is engineered for maximum reliability and data integrity.
 
 -   **Atomic & Resilient Transactions:** Every file processing operation is wrapped in a single database transaction. We use the `tenacity` library to automatically retry these transactions in the face of specific, transient network or database errors (like `neo4j.exceptions.ServiceUnavailable`), ensuring that temporary glitches do not lead to data loss. Permanent errors (like a syntax error in our code) will fail fast, as they should.
 
--   **Provable Idempotency:** The system is fundamentally idempotent. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) calculates a `content_hash` for every file it processes. Before committing any data, it performs a fast, indexed query to see if a [**`SourceFile`**](#2.3.3-The-SourceFile-Node) node with that exact hash already exists. If it does, the operation is aborted, guaranteeing that the exact same file content is never processed or stored more than once.
+-   **Provable Idempotency:** The system is fundamentally idempotent. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) calculates a `content_hash` for every file it processes. Before committing any data, it performs a fast, indexed query to see if a [**`SourceFile`**](#2.3.3-The-SourceFile-Node) node matched by absolute path, so the same file, with that exact hash already exists. If it does, the operation is aborted, guaranteeing that the exact same file content is never processed or stored more than once.
 
 -   **Race-Condition-Proof Versioning:** For tracking different versions of the *same file path*, we use an atomic, database-side counter. Instead of a naive "read-then-write" approach in Python, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) calls a [**`graph_utils`**](#3.6.1-The-DAL) function that executes an atomic Cypher `MERGE ... ON MATCH SET n.prop = n.prop + 1` query. This guarantees that even if multiple processes ingest different versions of the same file concurrently, they will each receive a unique, sequential `local_save` number without conflict. See the [**Atomic Operations Strategy**](#4.3-The-Atomic-Operations-Strategy) for details.
 
--   **Verifiable Truth (The "No Guessing" Mandate):** This is our most important guarantee. The system only creates a link if it can be proven. The [**"Smart Parser"**](#1.3.1-Pillar-1-The-Smart-Parser) provides a list of high-probability candidates via the [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) field, and the [**Deterministic Linking Engine**](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine) will only create a link if **exactly one** of those candidates is found to exist in the graph. There is no fuzzy matching or heuristic guesswork.
+-   **Verifiable Truth (The "Unanimity Rule"):** This is our most important guarantee. An automatic link is created if, and only if, two conditions are met: 1) The [**"Smart Parser"**](#1.3.1-Pillar-1-The-Smart-Parser) was certain enough to provide a [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) list with **exactly one** candidate, AND 2) the [**Deterministic Linking Engine**](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine) finds **exactly one** existing `CodeEntity` in the graph that matches that single candidate. This two-factor agreement is the only path to automatic linking, eliminating guesswork and race conditions.
 
 ### <a id="1.2.2-Performance-&-Efficiency-Guarantees"></a>1.2.2 Performance & Efficiency Guarantees (The "It's Smart")
 
@@ -30,7 +32,7 @@ The system is designed to be both fast for real-time operations and efficient wi
 
 -   **Real-Time Ingestion:** The primary ingestion path, managed by the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator), is extremely fast. It performs only the most essential, high-confidence tasks and defers all complex symbol linking.
 
--   **On-Demand Asynchronous Linking:** We have explicitly rejected the inefficient model of always-on background workers. Instead, our event-driven [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) uses a [**quiescence timer**](#3.4.1-The-Quiescence-Timer) to trigger the resource-intensive [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) only when a repository is inactive(not upserting for x seconds).
+-   **On-Demand Asynchronous Linking:** We have explicitly rejected the inefficient model of always-on background workers. Instead, our event-driven [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) uses a [**quiescence timer**](#3.4.1-The-Quiescence-Timer) to trigger the resource-intensive [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) only when a repository is inactive (not upserting for x seconds).
 
 -   **Performant by Design (Self-Managing Indexes):** The system is self-configuring for performance. On application startup, a one-time, idempotent process detailed in the [**"Ensure on Startup" Process**](#4.2.1-The-Ensure-on-Startup-Process) connects to our chosen [**Neo4j**](#4.0-The-Database-Strategy) database and executes all necessary `CREATE INDEX ... IF NOT EXISTS` commands. This guarantees that all critical attributes are fully indexed before the first query is ever run.
 
@@ -398,29 +400,83 @@ This module is a library of one-shot, stateless `async` functions that are calle
 
 #### <a id="3.5.1-The-run_deterministic_linking_task"></a>3.5.1 The `run_deterministic_linking_task`: A Pure Verifier
 
-This is the workhorse of our asynchronous linking process. It is a simple, safe, and powerful verifier.
+This task is the workhorse of our asynchronous linking process. It embodies the [**"Verifier"**](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine) principle by being simple, safe, and powerful.
 
-1.  **Trigger:** It is called by the `Dispatcher` for a quiescent repository.
-2.  **Action:** It queries the graph for all [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) nodes in that repository.
-3.  **Verification:** For each `PendingLink`, it takes the list of `possible_fqns` provided by the [**"Smart Parser"**](#1.3.1-Pillar-1-The-Smart-Parser). It then executes a single, precise query against the graph:
+1.  **Trigger:** It is called by the [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) for a quiescent repository.
+2.  **Action:** It queries the graph for all [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) nodes in that repository with a status of `PENDING_RESOLUTION`.
+3.  **Verification:** For each `PendingLink`, it takes the list of [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) provided by the [**"Smart Parser"**](#1.3.1-Pillar-1-The-Smart-Parser). It then executes a single, precise query against the graph:
     > `MATCH (n:CodeEntity) WHERE n.canonical_fqn IN $possible_fqns`
-4.  **The "Single-Hit" Rule:**
-    -   If the query returns **exactly one** `CodeEntity` node, the link is proven. A final [**`Relationship`**](#2.4.1-The-Relationship-Model) is created, and the `PendingLink` is deleted.
-    -   If the query returns **zero** results, the target entity has not been ingested yet. The `PendingLink` is updated to the `AWAITING_TARGET` status and remains in the graph, waiting to be healed.
-    -   If the query returns **more than one** result, the link is genuinely ambiguous. The `PendingLink` is updated to the terminal `UNRESOLVABLE` status to prevent further processing.
+4.  **The Unanimity Rule:** This is the only rule for automatic link creation. A link is made if, and only if, **both** of the following conditions are true:
+    -   The `possible_fqns` list provided by the parser contained **exactly one** candidate.
+    -   The verification query against the graph returned **exactly one** matching [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node).
+5.  **Handling Other Outcomes:**
+    -   If the query returns **zero** results, the target entity has not been ingested yet. The `PendingLink`'s status is updated to `AWAITING_TARGET`, and it waits to be [**healed**](#3.5.2-The-Self-Healing-Graph).
+    -   If the query returns **more than one** result, or if the parser provided multiple `possible_fqns`, the link is genuinely ambiguous. The `PendingLink`'s status is updated to the terminal `UNRESOLVABLE` state to prevent further processing.
 
 #### <a id="3.5.2-The-Self-Healing-Graph"></a>3.5.2 The Self-Healing Graph: The `AWAITING_TARGET` State
 
-The `AWAITING_TARGET` status is the key to our system's ability to organically and truthfully resolve links over time without guesswork.
+The `AWAITING_TARGET` status is the key to our system's ability to organically and truthfully resolve links over time without guesswork. It is a more robust and honest approach than our previously discussed "auto-healing" logic.
 
-1.  **The "Debt" is Recorded:** When the linking task runs and finds zero verifiable candidates for a `PendingLink`, it updates its status to `AWAITING_TARGET`. This is a persistent record in our graph that says, "I am a link from `Entity A`, and I am waiting for an `Entity B` with one of these specific FQNs to appear."
-2.  **New Information Arrives:** Later, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) processes a new file and creates a new `CodeEntity` that matches one of the awaited FQNs.
-3.  **The Repair Worker is Triggered:** The `Orchestrator` notifies the `Dispatcher`, which immediately triggers the `run_repair_worker` task.
-4.  **The Debt is Paid:** The `run_repair_worker` queries for any `AWAITING_TARGET` links that can now be satisfied by the newly created entities. It finds our link, verifies the match, and creates the final, correct `Relationship`.
+1.  **The "Debt" is Recorded:** When the linking task runs and the parser was certain (only one `possible_fqn`), but the graph query finds zero verifiable candidates, the `PendingLink` is updated to `AWAITING_TARGET`. This creates a persistent record that says, "I am a link from `Entity A`, and I am waiting for an `Entity B` with a specific FQN to appear."
+2.  **New Information Arrives:** Later, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) processes a new file and creates a new `CodeEntity` that matches the awaited FQN.
+3.  **The Repair Worker is Triggered:** The `Orchestrator` notifies the [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher), which immediately triggers the `run_repair_worker` task.
+4.  **The Debt is Paid:** The `run_repair_worker` queries for any `AWAITING_TARGET` links that can now be satisfied by the newly created entities. It finds our waiting link, and because the target is now verifiably present, it creates the final, correct [**`Relationship`**](#2.4.1-The-Relationship-Model).
 
-This cycle allows the graph to "heal" itself. Links are only formed when both ends of the connection are verifiably present in the graph.
+This cycle allows the graph to "heal" itself based on new proof, not on flawed inference.
 
-#### <a id="3.5.3-The-LLM's-Role"></a>3.5.3 The LLM's Role (Future Work): A Constrained Tie-Breaker
+#### <a id="3.5.3-The-External-Linking-Strategy"></a>3.5.3 The External Linking Strategy
+
+While the primary linking mechanism revolves around resolving symbols within a single repository's context, the system includes a powerful, deterministic strategy for creating links **between different repositories** that have both been ingested into the graph. This is crucial for understanding dependencies in a monorepo or a multi-repo ecosystem. This strategy strictly adheres to the "Provable Truth" principle.
+
+-   **High-Level Dependency Tracking:** For truly external, third-party libraries whose source code is not ingested (e.g., `pandas` from PyPI), the [**Tier 1 Orchestrator**](#3.3-Component-C-The-Orchestrator) is responsible for creating a high-level [**`USES_LIBRARY`**](#2.4.2-The-Relationship-Catalog) relationship to an [**`ExternalReference`**](#2.3.6-The-ExternalReference-Node) beacon. This provides a fast, 100% accurate record of top-level external dependencies.
+
+-   **Deep Linking Through Ingestion:** True, deep links (`CALLS`, `EXTENDS`) to functions in another ingested repository are created by the `GraphEnhancementEngine`. This process is unlocked by a single, powerful hint provided during the library's ingestion: the `import_id`.
+
+##### <a id="3.5.3.1-The-Key-and-Map-Analogy"></a>3.5.3.1 The "Key and Map" Analogy
+
+Our deterministic inter-repository linking strategy is built on a simple "key and map" analogy, which requires two components to succeed:
+
+1.  **The Key (`import_id`):** This is the single hint provided by the user during the ingestion of a library (e.g., `import_id="my-internal-data-library"`). It creates a verifiable link between a top-level import name and a specific [**`Repository`**](#2.3.2-The-Repository-Node) node in our graph. It is the key that unlocks the door to the correct library.
+
+2.  **The Map (The `EXPORTS` Relationship):** The "Smart Parser" for a given language must be capable of identifying a library's public API (e.g., from `__init__.py` in Python or `lib.rs` in Rust). It should create a special `EXPORTS` relationship from the library's entry point files to the public `CodeEntity` nodes. This collection of `EXPORTS` relationships **is the map**. It tells the engine which symbols are publicly available and what their `canonical_fqn`s are, preventing accidental links to private implementation details.
+
+The `GraphEnhancementEngine` needs both the key and the map to create a successful deep link. When processing a `PendingLink` for an absolute import, it will first use the `import_id` to find the right library, then use the `EXPORTS` relationships within that library to find the correct, publicly-vetted symbol.
+
+##### <a id="3.5.3.2-Coverage-Analysis-Across-Languages"></a>3.5.3.2 Coverage Analysis Across Languages
+
+This table provides a rigorous, language-by-language analysis of the robustness of this inter-repository linking model.
+
+| Language      | External Import Scenario                                        | Parser's "Evidence" (`RawSymbolReference`)                               | Engine's Universal Action                                                                                                 | Is it Sufficient?                                                                                                                              |
+| :------------ | :-------------------------------------------------------------- | :----------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Python**    | `import pandas as pd`<br>`df = pd.DataFrame()`                   | `context: { "import_type": "absolute", "module_name": "pandas" }`        | 1. Finds repo with `import_id: "pandas"`. <br> 2. Finds `DataFrame` via its `EXPORTS` link from `__init__.py`.                  | ✅ **Yes (Perfect Coverage).** The `import_id` is all that's needed to find the library. The `EXPORTS` system does the rest.                |
+| **JS/TS**     | `import { Button } from '@mui/material';`                      | `context: { "import_type": "absolute", "module_name": "@mui/material" }` | 1. Finds repo with `import_id: "@mui/material"`. <br> 2. Finds `Button` via its `EXPORTS` link from `index.js`.               | ✅ **Yes (Perfect Coverage).** The top-level package name is the key.                                                                       |
+| **C++**       | `#include <fmt/core.h>`<br>`fmt::print("Hello");`                | `context: { "import_type": "system", "path": "fmt/core.h" }`             | Takes the top-level path segment (`fmt`), searches for a repo with `import_id: "fmt"`, then resolves `fmt::print`. | ✅ **Yes (Sufficient).** The hint finds the `fmtlib/fmt` repository. Success depends on the C++ parser identifying the public API.           |
+| **Java**      | `import com.google.common.collect.ImmutableList;`              | `context: { "import_type": "absolute", "module_path": "..." }`           | Searches for repo with `import_id` matching the longest prefix (e.g., `com.google.common`), then queries for the FQN. | ✅ **Yes (Sufficient).** The user must provide the top-level package name (e.g., `com.google.guava`) as the `import_id`.                       |
+| **Go**        | `import "github.com/gin-gonic/gin"`                             | `context: { "import_type": "absolute", "module_path": "..." }`           | Finds an exact match for `import_id: "github.com/gin-gonic/gin"`.                                                          | ✅ **Yes (Perfect Coverage).** Go's import paths are already canonical.                                                                        |
+| **Rust**      | `use serde::Deserialize;`                                       | `context: { "import_type": "external_crate", "crate_name": "serde" }`    | Searches for a repo with `import_id: "serde"`.                                                                            | ✅ **Yes (Perfect Coverage).** Rust's crate system provides a clean name that maps perfectly to our `import_id`.                             |
+
+**Coverage Score:** For well-structured libraries ingested with the correct `import_id` hint, our coverage for deep linking is **extremely high, likely >95%.**
+
+##### <a id="3.5.3.3-Known-Limitations-The-Honest-Compromises"></a>3.5.3.3 Known Limitations (The Honest Compromises)
+
+This system is powerful but not magic. It will fail on certain patterns, and these are our conscious, acceptable compromises in the name of **"Provable Truth."**
+
+1.  **The "Monolithic Header" Problem (C++):**
+    -   **Scenario:** A C++ library puts both public and private declarations into a single header file.
+    -   **Problem:** Our parser may have no reliable way to distinguish the public API.
+    -   **Result:** It might create `EXPORTS` relationships for everything, potentially allowing a link to a private class. This is a limitation of C++'s module system, not our architecture.
+
+2.  **The "Dynamic `sys.path`" Problem (Python):**
+    -   **Scenario:** A Python project dynamically modifies its search path at runtime.
+    -   **Problem:** Our static analysis cannot know about this runtime change.
+    -   **Result:** The linking engine will fail to find a matching `import_id` and correctly create only a high-level `USES_LIBRARY` beacon. The deep link will not be made.
+
+3.  **The "Split-Package" Problem (Java):**
+    -   **Scenario:** Two ingested libraries illegally declare classes under the same package name.
+    -   **Problem:** An import becomes ambiguous: which library should it link to?
+    -   **Result:** The deterministic linking engine will find valid candidates in **two** different repositories. Per our core rule, since the number of verifiable candidates is not `1`, it will declare the link `UNRESOLVABLE` and refuse to guess.
+
+#### <a id="3.5.4-The-LLM's-Role"></a>3.5.3 The LLM's Role (Future Work): A Constrained Tie-Breaker
 
 We have **explicitly rejected** using an LLM to guess at external knowledge or resolve links where no candidate exists. This violates our "Provable Truth" principle.
 
@@ -468,9 +524,9 @@ These modules provide the foundational services that our core components rely on
 
 #### <a id="4.1.1-The-Need-for-Advanced-String-Matching"></a>4.1.1 The Need for Advanced String Matching
 
--   **The Problem:** Our previous architecture relied on a powerful "Verified Suffix Match" heuristic to resolve ambiguous references, such as those caused by C++ `using namespace` directives. A generic database filter supporting only exact equality (`==`) would be insufficient, forcing us to fetch massive amounts of data and filter it in Python, which is unacceptably slow.
--   **The Neo4j Solution:** Neo4j's native query language, **Cypher**, provides a rich set of string matching operators, including `ENDS WITH`. This allows our [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) to push this complex filtering logic directly down to the database layer.
--   **The Benefit:** An indexed Cypher query like `... WHERE n.canonical_fqn ENDS WITH $suffix` is extremely performant. It allows us to build powerful, safe heuristics that are essential for achieving high-quality linking coverage without sacrificing performance. This was a primary driver for committing to a specific, powerful graph database rather than a generic abstraction.
+-   **The Problem:** While our final, deterministic linking engine does not use fuzzy matching, designing a robust system requires planning for future capabilities. A generic database filter supporting only exact equality (`==`) would severely limit our ability to add more sophisticated analysis features later on.
+-   **The Neo4j Solution:** Neo4j's native query language, **Cypher**, provides a rich set of functions and operators. This power and flexibility was a key factor in its selection.
+-   **The Benefit:** Committing to Neo4j gives us a powerful platform. While our V1 linking is strictly deterministic, this choice ensures that if we later decide to build a separate tool for code-similarity analysis or a more advanced, optional heuristic search, the database backend will be capable of supporting complex queries (like `CONTAINS` or `STARTS WITH`) efficiently. It is a strategic choice for future extensibility.
 
 #### <a id="4.1.2-The-Requirement-for-Programmatic-Index-Management"></a>4.1.2 The Requirement for Programmatic Index Management
 
@@ -488,16 +544,15 @@ These modules provide the foundational services that our core components rely on
 
 An effective indexing strategy is not a "nice-to-have"; it is the foundation of a performant graph database. Our strategy is designed to be **automated, idempotent, and comprehensive**, ensuring that all critical query patterns are highly optimized from the moment the application starts.
 
-#### <a id="4.2.1-The-Ensure-on-Startup-Process"></a>4.2.1 The "Ensure on Startup" Process
+##### <a id="4.2.2.1-Unique-slug_id-Constraints"></a>4.2.2.1 Unique `slug_id` Constraints (The Primary Keys)
 
-We have adopted a simple yet powerful "Ensure on Startup" approach to manage our database schema. This eliminates the need for manual setup or complex external migration scripts.
-
-1.  **The Trigger:** The process is initiated once, and only once, when the application is launched, via our [**`main.py` entry point**](#3.6.3-The-Application-Entry-Point).
-2.  **The Action:** The `main.py` script calls a single function, `graph_utils.ensure_all_indexes()`.
-3.  **The Logic:** This function executes a series of `CREATE INDEX IF NOT EXISTS` and `CREATE CONSTRAINT IF NOT EXISTS` Cypher commands.
-4.  **Idempotency:** The `IF NOT EXISTS` clause is the key to this strategy. It makes the entire process safe to run on every application startup. If an index or constraint already exists, Neo4j simply does nothing, making the check extremely fast. If it's a new deployment, the schema is created correctly before any data is ingested.
-
-This makes our system **self-configuring and resilient.**
+-   **Purpose:** To guarantee the uniqueness of our human-readable [**`slug_id`**](#2.3.1-ID-Formatting-Strategy) for every major node type and to provide the fastest possible lookup for direct ID-based queries.
+-   **Mechanism:** In Neo4j, creating a `UNIQUENESS` constraint automatically creates a corresponding high-performance index. This is the preferred method for primary keys.
+-   **Implementation (Cypher):**
+    ```cypher
+    CREATE CONSTRAINT constraint_codeentity_unique_slug_id IF NOT EXISTS FOR (n:CodeEntity) REQUIRE n.slug_id IS UNIQUE
+    ```
+-   **Node Labels with this Constraint:** `Repository`, `SourceFile`, `TextChunk`, `CodeEntity`, and `PendingLink`. *(Note: `ResolutionCache` is correctly removed as it is no longer part of the core V1 architecture).*
 
 #### <a id="4.2.2-The-Complete-Index-and-Constraint-Catalog"></a>4.2.2 The Complete Index and Constraint Catalog
 
@@ -608,7 +663,7 @@ Our system is designed to be performant by using optimized query patterns that l
 
 ### <a id="5.1-The-Smart-Engine-vs-Smart-Parser-Debate"></a>5.1 The "Smart Engine" vs. "Smart Parser" Debate
 
-This was the most significant architectural debate and pivot in the project's history. It represents our fundamental commitment to the [**"Provable Truth"**](#1.1-The-Guiding-Principle) principle.
+This was the most significant architectural debate and pivot in the project's history. It represents our fundamental commitment to the [**"Provable Truth"**](#1.1-The-Guiding-Principle) principle. Having smarts parsers means building the FileContext (the in-memory symbol table) to resolve aliases, track imports, and generate the high-quality possible_fqns list, an ambitious task, the biggest compromise.
 
 #### <a id="5.1.1-Why-Heuristic-Linking-Was-Rejected"></a>5.1.1 Why Heuristic Linking (`ENDS WITH`) Was Rejected (Race Conditions & False Positives)
 
