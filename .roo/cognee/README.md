@@ -1,4 +1,4 @@
-# Knowledge Graph Data Layer (V3.2)
+# Knowledge Graph Data Layer - v0.81
 
 # <a id="1.0-Core-Philosophy-&-Architecture"></a>1.0 Core Philosophy & Architecture
 
@@ -6,84 +6,86 @@
 
 At its heart, this system creates a living, queryable **"digital brain"** for a software repository. Its purpose is not merely to parse files, but to understand *how* and *why* code connects. After a rigorous process of design, debate, and refinement, we have established a core philosophy founded on a deep skepticism of "magic" solutions and a commitment to building a system that is, above all, **trustworthy**.
 
-All data must conform to a **Provable Truth** criteria. This means the system will **never** create a [**`Relationship`**](#2.4.1-The-Relationship-Model) between two code entities that it cannot prove with a high degree of certainty based on the evidence it has gathered. An unresolved [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) is prefered than an incorrect one. This principle informs every component, from the [**Parsers**](#3.1-Component-A-The-Parsers) to the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine), ensuring that the final knowledge graph is a reliable source of ground truth about the codebase. Decision where made to explicitly reject fragile heuristics, external configuration files, and any process that requires a developer knowledge of the system's internals or dependency of direct actions midst pipeline.
+All data must conform to a **Provable Truth** criteria. This means the system will **never** create a [**`Relationship`**](#2.4.1-The-Relationship-Model) between two code entities that it cannot prove with a high degree of certainty based on the evidence it has gathered. An unresolved [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) is infinitely better than an incorrect one. This principle informs every component, from the [**Parsers**](#3.1-Component-A-The-Parsers) to the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine), ensuring that the final knowledge graph is a reliable source of ground truth about the codebase. We have explicitly rejected fragile heuristics, external configuration files, and any process that requires a developer to possess deep knowledge of the system's internals or direct actions midst pipeline.
 
 ---
 
-## <a id="1.2-System-Wide-Benefits-&-Guarantees"></a>1.2 System-Wide Benefits & Guarantees
+## <a id="1.2-System-Wide-Requirements"></a>1.2 System-Wide Requirements
 
-This planed architecture provides a clear set of guarantees that define its behavior and value in a real-world, production environment.
+This architecture provides a clear set of guarantees that define its behavior and value in a production environment.
 
 ### <a id="1.2.1-Reliability-Guarantees"></a>1.2.1 Reliability Guarantees
 
 The system is engineered for maximum reliability and data integrity.
 
--   **Atomic & Resilient Transactions:** Every file processing operation is wrapped in a single database transaction. We use the `tenacity` library to automatically retry these transactions in the face of specific, transient network or database errors (like `neo4j.exceptions.ServiceUnavailable`), ensuring that temporary glitches do not lead to data loss. Permanent errors (like a syntax error in our code) will fail fast, as they should.
+-   **Concurrent Request Gatekeeping:** To prevent wasted CPU cycles on duplicate, simultaneous requests, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) uses a proactive, in-memory "in-flight" lock. Before any work begins, it checks if an identical [**`FileProcessingRequest`**](#2.2.1-The-Work-Order) is already being processed. If so, the duplicate request is aborted immediately, providing a fast, efficient first layer of defense against race conditions.
 
--   **Provable Idempotency:** The system is fundamentally idempotent. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) calculates a `content_hash` for every file it processes. Before committing any data, it performs a fast, indexed query to see if a [**`SourceFile`**](#2.3.3-The-SourceFile-Node) node matched by absolute path, so the same file, with that exact hash already exists. If it does, the operation is aborted, guaranteeing that the exact same file content is never processed or stored more than once.
+-   **Atomic & Resilient Transactions:** Every file processing operation is wrapped in a single database transaction. We use the [**`tenacity`**](#1.2.1-Reliability-Guarantees) library to automatically retry these transactions in the face of specific, transient network or database errors (like `neo4j.exceptions.ServiceUnavailable`), ensuring that temporary glitches do not lead to data loss. Permanent errors (like a syntax error in our code) will fail fast, as they should.
 
--   **Race-Condition-Proof Versioning:** For tracking different versions of the *same file path*, we use an atomic, database-side counter. Instead of a naive "read-then-write" approach in Python, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) calls a [**`graph_utils`**](#3.6.1-The-DAL) function that executes an atomic Cypher `MERGE ... ON MATCH SET n.prop = n.prop + 1` query. This guarantees that even if multiple processes ingest different versions of the same file concurrently, they will each receive a unique, sequential `local_save` number without conflict. See the [**Atomic Operations Strategy**](#4.3-The-Atomic-Operations-Strategy) for details.
+-   **Provable Idempotency:** The system is fundamentally idempotent. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) calculates a `content_hash` for every file's content. Before committing any data, it performs a fast, indexed query to see if a [**`SourceFile`**](#2.3.3-The-SourceFile-Node) node, filtering/matching by absolute path and commit index number, with that exact hash already exists. If it does, the operation is aborted, guaranteeing that the exact same file content is never processed or stored more than once.
 
--   **Verifiable Truth (The "Unanimity Rule"):** This is our most important guarantee. An automatic link is created if, and only if, two conditions are met: 1) The [**"Smart Parser"**](#1.3.1-Pillar-1-The-Smart-Parser) was certain enough to provide a [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) list with **exactly one** candidate, AND 2) the [**Deterministic Linking Engine**](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine) finds **exactly one** existing `CodeEntity` in the graph that matches that single candidate. This two-factor agreement is the only path to automatic linking, eliminating guesswork and race conditions.
+-   **Race-Condition-Proof Versioning:** For tracking different versions of the *same file path*, we use an atomic, database-side counter. Instead of a naive "read-then-write" approach in Python, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) calls a [**`graph_utils`**](#3.6.1-The-DAL) function that executes an atomic Cypher `MERGE` query. This guarantees that even if multiple processes ingest different versions of the same file concurrently, they will each receive a unique, sequential `local_save` number without conflict. See the [**Atomic Operations Strategy**](#4.3-The-Atomic-Operations-Strategy) for details.
 
-### <a id="1.2.2-Performance-&-Efficiency-Guarantees"></a>1.2.2 Performance & Efficiency Guarantees (The "It's Smart")
+-   **Verifiable Truth (The "Unanimity Rule"):** An automatic link is created if, and only if, two conditions are met: 1) The [**"Smart Parser"**](#1.3.1-Pattern-1-The-Smart-Parser) was certain enough to provide a [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) list with **exactly one** candidate, AND 2) the [**Deterministic Linking Engine**](#1.3.2-Pattern-2-The-Deterministic-Linking-Engine) finds **exactly one** existing [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node) in the graph that matches that single candidate. This two-factor agreement is the only path to automatic linking, eliminating guesswork and race conditions.
+
+### <a id="1.2.2-Performance-&-Efficiency-Guarantees"></a>1.2.2 Performance & Efficiency Guarantees
 
 The system is designed to be both fast for real-time operations and efficient with its use of resources for complex tasks.
 
 -   **Real-Time Ingestion:** The primary ingestion path, managed by the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator), is extremely fast. It performs only the most essential, high-confidence tasks and defers all complex symbol linking.
 
--   **On-Demand Asynchronous Linking:** We have explicitly rejected the inefficient model of always-on background workers. Instead, our event-driven [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) uses a [**quiescence timer**](#3.4.1-The-Quiescence-Timer) to trigger the resource-intensive [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) only when a repository is inactive (not upserting for x seconds).
+-   **Efficient Asynchronous Linking:** The system uses an intelligent "debouncing" mechanism to prevent thrashing the database. The [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) uses a short, configurable [**quiescence timer**](#3.4.1-The-Quiescence-Timer) that is reset with each new file ingestion. The resource-intensive [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) is triggered only after a burst of ingestion activity has calmed, allowing it to process all new [**`PendingLink`s**](#2.2.4-The-Asynchronous-State-Machine) in a single, efficient batch.
 
 -   **Performant by Design (Self-Managing Indexes):** The system is self-configuring for performance. On application startup, a one-time, idempotent process detailed in the [**"Ensure on Startup" Process**](#4.2.1-The-Ensure-on-Startup-Process) connects to our chosen [**Neo4j**](#4.0-The-Database-Strategy) database and executes all necessary `CREATE INDEX ... IF NOT EXISTS` commands. This guarantees that all critical attributes are fully indexed before the first query is ever run.
 
-### <a id="1.2.3-Extensibility-Guarantees"></a>1.2.3 Extensibility Guarantees (The "It's Future-Proof")
+### <a id="1.2.3-Extensibility-Guarantees"></a>1.2.3 Extensibility Guarantees
 
 The architecture is designed to be maintainable and adaptable over time.
 
--   **Language Agnostic Core:** The [**"Smart Parser"**](#1.3.1-Pillar-1-The-Smart-Parser) architecture brilliantly encapsulates all language-specific complexity within each parser module. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator), [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher), and [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) are completely language-agnostic. Adding support for a new language is as simple as creating a new parser that adheres to the contract. See the [**Language-Specific Implementation Guides**](#3.1.4-Language-Specific-Implementation-Guides).
+-   **Language Agnostic Core:** The [**"Smart Parser"**](#1.3.1-Pattern-1-The-Smart-Parser) architecture brilliantly encapsulates all language-specific complexity within each parser module. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator), [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher), and [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) are completely language-agnostic. Adding support for a new language is as simple as creating a new parser that adheres to the contract. See the [**Language-Specific Implementation Guides**](#3.1.4-Language-Specific-Implementation-Guides).
 
--   **Robust Fallbacks for Non-Code Files:** The system is designed to ingest an entire repository. The [**`Orchestrator`**](#3.3.2-The-Centralized-Fallback-Mechanism) has a centralized fallback mechanism. If a language-specific parser is given a file with no code definitions (e.g., `README.md`), it yields an empty `slice_lines` list. The Orchestrator detects this and automatically invokes the `GenericParser`, which performs intelligent, token-based chunking. This guarantees complete repository coverage.
+-   **Robust Fallbacks for Non-Code Files:** The system is designed to ingest an entire repository. The [**`Orchestrator`**](#3.3.2-The-Centralized-Fallback-Mechanism) has a centralized fallback mechanism. If a language-specific parser is given a file with no code definitions (e.g., `README.md`), it yields an empty [**`slice_lines`**](#3.1.1-The-Smart-Parser-Implementation-Strategy) list. The Orchestrator detects this and automatically invokes the `GenericParser`, which performs intelligent, token-based chunking. This guarantees complete repository coverage.
 
-## <a id="1.3-The-Four-Pillars"></a>1.3 The Four Pillars of the Architecture
+## <a id="1.3-Architecture-Pattern"></a>1.3 The Four Patterns of the Architecture
 
-*The "how" behind our guarantees. These four core design patterns work in concert to create a system that is trustworthy, maintainable, and efficient.*
+Core design patterns work in concert to create a system that is trustworthy, maintainable, and resource efficient.
 
 ### <a id="1.3.1-Pillar-1-The-Smart-Parser"></a>1.3.1 Pillar 1: The "Smart" Parser (The Intelligent Witness)
 
-This pillar moves complexity to the edge of the system, where the most context is available.
+This pattern moves complexity to the edge of the system, where the most context is available.
 
--   **<a id="1.3.1.1-Responsibility"></a>1.3.1.1 Responsibility: To Deduce, Not Just Report**
-    -   Each language-specific parser is a sophisticated component, not a simple tokenizer. Its primary responsibility is to analyze a file's AST and build a rich, file-local symbol table ([**`FileContext`**](#3.1.2-The-FileContext-A-Parser's-Local-Brain)). Using this context, it intelligently deduces a list of high-probability, fully-qualified candidates for every symbol reference it finds. This is a fundamental shift from a simple "reporter" to an "intelligent witness."
+-   **<a id="1.3.1.1-Responsibility"></a>1.3.1.1 Responsible to Deduce, not just report**
+    -   Each language-specific parser is a sophisticated component, not a simple tokenizer. Its primary responsibility is to analyze a file's AST and build a rich, file-local symbol table ([**`FileContext`**](#3.1.2-The-FileContext-A-Parser's-Local-Brain)). Using this context, it intelligently deduces a list of high-probability, fully-qualified candidates for every symbol reference it finds.
 
--   **<a id="1.3.1.2-Key-Output"></a>1.3.1.2 The Key Output: The `possible_fqns` List**
-    -   The culmination of the parser's intelligence is the [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) field within the [**`RawSymbolReference`**](#2.2.3-The-Universal-Report) object it yields. This list of candidate FQNs is the high-quality, context-aware evidence that the rest of the system will use to make deterministic linking decisions. This approach is detailed further in the [**"Smart Parser" Implementation Strategy**](#3.1.1-The-Smart-Parser-Implementation-Strategy).
+-   **<a id="1.3.1.2-Key-Output"></a>1.3.1.2 The key output, `possible_fqns` List**
+    -   The culmination of the parser's intelligence is the [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) field within the [**`RawSymbolReference`**](#2.2.3-The-Universal-Report) object it yields. This list of candidate FQNs is the high-quality, context-aware evidence that the rest of the system will use to make deterministic linking decisions.
 
 ### <a id="1.3.2-Pillar-2-The-Deterministic-Linking-Engine"></a>1.3.2 Pillar 2: The Deterministic Linking Engine (The Verifier)
 
-This pillar ensures that our system adheres strictly to the "Provable Truth" principle by eliminating all guesswork from the linking process.
+This pattern ensures that our system adheres strictly to the "Provable Truth" principle by eliminating all guesswork from the linking process.
 
--   **<a id="1.3.2.1-Responsibility"></a>1.3.2.1 Responsibility: To Verify, Not To Search**
-    -   We have **completely eliminated** fuzzy, heuristic-based matching (like `ENDS WITH`) from our core linking engine. The [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) is now a simple, 100% deterministic verifier. It does not perform broad, expensive searches; it performs targeted verifications based on the high-quality evidence provided by the parsers. This crucial decision is documented in the [**"Smart Engine" vs. "Smart Parser" Debate**](#5.1-The-Smart-Engine-vs-Smart-Parser-Debate).
+-   **<a id="1.3.3.1-Verifier"></a>1.3.2.1 Responsible to Verify, Not To Search**
+    -   The [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) is a simple deterministic verifier. It does not perform broad, expensive searches; it performs targeted verifications based on the high-quality evidence provided by the parsers. We have **completely eliminated** fuzzy, heuristic-based matching from our core linking engine, this crucial decision is documented in the [**"Smart Engine" vs. "Smart Parser" Debate**](#5.1-The-Smart-Engine-vs-Smart-Parser-Debate).
 
--   **<a id="1.3.2.2-Single-Hit-Rule"></a>1.3.2.2 The "Single-Hit" Rule: How Links Are Proven**
-    -   The engine's only job is to take the [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) list and run a single, precise query against the graph: `... WHERE n.canonical_fqn IN $possible_fqns`. A [**`Relationship`**](#2.4.1-The-Relationship-Model) is created if, and only if, **exactly one** of those candidates already exists in the graph. This simple, powerful rule eradicates a whole class of race conditions and false positives.
+-   **<a id="1.3.2.2-The-Unanimity-Rule"></a>1.3.2.2 The "Unanimity Rule", how links are proven**
+    -   The engine operates on a strict "Unanimity Rule." A [**`Relationship`**](#2.4.1-The-Relationship-Model) is created automatically if, and only if, **both** of these conditions are met: 1) The parser was certain and provided a [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) list with **exactly one** candidate, AND 2) The engine's query against the graph for that one candidate returns **exactly one** match. This two-factor agreement is the only path to automatic linking, eliminating guesswork and the entire class of race conditions associated with it.
 
 ### <a id="1.3.3-Pillar-3-On-Demand-Enrichment"></a>1.3.3 Pillar 3: On-Demand Enrichment (The Conductor)
 
-This pillar ensures that our system is highly efficient, running resource-intensive tasks only when necessary.
+This pattern ensures that our system is highly efficient, running resource-intensive tasks only when necessary by intelligently batching work.
 
--   **<a id="1.3.3.1-Responsibility"></a>1.3.3.1 Responsibility: To Manage Quiescence, Not Poll Endlessly**
-    -   We have rejected the inefficient model of always-on background workers. Instead, a stateful but efficient [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) acts as the system's central conductor, listening for activity from the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator). The rationale for this major architectural pivot is detailed in the [**"Always-On Worker" vs. "On-Demand Dispatcher" Decision**](#5.2-The-Always-On-Worker-vs-On-Demand-Dispatcher-Decision).
+-   **<a id="1.3.3.1-Workload-Manager"></a>1.3.3.1 Responsible to manage workloads, not poll endlessly**
+    -   A stateful but efficient [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) acts as the system's central conductor, listening for activity from the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator). We have rejected the inefficient model of always-on background workers, the rationale for this major architectural pivot is detailed in the [**"Always-On Worker" vs. "On-Demand Dispatcher" Decision**](#5.2-The-Always-On-Worker-vs-On-Demand-Dispatcher-Decision).
 
--   **<a id="1.3.3.2-Timer-Mechanism"></a>1.3.3.2 The Timer Mechanism: How It Works**
-    -   Only after a repository has been inactive for a configurable period (the [**Quiescence Timer**](#3.4.1-The-Quiescence-Timer)), does the `Dispatcher` trigger the deterministic linking tasks. This ensures that linking, which requires a complete and stable view of the graph, only happens when the "storm" of file updates is over.
+-   **<a id="1.3.3.2-The-Debouncing-Mechanism"></a>1.3.3.2 The Debouncing Mechanism**
+    -   The [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) uses a short, configurable [**Quiescence Timer**](#3.4.1-The-Quiescence-Timer) as an intelligent "debouncing" mechanism. The timer is reset after every file ingestion is finished. The [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) is triggered only after a burst of activity has subsided, which prevents the system from thrashing the database and allows it to process all newly created [**`PendingLink`s**](#2.2.4-The-Asynchronous-State-Machine) in a single, efficient batch.
 
-### <a id="1.3.4-Pillar-4-The-Database-as-a-Partner"></a>1.3.4 Pillar 4: The Database as a Partner (The Neo4j Commitment)
+### <a id="1.3.4-Pattern-4-The-Database-as-a-Partner"></a>1.3.4 Pattern 4: The Database as a Partner
 
-This pillar recognizes that our choice of database is not just an implementation detail, but a core part of the system's ability to deliver on its promises of performance and reliability. Our full [**Database Strategy**](#4.0-The-Database-Strategy) is detailed later.
+This pattern recognizes that our choice of database is not just an implementation detail, but a core part of the system's ability to deliver on its promises of performance and reliability. Our full [**Database Strategy**](#4.0-The-Database-Strategy) is detailed later.
 
--   **<a id="1.3.4.1-Responsibility"></a>1.3.4.1 Responsibility: To Leverage Native Power**
-    -   We have committed to **Neo4j** as our backend. This allows us to move beyond generic database operations and leverage the specific, powerful features of a market-leading graph database.
+-   **<a id="1.3.4.1-NEO4J-NATIVE"></a>1.3.4.1 To Leverage Native Power**
+    -   We have committed to **Neo4j** as our backend. This allows us to move beyond generic database operations and leverage the rich specific features of the database.
 
 -   **<a id="1.3.4.2-Cypher-and-Indexes"></a>1.3.4.2 The Role of Cypher and Programmatic Indexes**
     -   This partnership means we can write highly performant, custom Cypher queries for tasks like our atomic versioning counter. It also means we can, and must, manage the database schema directly. The system ensures performance by programmatically creating all necessary [**indexes and constraints**](#4.2.2-The-Complete-Index-and-Constraint-Catalog) on application startup.
@@ -92,15 +94,21 @@ This pillar recognizes that our choice of database is not just an implementation
 
 # <a id="2.0-The-Data-Contracts"></a>2.0 The Data Contracts: The System's Universal Language
 
+*The universal language of our system. This section defines the structure and purpose of the key data models, both transient (for control flow) and persistent (for the final graph).*
+
+---
+
 ## <a id="2.1-Core-Philosophy"></a>2.1 Core Philosophy: Separating Evidence from Verdict
 
-The fundamental principle behind our data models is the strict **separation of factual reporting from interpretive resolution**. This aligns perfectly with our architectural pillars:
+The fundamental principle behind our data models is the strict **separation of factual reporting from interpretive resolution**. This aligns perfectly with our [**Four Pillars of the Architecture**](#1.3-The-Four-Pillars):
 
 -   **Parsers are "Intelligent Witnesses"**: They are experts on syntax and the immediate context of a single file. They report their findings as evidence in the form of a [**`RawSymbolReference`**](#2.2.3-The-Universal-Report). This evidence includes a list of high-probability candidate FQNs, but it is still just a report, not a conclusion.
 
--   **The `GraphEnhancementEngine` is the "Verifier"**: It acts as the judge and jury. It takes the evidence from the parser, compares it against the known facts in the graph, and delivers a final verdict by creating a [**`Relationship`**](#2.4.1-The-Relationship-Model).
+-   **The `GraphEnhancementEngine` is the "Verifier"**: It acts as the judge and jury. It takes the evidence from the parser, compares it against the known facts in the graph, and delivers a final verdict by creating a [**`Relationship`**](#2.4.1-The-Relationship-Model) only when the evidence is unambiguous.
 
 This separation is what allows our core linking logic to be simple, deterministic, and language-agnostic.
+
+---
 
 ## <a id="2.2-The-Ingestion-&-Control-Flow-Models"></a>2.2 The Ingestion & Control Flow Models
 
@@ -108,7 +116,7 @@ These are the transient data models used to manage the flow of work through the 
 
 ### <a id="2.2.1-The-Work-Order"></a>2.2.1 The Work Order: `FileProcessingRequest`
 
-This Pydantic model is the **sole input** to the entire ingestion pipeline, passed to the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator). It is a self-contained work order for a single file.
+This Pydantic model is the **sole input** to the entire ingestion pipeline, passed to the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator). It is a self-contained work order for a single file. Crucially, this Pydantic object itself serves as the unique key for our [**Concurrent Request Gatekeeping**](#1.2.1-Reliability-Guarantees) mechanism, preventing wasted work on duplicate, simultaneous ingestion calls.
 
 -   **Key Fields (Finalized):**
     -   `absolute_path: str`: The full path to the file on disk.
@@ -117,15 +125,15 @@ This Pydantic model is the **sole input** to the entire ingestion pipeline, pass
     -   `branch: str`: The branch name (e.g., `main`).
     -   **`commit_index: int = 1`**: The commit sequence number. **Defaults to `1`** for easier use.
     -   **`is_delete: bool = False`**: Flag for `DELETE` operations. **Defaults to `False`** (UPSERT).
-    -   `import_id: Optional[str]`: The canonical name if the repo is a library (e.g., `pandas`), used by the linking engine.
+    -   `import_id: Optional[str]`: The canonical name if the repo is a library (e.g., `pandas`), used for inter-repository linking.
     -   `root_namespace: Optional[str]`: The root namespace for languages like Java (e.g., `com.mycompany.project`).
 
 ### <a id="2.2.2-The-Parser's-Output-Contract"></a>2.2.2 The Parser's Output Contract: `ParserOutput`
 
-This `Union` type defines the strict contract that every [**"Smart Parser"**](#3.1-Component-A-The-Parsers) must adhere to. The `Orchestrator` consumes this asynchronous stream and will only accept these three types of objects:
+This `Union` type defines the strict contract that every [**"Smart Parser"**](#3.1-Component-A-The-Parsers) must adhere to. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) consumes this asynchronous stream and will only accept these three types of objects:
 
 1.  `List[int]`: A single list of **1-based** line numbers representing the recommended [**`slice_lines`**](#3.1.1-The-Smart-Parser-Implementation-Strategy) for the intelligent chunker.
-2.  `CodeEntity`: A factual report of a single code definition found in the file.
+2.  [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node): A factual report of a single code definition found in the file.
 3.  `RawSymbolReference`: A rich, evidential report of a single symbol reference found in the file.
 
 ### <a id="2.2.3-The-Universal-Report"></a>2.2.3 The Universal Report: `RawSymbolReference`
@@ -149,13 +157,13 @@ This optional dictionary is our extensible mechanism for adding crucial context 
 These models are the bookkeeping tools that enable our on-demand, deterministic linking process.
 
 -   **`PendingLink`**: A temporary node stored in the graph representing an unresolved reference—a "debt" to be paid by the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine). It contains the full `RawSymbolReference` object as its payload.
--   **`LinkStatus`**: The enum that controls the lifecycle of a `PendingLink`.
+-   **`LinkStatus`**: The enum that controls the lifecycle of a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine).
 
 #### <a id="2.2.4.1-The-Simplified-LinkStatus-Enum"></a>2.2.4.1 The Simplified `LinkStatus` Enum
 In our final, deterministic architecture, the state machine is greatly simplified. The primary states are:
 
-1.  **`PENDING_RESOLUTION`**: The initial state. The `Orchestrator` creates the link in this state. It is waiting for a quiescent period to be processed.
-2.  **`AWAITING_TARGET`**: A crucial state for our [**self-healing graph**](#3.5.2-The-Self-Healing-Graph). The linking engine has run but found zero verifiable candidates for the link. It is now patiently waiting for a new `CodeEntity` to be ingested that might satisfy one of the `possible_fqns`.
+1.  **`PENDING_RESOLUTION`**: The initial state. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) creates the link in this state. It is waiting for a quiescent period to be processed.
+2.  **`AWAITING_TARGET`**: A crucial state for our [**self-healing graph**](#3.5.2-The-Self-Healing-Graph). The linking engine has run but found zero verifiable candidates for the link. It is now patiently waiting for a new [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node) to be ingested that might satisfy one of the `possible_fqns`.
 3.  **`UNRESOLVABLE`**: A terminal state. The linking engine ran and found **more than one** verifiable candidate in the graph, making the link provably ambiguous. The system will not guess and will no longer attempt to resolve this link.
 
 ### <a id="2.3-The-Core-Graph-Node-Models"></a>2.3 The Core Graph Node Models
@@ -243,7 +251,7 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
   - *The final, persistent edge structure that connects our nodes, representing the "knowledge" in our graph.*
 
   - **<a id="2.4.1-The-Relationship-Model"></a>2.4.1 The `Relationship` Model: The Final Verdict**
-    - The `Relationship` is the ultimate output of our linking process. It is a simple, directed edge between two nodes in the graph. It is created only when a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) has been successfully and unambiguously resolved by either the [**Tier 1 Resolver**](#3.3.1-The-Finalized-Workflow) in the `Orchestrator` (for file-level includes) or the [**Deterministic Linking Engine**](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine) (for all other symbol links).
+    - The `Relationship` is the ultimate output of our linking process. It is a simple, directed edge between two nodes in the graph. It is created only when a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) has been successfully and unambiguously resolved by either the [**Tier 1 Resolver**](#3.3.1-The-Finalized-Workflow) in the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) (for file-level includes) or the [**Deterministic Linking Engine**](#1.3.2-Pattern-2-The-Deterministic-Linking-Engine) (for all other symbol links).
     - Its key fields are `source_id`, `target_id`, `type`, and an optional `properties` dictionary which is populated from the `metadata` field of the originating [**`RawSymbolReference`**](#2.2.3-The-Universal-Report).
 
   - **<a id="2.4.2-The-Relationship-Catalog"></a>2.4.2 The Relationship Catalog: A Summary of Edge Types**
@@ -274,7 +282,7 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
 
 The parser is the foundation of our entire [**"Provable Truth"**](#1.1-The-Guiding-Principle) architecture. It is a stateless expert on a single language's syntax, and its only job is to be an **expert witness**. It makes **zero assumptions** about any other file or the state of the graph.
 
-Its most critical responsibility, as defined in [**Pillar 1**](#1.3.1-Pillar-1-The-Smart-Parser), is to use its deep syntactic understanding to deduce a list of high-probability, fully-qualified candidates ([**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns)) for every reference it finds. This moves the "intelligence" to the edge, where the most context is available, and eliminates the need for fragile, heuristic-based guessing in the linking engine.
+Its most critical responsibility, as defined in [**Pattern 1**](#1.3.1-Pattern-1-The-Smart-Parser), is to use its deep syntactic understanding to deduce a list of high-probability, fully-qualified candidates ([**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns)) for every reference it finds. This moves the "intelligence" to the edge, where the most context is available, and eliminates the need for fragile, heuristic-based guessing in the linking engine.
 
 #### <a id="3.1.2-The-FileContext-Class"></a>3.1.2 The `FileContext` Class: A Parser's Local Brain
 
@@ -346,7 +354,7 @@ This process guarantees full file coverage and creates chunks that are both sema
 
 ### <a id="3.3-Component-C-The-Orchestrator"></a>3.3 Component C: The Orchestrator (`orchestrator.py`)
 
-The `Orchestrator` is the central hub of our real-time ingestion pipeline. Its philosophy is **Speed, Safety, and Honesty**. It is a language-agnostic processor for a single file, and its primary goal is to get a file's data into the graph quickly and atomically, deferring all complex or slow operations.
+The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) is the central hub of our real-time ingestion pipeline. Its philosophy is **Speed, Safety, and Honesty**. It is a language-agnostic processor for a single file, and its primary goal is to get a file's data into the graph quickly and atomically, deferring all complex or slow operations.
 
 #### <a id="3.3.1-The-Finalized-Workflow"></a>3.3.1 The Finalized Workflow: A Step-by-Step Guide
 
@@ -365,23 +373,23 @@ The `process_single_file` function is the main entry point, wrapped in a [**`ten
 
 #### <a id="3.3.2-The-Centralized-Fallback-Mechanism"></a>3.3.2 The Centralized Fallback Mechanism: Handling Non-Code Files
 
-This is a key feature ensuring complete repository coverage. The logic is simple but powerful and resides entirely within the `Orchestrator`.
+This is a key feature ensuring complete repository coverage. The logic is simple but powerful and resides entirely within the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator).
 
 -   **The Signal:** A language-specific parser (like `CppParser`) signals that a file contains no code definitions by yielding an empty `slice_lines` list (`[]`).
--   **The Action:** The `Orchestrator` detects this signal (`if not slice_lines and content.strip():`). It then immediately invokes the `GenericParser`.
+-   **The Action:** The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) detects this signal (`if not slice_lines and content.strip():`). It then immediately invokes the `GenericParser`.
 -   **The Result:** The `GenericParser` performs token-based chunking on the file content. This ensures that documentation (`README.md`), configuration files (`.json`), and comment-only source files are all correctly chunked and stored in the graph, making them available for semantic search and analysis.
 
 ---
 
 ### <a id="3.4-Component-D-The-Intelligent-Dispatcher"></a>3.4 Component D: The Intelligent Dispatcher (`dispatcher.py`)
 
-This component is the "On-Demand Conductor" of our asynchronous operations, as defined in [**Pillar 3**](#1.3.3-Pillar-3-On-Demand-Enrichment). It replaces the inefficient "always-on worker" model with an intelligent, event-driven approach.
+This component is the "On-Demand Conductor" of our asynchronous operations, as defined in [**Pattern 3**](#1.3.3-Pattern-3-On-Demand-Enrichment). It replaces the inefficient "always-on worker" model with an intelligent, event-driven approach.
 
 #### <a id="3.4.1-The-Quiescence-Timer"></a>3.4.1 The Quiescence Timer: An Event-Driven Heartbeat
 
 The `Dispatcher` manages the asynchronous workflow using a simple but effective in-memory timer system, avoiding the need for a separate `IngestionHeartbeat` node in the database.
 
-1.  **Activity Notification:** The `Orchestrator` calls `dispatcher.notify_ingestion_activity(repo_id)` after a successful ingestion.
+1.  **Activity Notification:** The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) calls `dispatcher.notify_ingestion_activity(repo_id)` after a successful ingestion.
 2.  **Timer Management:** The `Dispatcher` maintains a dictionary of running `asyncio.Task` objects, one for each active repository.
 3.  **Reset on Activity:** If a task already exists for the given `repo_id`, it is cancelled. A new `asyncio.sleep(QUIESCENCE_PERIOD_SECONDS)` task is then created and stored.
 4.  **Trigger on Quiescence:** If the `asyncio.sleep` task completes without being cancelled, it means the repository has been inactive. It then triggers the full enhancement cycle. This is an elegant, efficient, and purely event-driven way to manage the "ingestion storm" problem.
@@ -396,28 +404,28 @@ The `Dispatcher` acts as a robust supervisor for the asynchronous enhancement ta
 
 ### <a id="3.5-Component-E-The-Graph-Enhancement-Engine"></a>3.5 Component E: The Graph Enhancement Engine (`graph_enhancement_engine.py`)
 
-This module is a library of one-shot, stateless `async` functions that are called on-demand by the [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher). Its guiding principle is our most important one: [**"Provable Truth through Contextual Analysis"**](#1.1-The-Guiding-Principle). It is a **purely deterministic verifier**, as defined in [**Pillar 2**](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine).
+This module is a library of one-shot, stateless `async` functions that are called on-demand by the [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher). Its guiding principle is our most important one: [**"Provable Truth through Contextual Analysis"**](#1.1-The-Guiding-Principle). It is a **purely deterministic verifier**, as defined in [**Pattern 2**](#1.3.2-Pattern-2-The-Deterministic-Linking-Engine).
 
 #### <a id="3.5.1-The-run_deterministic_linking_task"></a>3.5.1 The `run_deterministic_linking_task`: A Pure Verifier
 
-This task is the workhorse of our asynchronous linking process. It embodies the [**"Verifier"**](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine) principle by being simple, safe, and powerful.
+This task is the workhorse of our asynchronous linking process. It embodies the [**"Verifier"**](#1.3.2-Pattern-2-The-Deterministic-Linking-Engine) principle by being simple, safe, and powerful.
 
 1.  **Trigger:** It is called by the [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) for a quiescent repository.
 2.  **Action:** It queries the graph for all [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) nodes in that repository with a status of `PENDING_RESOLUTION`.
-3.  **Verification:** For each `PendingLink`, it takes the list of [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) provided by the [**"Smart Parser"**](#1.3.1-Pillar-1-The-Smart-Parser). It then executes a single, precise query against the graph:
+3.  **Verification:** For each [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine), it takes the list of [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) provided by the [**"Smart Parser"**](#1.3.1-Pattern-1-The-Smart-Parser). It then executes a single, precise query against the graph:
     > `MATCH (n:CodeEntity) WHERE n.canonical_fqn IN $possible_fqns`
 4.  **The Unanimity Rule:** This is the only rule for automatic link creation. A link is made if, and only if, **both** of the following conditions are true:
     -   The `possible_fqns` list provided by the parser contained **exactly one** candidate.
     -   The verification query against the graph returned **exactly one** matching [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node).
 5.  **Handling Other Outcomes:**
-    -   If the query returns **zero** results, the target entity has not been ingested yet. The `PendingLink`'s status is updated to `AWAITING_TARGET`, and it waits to be [**healed**](#3.5.2-The-Self-Healing-Graph).
-    -   If the query returns **more than one** result, or if the parser provided multiple `possible_fqns`, the link is genuinely ambiguous. The `PendingLink`'s status is updated to the terminal `UNRESOLVABLE` state to prevent further processing.
+    -   If the query returns **zero** results, the target entity has not been ingested yet. The [**`PendingLink`s**](#2.2.4-The-Asynchronous-State-Machine) status is updated to `AWAITING_TARGET`, and it waits to be [**healed**](#3.5.2-The-Self-Healing-Graph).
+    -   If the query returns **more than one** result, or if the parser provided multiple `possible_fqns`, the link is genuinely ambiguous. The [**`PendingLink`s**](#2.2.4-The-Asynchronous-State-Machine) status is updated to the terminal `UNRESOLVABLE` state to prevent further processing.
 
 #### <a id="3.5.2-The-Self-Healing-Graph"></a>3.5.2 The Self-Healing Graph: The `AWAITING_TARGET` State
 
 The `AWAITING_TARGET` status is the key to our system's ability to organically and truthfully resolve links over time without guesswork. It is a more robust and honest approach than our previously discussed "auto-healing" logic.
 
-1.  **The "Debt" is Recorded:** When the linking task runs and the parser was certain (only one `possible_fqn`), but the graph query finds zero verifiable candidates, the `PendingLink` is updated to `AWAITING_TARGET`. This creates a persistent record that says, "I am a link from `Entity A`, and I am waiting for an `Entity B` with a specific FQN to appear."
+1.  **The "Debt" is Recorded:** When the linking task runs and the parser was certain (only one `possible_fqn`), but the graph query finds zero verifiable candidates, the [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) is updated to `AWAITING_TARGET`. This creates a persistent record that says, "I am a link from `Entity A`, and I am waiting for an `Entity B` with a specific FQN to appear."
 2.  **New Information Arrives:** Later, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) processes a new file and creates a new `CodeEntity` that matches the awaited FQN.
 3.  **The Repair Worker is Triggered:** The `Orchestrator` notifies the [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher), which immediately triggers the `run_repair_worker` task.
 4.  **The Debt is Paid:** The `run_repair_worker` queries for any `AWAITING_TARGET` links that can now be satisfied by the newly created entities. It finds our waiting link, and because the target is now verifiably present, it creates the final, correct [**`Relationship`**](#2.4.1-The-Relationship-Model).
@@ -440,7 +448,7 @@ Our deterministic inter-repository linking strategy is built on a simple "key an
 
 2.  **The Map (The `EXPORTS` Relationship):** The "Smart Parser" for a given language must be capable of identifying a library's public API (e.g., from `__init__.py` in Python or `lib.rs` in Rust). It should create a special `EXPORTS` relationship from the library's entry point files to the public `CodeEntity` nodes. This collection of `EXPORTS` relationships **is the map**. It tells the engine which symbols are publicly available and what their `canonical_fqn`s are, preventing accidental links to private implementation details.
 
-The `GraphEnhancementEngine` needs both the key and the map to create a successful deep link. When processing a `PendingLink` for an absolute import, it will first use the `import_id` to find the right library, then use the `EXPORTS` relationships within that library to find the correct, publicly-vetted symbol.
+The `GraphEnhancementEngine` needs both the key and the map to create a successful deep link. When processing a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) for an absolute import, it will first use the `import_id` to find the right library, then use the `EXPORTS` relationships within that library to find the correct, publicly-vetted symbol.
 
 ##### <a id="3.5.3.2-Coverage-Analysis-Across-Languages"></a>3.5.3.2 Coverage Analysis Across Languages
 
@@ -493,7 +501,7 @@ These modules provide the foundational services that our core components rely on
 
 #### <a id="3.6.1-The-DAL"></a>3.6.1 The DAL: `graph_utils.py` as the Neo4j Gateway
 
--   **Core Philosophy:** The **Data Access Layer (DAL)**. This module encapsulates all database interaction and is the only component that contains [**Neo4j**](#1.3.4-Pillar-4-The-Database-as-a-Partner)-specific Cypher queries. It provides a clean, abstract API to the rest of the system. See Section [**4.0 The Database Strategy**](#4.0-The-Database-Strategy) for full details.
+-   **Core Philosophy:** The **Data Access Layer (DAL)**. This module encapsulates all database interaction and is the only component that contains [**Neo4j**](#1.3.4-Pattern-4-The-Database-as-a-Partner)-specific Cypher queries. It provides a clean, abstract API to the rest of the system. See Section [**4.0 The Database Strategy**](#4.0-The-Database-Strategy) for full details.
 -   **Key Responsibilities:**
     1.  **Schema Management:** Provides the `ensure_all_indexes()` function.
     2.  **Atomic Operations:** Provides the `atomic_get_and_increment_local_save()` function.
@@ -552,7 +560,7 @@ An effective indexing strategy is not a "nice-to-have"; it is the foundation of 
     ```cypher
     CREATE CONSTRAINT constraint_codeentity_unique_slug_id IF NOT EXISTS FOR (n:CodeEntity) REQUIRE n.slug_id IS UNIQUE
     ```
--   **Node Labels with this Constraint:** `Repository`, `SourceFile`, `TextChunk`, `CodeEntity`, and `PendingLink`. *(Note: `ResolutionCache` is correctly removed as it is no longer part of the core V1 architecture).*
+-   **Node Labels with this Constraint:** `Repository`, `SourceFile`, `TextChunk`, `CodeEntity`, and [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine). *(Note: `ResolutionCache` is correctly removed as it is no longer part of the core V1 architecture).*
 
 #### <a id="4.2.2-The-Complete-Index-and-Constraint-Catalog"></a>4.2.2 The Complete Index and Constraint Catalog
 
@@ -566,7 +574,7 @@ The `ensure_all_indexes` function is responsible for creating three types of sch
     ```cypher
     CREATE CONSTRAINT constraint_codeentity_unique_slug_id IF NOT EXISTS FOR (n:CodeEntity) REQUIRE n.slug_id IS UNIQUE
     ```
--   **Node Labels with this Constraint:** `Repository`, `SourceFile`, `TextChunk`, `CodeEntity`, `PendingLink`, `ResolutionCache`.
+-   **Node Labels with this Constraint:** `Repository`, `SourceFile`, `TextChunk`, `CodeEntity`, [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine), `ResolutionCache`.
 
 ##### <a id="4.2.2.2-Secondary-Indexes"></a>4.2.2.2 Secondary Indexes (for Query Performance)
 
@@ -676,7 +684,7 @@ This was the most significant architectural debate and pivot in the project's hi
     4.  Later, the `Orchestrator` processes `file_B.h`, which contains the *correct* definition: `MyNamespace::MyClass`.
     5.  The system now has a wrong link, and no easy way to know that it needs to be "repaired." This violated our core principle of trustworthiness.
 
--   **The Final Decision:** We **completely rejected** any form of fuzzy or heuristic-based matching in the linking engine. The risk of creating incorrect, "provably-wrong" links was too high. This led directly to the "Smart Parser" architecture, where all linking is based on an exact match against a list of high-probability candidates provided by the parser. See [**Pillar 1: The "Smart" Parser**](#1.3.1-Pillar-1-The-Smart-Parser).
+-   **The Final Decision:** We **completely rejected** any form of fuzzy or heuristic-based matching in the linking engine. The risk of creating incorrect, "provably-wrong" links was too high. This led directly to the "Smart Parser" architecture, where all linking is based on an exact match against a list of high-probability candidates provided by the parser. See [**Pattern 1: The "Smart" Parser**](#1.3.1-Pattern-1-The-Smart-Parser).
 
 ---
 
@@ -704,7 +712,7 @@ This was a critical philosophical pivot to ensure our system adheres strictly to
 
 -   **The Critical Flaw:** This fundamentally violated our core principle. It would mean creating a link based on information that was **external to our graph**. The LLM's answer, while likely correct for `pandas`, could be a hallucination for a less common library. We would be creating a link to an entity that did not verifiably exist in our system's "universe."
 
--   **The Final Decision:** We **completely removed the LLM from the active linking pipeline.** The system will **never** use an LLM to guess the target of a link for which it has no internal candidates. An unresolved reference to an external library will correctly remain a `PendingLink` in the `AWAITING_TARGET` state until that library's source code is actually ingested and becomes part of our graph's ground truth.
+-   **The Final Decision:** We **completely removed the LLM from the active linking pipeline.** The system will **never** use an LLM to guess the target of a link for which it has no internal candidates. An unresolved reference to an external library will correctly remain a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) in the `AWAITING_TARGET` state until that library's source code is actually ingested and becomes part of our graph's ground truth.
 
 #### <a id="5.3.2-The-Final-Constrained-Role-of-the-LLM"></a>5.3.2 The Final, Constrained Role of the LLM (Future Work)
 
