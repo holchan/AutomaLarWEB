@@ -152,21 +152,21 @@ Extensible mechanism for adding crucial context that isn't part of a symbol's co
 
 ### <a id="2.2.4-The-Asynchronous-State-Machine"></a>2.2.4 The Asynchronous State Machine: `PendingLink` & `LinkStatus`
 
-These models are the bookkeeping tools that enable our on-demand, deterministic linking process.
+Bookkeeping tools that enable on-demand, deterministic linking process.
 
--   **`PendingLink`**: A temporary node stored in the graph representing an unresolved reference—a "debt" to be paid by the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine). It contains the full `RawSymbolReference` object as its payload.
--   **`LinkStatus`**: The enum that controls the lifecycle of a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine).
+-   **`PendingLink`**: A temporary node stored in the graph representing an unresolved reference—a "debt" to be paid by the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine). It contains the full [**`RawSymbolReference`**](#2.2.3-The-Universal-Report) object as its payload.
+-   **`LinkStatus`**: The enum that controls the lifecycle of a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) and dictates the next action for the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine).
 
-#### <a id="2.2.4.1-The-Simplified-LinkStatus-Enum"></a>2.2.4.1 The Simplified `LinkStatus` Enum
-In our final, deterministic architecture, the state machine is greatly simplified. The primary states are:
+#### <a id="2.2.4.1-The-Final-LinkStatus-Enum"></a>2.2.4.1 The Final `LinkStatus` Enum
+In our final, deterministic architecture, the state machine is simple and precise. The primary states are:
 
-1.  **`PENDING_RESOLUTION`**: The initial state. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) creates the link in this state. It is waiting for a quiescent period to be processed.
-2.  **`AWAITING_TARGET`**: A crucial state for our [**self-healing graph**](#3.5.2-The-Self-Healing-Graph). The linking engine has run but found zero verifiable candidates for the link. It is now patiently waiting for a new [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node) to be ingested that might satisfy one of the `possible_fqns`.
-3.  **`UNRESOLVABLE`**: A terminal state. The linking engine ran and found **more than one** verifiable candidate in the graph, making the link provably ambiguous. The system will not guess and will no longer attempt to resolve this link.
+1.  **`PENDING_RESOLUTION`**: The initial state. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) creates the link in this state. It is waiting for the next "debounced" run of the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine).
+2.  **`AWAITING_TARGET`**: A crucial state for our [**self-healing graph**](#3.5.2-The-Self-Healing-Graph). The [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) enters this state only when the parser was certain (one `possible_fqn`), but a query for that FQN found zero verifiable candidates in the graph. The link now patiently waits for the target [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node) to be ingested.
+3.  **`AMBIGUOUS`**: A terminal state. The link is provably ambiguous and will not be automatically resolved. This occurs if **either** the parser was uncertain (provided multiple `possible_fqns`) **or** if the linking engine found more than one verifiable [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node) in the graph matching the parser's suggestions.
 
 ### <a id="2.3-The-Core-Graph-Node-Models"></a>2.3 The Core Graph Node Models
 
-*The final, persistent node structures that form our knowledge graph. These models define the "nouns" in our system—the entities that we store and query. The structure of these nodes and their IDs is fundamental to the system's performance and clarity.*
+*Persistent node structures that form the knowledge graph. These models define the "nouns" of a system—the entities that store and can be used for query. The structure of these nodes and their IDs is fundamental to the system's performance and clarity.*
 
 #### <a id="2.3.1-ID-Formatting-Strategy"></a>2.3.1 ID Formatting Strategy: Human-Readable, 1-Based, No Padding
 
@@ -175,8 +175,6 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
 -   **Human-Readable `slug_id`:** Every node in the graph has a primary key named `slug_id`. This ID is a composite, human-readable string that encodes the node's hierarchical context. This makes manual graph exploration and debugging via Cypher queries significantly easier. See the [**Complete Index and Constraint Catalog**](#4.2.2-The-Complete-Index-and-Constraint-Catalog) for details on how this is indexed.
 -   **1-Based Numbering:** All numerical components within IDs and model fields (line numbers, commit indices, local save counts) are **1-based**. This aligns with the numbering that developers see in their text editors, making the data more intuitive.
 -   **No Zero-Padding:** We have rejected zero-padding for numerical components in our IDs. This keeps the IDs cleaner and simpler (e.g., `@12-3` instead of `@00012-003`).
-
----
 
 #### <a id="2.3.2-The-Repository-Node"></a>2.3.2 The `Repository` Node
 *Represents the root of a specific repository branch.*
@@ -187,9 +185,7 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
     -   `id: str`: The unique `slug_id`.
     -   `repo_id: str`: The repository identifier (e.g., `"automalar/automalarweb"`). Used to query for all branches of a single repo.
     -   `branch: str`: The branch name (e.g., `"main"`).
-    -   `import_id: Optional[str]`: A crucial hint provided during ingestion if this repository is a library. It stores the canonical name used to import it (e.g., `"pandas"`).
-
----
+    -   `import_id: Optional[str]`: A crucial hint provided during ingestion if this repository is a library. It stores the canonical name used to import it (e.g., `"pandas"`) and serves as the "key" for our deterministic [**inter-repository linking strategy**](#3.5.3.1-The-Key-and-Map-Analogy).
 
 #### <a id="2.3.3-The-SourceFile-Node"></a>2.3.3 The `SourceFile` Node
 *Represents a specific, versioned instance of a single source file.*
@@ -201,41 +197,36 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
     -   `relative_path: str`: The path to the file relative to the repository root (e.g., `"src/main.py"`).
     -   `commit_index: int`: The commit sequence number.
     -   `local_save: int`: The sequential version number within a single commit, generated by our [**atomic counter**](#4.3.1-Solving-the-local_save-Race-Condition).
-    -   `content_hash: str`: A SHA256 hash of the file content, used for the [**idempotency check**](#1.2.1-Reliability-Guarantees).
-
----
+    -   `content_hash: str`: A SHA256 hash of the file content, used for our database-level [**idempotency guarantee**](#1.2.1-Reliability-Guarantees).
 
 #### <a id="2.3.4-The-TextChunk-Node"></a>2.3.4 The `TextChunk` Node
-*Represents a contiguous block of text from a `SourceFile`, created by our [**Intelligent Packer Algorithm**](#3.2.1-The-Intelligent-Packer-Algorithm).*
+*Represents a contiguous block of text, 1-based, from a `SourceFile`, created by our [**Intelligent Packer Algorithm**](#3.2.1-The-Intelligent-Packer-Algorithm).*
 
 -   **`id` Format:** `"<source_file_id>|<chunk_index>@<start_line>-<end_line>"`
--   **Example `id`:** `"...|src/main.py@12-3|0@1-10"`
+-   **Example `id`:** `"...|src/main.py@12-3|1@1-10"`
 -   **Rationale:** The `chunk_index` ensures uniqueness within the file. Including the `@<start_line>-<end_line>` in the ID provides immediate, human-readable context during manual graph exploration.
 -   **Key Pydantic Fields:**
     -   `id: str`: The unique `slug_id`.
+    -   `chunk_index: int`: The 1-based chunk sequential number.
     -   `start_line: int`: The 1-based starting line number of the chunk.
     -   `end_line: int`: The 1-based ending line number of the chunk.
     -   `chunk_content: str`: The raw text content of the chunk.
 
----
-
 #### <a id="2.3.5-The-CodeEntity-Node"></a>2.3.5 The `CodeEntity` Node
-*Represents a single, defined code construct like a class, function, or macro. This is one of the most important nodes for linking.*
+*Represents a single, defined code construct like a class, function, or macro.*
 
 -   **`id` Format:** `"<text_chunk_id>|<local_fqn>@<start_line>-<end_line>"`
--   **Example `id`:** `"...|0@1-10|MyClass::my_method@5-8"`
+-   **Example `id`:** `"...|1@1-10|MyClass::my_method@5-8"`
 -   **Key Pydantic Fields:**
     -   `id: str`: The unique `slug_id`. The Orchestrator constructs this from the parser's temporary ID.
     -   `start_line: int`, `end_line: int`: The 1-based line numbers defining the entity's span.
-    -   `canonical_fqn: str`: The parser's best-effort, language-specific canonical Fully Qualified Name. This is a **critical, indexed field** used as the primary key for all symbol linking.
+    -   `canonical_fqn: str`: The parser's best-effort, language-specific canonical Fully Qualified Name. This is a **critical, indexed field** used as the primary target for all symbol linking.
     -   `type: str`: The specific type of the entity (e.g., `"FunctionDefinition"`, `"ClassDefinition"`).
     -   `snippet_content: str`: The raw text of the entity's definition.
-    -   `metadata: Optional[Dict[str, Any]]`: An optional dictionary for storing extra context, such as [**conditional compilation flags**](#2.2.3.2-metadata-field).
-
----
+    -   `metadata: Optional[Dict[str, Any]]`: An optional dictionary for storing extra context, such as [**conditional compilation flags**](#2.2.3.2-The-metadata-Field).
 
 #### <a id="2.3.6-The-ExternalReference-Node"></a>2.3.6 The `ExternalReference` Node
-*A lightweight "beacon" node representing a known external library or dependency. This allows us to create high-level dependency links without needing the full source code of the library.*
+*A lightweight "beacon" node representing a known external library or dependency whose source code is not ingested.*
 
 -   **`id` Format:** `"external://<library_name>"`
 -   **Example `id`:** `"external://pandas"`
@@ -243,17 +234,17 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
     -   `id: str`: The unique `slug_id`.
     -   `type: str`: Always `"ExternalReference"`.
     -   `library_name: str`: The canonical name of the library (e.g., `"pandas"`).
--   **Creation:** These nodes are created by the [**Tier 1 Orchestrator**](#3.3-Component-C-The-Orchestrator) when it encounters an absolute import that it cannot resolve internally. This creates a fast, factual [**`USES_LIBRARY`**](#2.4.2-The-Relationship-Catalog) link.
+-   **Creation:** These nodes are created by the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) when it encounters an absolute import that it cannot resolve internally. This creates a fast, factual [**`USES_LIBRARY`**](#2.4.2-The-Relationship-Catalog) link.
 
 - **<a id="2.4-The-Core-Graph-Edge-Model"></a>2.4 The Core Graph Edge Model: `Relationship`**
   - *The final, persistent edge structure that connects our nodes, representing the "knowledge" in our graph.*
 
   - **<a id="2.4.1-The-Relationship-Model"></a>2.4.1 The `Relationship` Model: The Final Verdict**
-    - The `Relationship` is the ultimate output of our linking process. It is a simple, directed edge between two nodes in the graph. It is created only when a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) has been successfully and unambiguously resolved by either the [**Tier 1 Resolver**](#3.3.1-The-Finalized-Workflow) in the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) (for file-level includes) or the [**Deterministic Linking Engine**](#1.3.2-Pattern-2-The-Deterministic-Linking-Engine) (for all other symbol links).
+    - The `Relationship` is the ultimate output of our linking process. It is a simple, directed edge between two nodes in the graph. It is created only when a [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) has been successfully and unambiguously resolved by either the resolver in the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) (for file-level includes) or the [**`GraphEnhancementEngine`**](#1.3.2-Pillar-2-The-Deterministic-Linking-Engine) (for all other symbol links).
     - Its key fields are `source_id`, `target_id`, `type`, and an optional `properties` dictionary which is populated from the `metadata` field of the originating [**`RawSymbolReference`**](#2.2.3-The-Universal-Report).
 
   - **<a id="2.4.2-The-Relationship-Catalog"></a>2.4.2 The Relationship Catalog: A Summary of Edge Types**
-    - This table summarizes the primary `Relationship` types the system creates. For full details on creation logic, see the [**Relationship Catalog deep dive**](#iii-The-Relationship-Catalog).
+    - This table summarizes the primary `Relationship` types the system creates.
 
 | Relationship Type | Direction | Purpose & Example |
 | :--- | :--- | :--- |
@@ -265,8 +256,7 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
 | **`IMPORTS`** | `(CodeEntity) -> (CodeEntity)` | Symbol dependency. "Which function imports `helper`?" |
 | **`USES_LIBRARY`** | `(SourceFile) -> (ExternalReference)` | Abstract external dependency. "Does this file use `pandas`?" |
 | **`REFERENCES_SYMBOL`** | `(CodeEntity) -> (CodeEntity)` | Weak dependency. "What symbols does this macro use?" |
-
----
+| **`EXPORTS`** | `(CodeEntity) -> (CodeEntity)` | Public API Map. "What symbols does this library expose?" |
 
 ## <a id="3.0-The-Component-Deep-Dive"></a>3.0 The Component Deep Dive: From Theory to Implementation
 
