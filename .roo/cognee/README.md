@@ -294,29 +294,87 @@ This helper function is the "brain" of the Smart Parser. When it encounters a re
 
 *Detailed guides covering the context, challenges, coverage, and limitations for implementing a "Smart Parser" for each major language. A key responsibility for each parser is to identify a library's public API (e.g., by checking for `export` keywords or parsing `__init__.py` files) and create [**`EXPORTS`**](#2.4.2-The-Relationship-Catalog) relationships. This is the "map" that enables our deterministic [**inter-repository linking**](#3.5.3.1-The-Key-and-Map-Analogy).*
 
--   **<a id="3.1.4.1-Guide-C-Parser"></a>3.1.4.1 Guide: C++ Parser**
-    -   `Required Context:` Tracking `using namespace`, `typedef`, template parameters, and local variable types. Identifying public APIs typically involves heuristics based on which headers are included by other repositories.
-    -   `Key Challenge:` Handling the preprocessor and operator overloading.
-    -   `Coverage Analysis (e.g., Unreal Engine):` Discussion of what is covered (standard classes, functions) versus what is not (macro expansion, full reflection data).
-    -   `Known Limitations:` Explicitly state the trade-offs regarding complex macros and template metaprogramming.
+### <a id="3.1.4.1-Guide-C-Parser"></a>3.1.4.1 Guide: C++ Parser
 
--   **<a id="3.1.4.2-Guide-Python-Parser"></a>3.1.4.2 Guide: Python Parser**
-    -   `Required Context:` Tracking module imports, aliases (`import pandas as pd`), and relative imports. Identifying public APIs involves parsing `__init__.py` and respecting `__all__` variables.
-    -   `Key Challenge:` Dynamism and wildcard imports (`from ... import *`).
-    -   `Coverage Analysis:` How it handles standard libraries and framework-specific patterns (e.g., Django models).
-    -   `Known Limitations:` Wildcard imports are not resolved for deep linking.
+The C++ parser is the most complex component in the system due to the C Preprocessor and a header-based, rather than module-based, import system. Its design is guided by a philosophy of being an **honest witness**: it reports all possibilities based on the code's syntax and structure, but it **never guesses** about developer intent.
 
--   **<a id="3.1.4.3-Guide-Java-Parser"></a>3.1.4.3 Guide: Java Parser**
-    -   `Required Context:` Tracking the `package` declaration, specific class imports, and wildcard imports. Identifying public APIs involves checking for the `public` access modifier on classes and methods.
-    -   `Key Challenge:` Resolving symbols from wildcard imports and handling anonymous inner classes.
-    -   `Coverage Analysis:` How it handles standard Java libraries and frameworks like Spring.
-    -   `Known Limitations:` The strategy for resolving ambiguities from multiple wildcard imports.
+-   **Generating `possible_fqns` (Intra-Project Linking):** For resolving symbols within a single project, the parser's [**`FileContext`**](#3.1.2-The-FileContext-Class) must be highly aware of scope. This is the foundation of creating high-quality, local link evidence.
+    -   It must track the current `namespace` and prepend it to symbols as it traverses the AST.
+    -   It must aggressively track `using namespace` directives. When it encounters a symbol like `string` in a file with `using namespace std;`, it must correctly generate `possible_fqns: ["string", "std::string"]`, acknowledging both possibilities.
+    -   `typedef` and `using` aliases are critical. If it sees `using MyVec = std::vector<int>;`, the `FileContext` must map `MyVec` to its canonical name for any future resolutions.
+    -   For method calls like `obj->do_work()`, the parser must attempt to find the declaration of `obj` within the file to determine its type, which is the most reliable way to construct a high-confidence FQN for `do_work`.
 
--   **<a id="3.1.4.4-Guide-JavaScriptTypeScript-Parser"></a>3.1.4.4 Guide: JavaScript/TypeScript Parser**
-    -   `Required Context:` Tracking `import`/`export` statements, `require()` calls, and aliases. Identifying public APIs involves parsing `export` statements, especially in `index.js`/`index.ts` files.
-    -   `Key Challenge:` The dynamic nature of module resolution and bundler-specific path aliases (e.g., `@/components`).
-    -   `Coverage Analysis:` How it handles frameworks like React, Vue, and Node.js.
-    -   `Known Limitations:` Inability to resolve module paths configured in external files like `webpack.config.js` or `tsconfig.json`.
+-   **Detecting the Public API (`EXPORTS`):** Our C++ strategy is **"Maximal Evidence, Deferred Judgment."** We explicitly reject fragile heuristics like guessing based on directory names (`include/`, `public/`).
+    -   **The "Over-Export" Rule:** The parser's rule is simple and 100% deterministic: create an [**`EXPORTS`**](#2.4.2-The-Relationship-Catalog) relationship for **every symbol declared in any header file (`.h`, `.hpp`, etc.)**.
+    -   **The Rationale:** This approach is philosophically pure. It makes no assumptions about which headers are "public" versus "private." It provides the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) with a complete, albeit noisy, map of all potentially reachable symbols from other projects.
+    -   **The Consequence:** This will intentionally and correctly cause the linking engine to find multiple candidates for symbols that are declared in both public and private headers, forcing it to mark the link as [**`AMBIGUOUS`**](#2.2.4.1-The-Final-LinkStatus-Enum). This is the desired, honest outcome, deferring the final judgment to our [**LLM Tie-Breaker**](#3.5.4-The-LLM's-Role).
+
+-   **Known Limitations & Trade-offs (The Honest Compromises):**
+    -   **The Preprocessor:** The parser is **not** a C++ compiler and **will not** execute the preprocessor. This means complex function-like macros that construct code will not be expanded. A reference to such a macro will be linked to its `CodeEntity` definition, not to the code it generates. However, simple directives like `#ifdef` can be parsed to add `is_conditional` metadata to the relationships they contain.
+    -   **Template Metaprogramming:** Fully resolving and instantiating complex templates is out of scope. The parser's job is to capture the template's *definition* as a `CodeEntity`, not to parse all possible variations that the compiler might generate from it.
+
+-   **Detecting the Public API (`EXPORTS`):** This is the biggest heuristic. C++ has no native concept of exporting a module's public API. The parser must rely on conventions:
+    -   Files located in a directory named `include/` or `public/` are strong candidates for being public APIs.
+    -   A more advanced heuristic could analyze which headers from `Library A` are included by a separate `Application B` that depends on it. Those included headers are, by definition, part of the public API.
+    -   The parser should generate [**`EXPORTS`**](#2.4.2-The-Relationship-Catalog) relationships from a designated "library root" file (like a primary header) to the public symbols.
+
+-   **Known Limitations & Trade-offs:** Honesty is critical here.
+    -   **The Preprocessor:** The parser **will not** be a C++ compiler. It will not execute the preprocessor. This means complex function-like macros that construct code will not be fully understood. Basic `#ifdef` blocks, however, can be tracked to add conditional metadata to relationships.
+    -   **Template Metaprogramming:** Fully resolving complex SFINAE or template metaprogramming at parse time is out of scope. The parser should aim to capture the definition of the template itself.
+
+---
+
+### <a id="3.1.4.2-Guide-Python-Parser"></a>3.1.4.2 Guide: Python Parser
+
+The Python parser's main challenge is the language's dynamic nature.
+
+-   **Generating `possible_fqns`:** Python's import system is explicit, which is a great advantage.
+    -   `import pandas as pd`: The parser's `FileContext` must map the alias `pd` to the module `pandas`. A reference to `pd.DataFrame` should resolve to `possible_fqns: ["pandas.DataFrame"]`.
+    -   `from os.path import join`: The symbol `join` is now in the local scope. The parser must map `join` to `os.path.join`.
+    -   **Relative Imports:** For `from .utils import helper`, the parser must use the current file's path to construct the absolute module path (e.g., `my_package.utils.helper`).
+
+-   **Detecting the Public API (`EXPORTS`):** Python has strong conventions for this.
+    -   The parser should look for `__init__.py` files. Symbols imported or defined within an `__init__.py` are generally considered part of that package's public API.
+    -   If an `__all__ = ["symbol_a", "symbol_b"]` list exists in `__init__.py`, the parser should treat that as the definitive public API.
+
+-   **Known Limitations & Trade-offs:**
+    -   **`from ... import *`:** Wildcard imports are a dead end for deep static analysis. The parser should recognize them but cannot generate specific `possible_fqns` for symbols imported this way. A high-level dependency link is the only possible outcome.
+    -   **Dynamic Path Manipulation:** Code that does `sys.path.append(...)` cannot be understood statically. The system will only be able to resolve imports based on the code's static structure.
+
+---
+
+### <a id="3.1.4.3-Guide-Java-Parser"></a>3.1.4.3 Guide: Java Parser
+
+The Java parser benefits from the language's verbosity and strong conventions but must handle wildcard imports carefully.
+
+-   **Generating `possible_fqns`:** Resolution is tied to the package and import statements.
+    -   The `package com.mycompany.app;` declaration at the top of a file provides the base namespace for all `CodeEntity` nodes defined within it.
+    -   `import com.google.common.collect.ImmutableList;`: An explicit import makes resolution trivial. The `FileContext` maps `ImmutableList` to its full FQN.
+    -   `import java.util.*;`: For a reference to `List`, the parser must generate `possible_fqns` that include the wildcard possibility: `["java.util.List", "com.mycompany.app.List"]` (assuming the current package is `com.mycompany.app`).
+
+-   **Detecting the Public API (`EXPORTS`):** This is very straightforward.
+    -   A class, method, or field marked with the `public` access modifier is part of the public API. The parser should create `EXPORTS` relationships for these entities.
+
+-   **Known Limitations & Trade-offs:**
+    -   **Wildcard Ambiguity:** If a file has `import a.*;` and `import b.*;`, and both packages contain a `Helper` class, a reference to `Helper` is genuinely ambiguous. The parser must correctly generate `possible_fqns: ["a.Helper", "b.Helper"]` and let the linking engine declare it `AMBIGUOUS`.
+
+---
+
+### <a id="3.1.4.4-Guide-JavaScriptTypeScript-Parser"></a>3.1.4.4 Guide: JavaScript/TypeScript Parser
+
+The JS/TS parser must contend with a fragmented ecosystem of module systems and build-time configurations.
+
+-   **Generating `possible_fqns`:** The `FileContext` must track `import` statements meticulously.
+    -   `import React from 'react';`: A default import. `React` maps to the module `react`.
+    -   `import { useState } from 'react';`: A named import. `useState` maps to a symbol within the `react` module.
+    -   `import * as Router from '@tanstack/react-router';`: A namespace import. `Router.Link` maps to a symbol within the `@tanstack/react-router` module.
+    -   `const path = require('path');`: Must also handle CommonJS `require` statements.
+
+-   **Detecting the Public API (`EXPORTS`):** This is also explicit.
+    -   The parser must find all `export` and `export default` statements to build the map of symbols that a module provides. `index.js` or `index.ts` files are often the primary source of a library's public API.
+
+-   **Known Limitations & Trade-offs:**
+    -   **Bundler Path Aliases:** This is the biggest challenge. A project configured with `tsconfig.json` or `webpack.config.js` might resolve an import like `@/components/Button` to `src/components/Button.tsx`. Our parser, analyzing a single file in isolation, **cannot know this mapping**. It will treat `@/components/Button` as an external library name, which is the only safe assumption it can make.
 
 ### <a id="3.2-Component-B-The-Intelligent-Chunker"></a>3.2 Component B: The Intelligent Chunker (`chunking.py`)
 
