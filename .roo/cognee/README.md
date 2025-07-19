@@ -258,19 +258,17 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
 | **`REFERENCES_SYMBOL`** | `(CodeEntity) -> (CodeEntity)` | Weak dependency. "What symbols does this macro use?" |
 | **`EXPORTS`** | `(CodeEntity) -> (CodeEntity)` | Public API Map. "What symbols does this library expose?" |
 
-## <a id="3.0-The-Component-Deep-Dive"></a>3.0 The Component Deep Dive: From Theory to Implementation
+## <a id="3.0-The-Component-Deep-Dive"></a>3.0 The Component Deep Dive: Theory to Implementation
 
-*This section is the detailed engineering guide, explaining the internal logic, responsibilities, and implementation strategies for each component of the system.*
-
----
+*Internal logic, responsibilities, and implementation strategies for each component of the system. This is the "how" behind our architectural promises.*
 
 ### <a id="3.1-Component-A-The-Parsers"></a>3.1 Component A: The Parsers
 
 #### <a id="3.1.1-Core-Philosophy-The-Smart-Parser"></a>3.1.1 Core Philosophy: The "Smart Parser" as an Intelligent Witness
 
-The parser is the foundation of our entire [**"Provable Truth"**](#1.1-The-Guiding-Principle) architecture. It is a stateless expert on a single language's syntax, and its only job is to be an **expert witness**. It makes **zero assumptions** about any other file or the state of the graph.
+Foundation of our [**"Provable Truth"**](#1.1-The-Guiding-Principle) architecture. A stateless expert on a single language's syntax, and its only job is to be an **expert witness**, making **zero assumptions** about any other file or the state of the graph.
 
-Its most critical responsibility, as defined in [**Pattern 1**](#1.3.1-Pattern-1-The-Smart-Parser), is to use its deep syntactic understanding to deduce a list of high-probability, fully-qualified candidates ([**`possible_fqns`**](#2.2.3.1-possible_fqns)) for every reference it finds. This moves the "intelligence" to the edge, where the most context is available, and eliminates the need for fragile, heuristic-based guessing in the linking engine.
+Its most critical responsibility, as defined in [**Pillar 1**](#1.3.1-Pillar-1-The-Smart-Parser), is to use its deep syntactic understanding to deduce a list of high-probability, fully-qualified candidates ([**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns)) for every reference it finds. This moves the "intelligence" to the edge, where the most context is available, and eliminates the need for fragile, heuristic-based guessing in the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine).
 
 #### <a id="3.1.2-The-FileContext-Class"></a>3.1.2 The `FileContext` Class: A Parser's Local Brain
 
@@ -294,28 +292,28 @@ This helper function is the "brain" of the Smart Parser. When it encounters a re
 
 #### <a id="3.1.4-Language-Specific-Implementation-Guides"></a>3.1.4 Language-Specific Implementation Guides
 
-*This section provides detailed guides covering the context, challenges, coverage, and limitations for implementing a "Smart Parser" for each major language.*
+*Detailed guides covering the context, challenges, coverage, and limitations for implementing a "Smart Parser" for each major language. A key responsibility for each parser is to identify a library's public API (e.g., by checking for `export` keywords or parsing `__init__.py` files) and create [**`EXPORTS`**](#2.4.2-The-Relationship-Catalog) relationships. This is the "map" that enables our deterministic [**inter-repository linking**](#3.5.3.1-The-Key-and-Map-Analogy).*
 
 -   **<a id="3.1.4.1-Guide-C-Parser"></a>3.1.4.1 Guide: C++ Parser**
-    -   `Required Context:` Tracking `using namespace`, `typedef`, template parameters, and local variable types.
+    -   `Required Context:` Tracking `using namespace`, `typedef`, template parameters, and local variable types. Identifying public APIs typically involves heuristics based on which headers are included by other repositories.
     -   `Key Challenge:` Handling the preprocessor and operator overloading.
     -   `Coverage Analysis (e.g., Unreal Engine):` Discussion of what is covered (standard classes, functions) versus what is not (macro expansion, full reflection data).
     -   `Known Limitations:` Explicitly state the trade-offs regarding complex macros and template metaprogramming.
 
 -   **<a id="3.1.4.2-Guide-Python-Parser"></a>3.1.4.2 Guide: Python Parser**
-    -   `Required Context:` Tracking module imports, aliases (`import pandas as pd`), and relative imports (`from .utils import ...`).
+    -   `Required Context:` Tracking module imports, aliases (`import pandas as pd`), and relative imports. Identifying public APIs involves parsing `__init__.py` and respecting `__all__` variables.
     -   `Key Challenge:` Dynamism and wildcard imports (`from ... import *`).
     -   `Coverage Analysis:` How it handles standard libraries and framework-specific patterns (e.g., Django models).
-    -   `Known Limitations:` Explicitly state that wildcard imports are not resolved.
+    -   `Known Limitations:` Wildcard imports are not resolved for deep linking.
 
 -   **<a id="3.1.4.3-Guide-Java-Parser"></a>3.1.4.3 Guide: Java Parser**
-    -   `Required Context:` Tracking the `package` declaration, specific class imports, and wildcard imports (`import java.util.*`).
+    -   `Required Context:` Tracking the `package` declaration, specific class imports, and wildcard imports. Identifying public APIs involves checking for the `public` access modifier on classes and methods.
     -   `Key Challenge:` Resolving symbols from wildcard imports and handling anonymous inner classes.
     -   `Coverage Analysis:` How it handles standard Java libraries and frameworks like Spring.
     -   `Known Limitations:` The strategy for resolving ambiguities from multiple wildcard imports.
 
 -   **<a id="3.1.4.4-Guide-JavaScriptTypeScript-Parser"></a>3.1.4.4 Guide: JavaScript/TypeScript Parser**
-    -   `Required Context:` Tracking `import`/`export` statements (default vs. named), `require()` calls, and aliases.
+    -   `Required Context:` Tracking `import`/`export` statements, `require()` calls, and aliases. Identifying public APIs involves parsing `export` statements, especially in `index.js`/`index.ts` files.
     -   `Key Challenge:` The dynamic nature of module resolution and bundler-specific path aliases (e.g., `@/components`).
     -   `Coverage Analysis:` How it handles frameworks like React, Vue, and Node.js.
     -   `Known Limitations:` Inability to resolve module paths configured in external files like `webpack.config.js` or `tsconfig.json`.
