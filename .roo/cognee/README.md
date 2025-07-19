@@ -18,7 +18,7 @@ This architecture provides a clear set of guarantees that define its behavior an
 
 The system is engineered for maximum reliability and data integrity.
 
--   **Concurrent Request Gatekeeping:** To prevent wasted CPU cycles on duplicate, simultaneous requests, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) uses a proactive, in-memory "in-flight" lock. Before any work begins, it checks if an identical [**`FileProcessingRequest`**](#2.2.1-The-Work-Order) is already being processed. If so, the duplicate request is aborted immediately, providing a fast, efficient first layer of defense against race conditions.
+-   **Concurrent Request Gatekeeping:** To prevent wasted CPU cycles on duplicate, simultaneous requests, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) uses a proactive, in-memory "in-flight" lock. Before any work begins, it checks if an identical [**`FileProcessingRequest`**](#2.2.1-Entrypoint) is already being processed. If so, the duplicate request is aborted immediately, providing a fast, efficient first layer of defense against race conditions.
 
 -   **Atomic & Resilient Transactions:** Every file processing operation is wrapped in a single database transaction. We use the [**`tenacity`**](#1.2.1-Reliability-Guarantees) library to automatically retry these transactions in the face of specific, transient network or database errors (like `neo4j.exceptions.ServiceUnavailable`), ensuring that temporary glitches do not lead to data loss. Permanent errors (like a syntax error in our code) will fail fast, as they should.
 
@@ -26,7 +26,7 @@ The system is engineered for maximum reliability and data integrity.
 
 -   **Race-Condition-Proof Versioning:** For tracking different versions of the *same file path*, we use an atomic, database-side counter. Instead of a naive "read-then-write" approach in Python, the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) calls a [**`graph_utils`**](#3.6.1-The-DAL) function that executes an atomic Cypher `MERGE` query. This guarantees that even if multiple processes ingest different versions of the same file concurrently, they will each receive a unique, sequential `local_save` number without conflict. See the [**Atomic Operations Strategy**](#4.3-The-Atomic-Operations-Strategy) for details.
 
--   **Verifiable Truth (The "Unanimity Rule"):** An automatic link is created if, and only if, two conditions are met: 1) The [**"Smart Parser"**](#1.3.1-Pattern-1-The-Smart-Parser) was certain enough to provide a [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) list with **exactly one** candidate, AND 2) the [**Deterministic Linking Engine**](#1.3.2-Pattern-2-The-Deterministic-Linking-Engine) finds **exactly one** existing [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node) in the graph that matches that single candidate. This two-factor agreement is the only path to automatic linking, eliminating guesswork and race conditions.
+-   **Verifiable Truth (The "Unanimity Rule"):** An automatic link is created if, and only if, two conditions are met: 1) The [**"Smart Parser"**](#1.3.1-Pattern-1-The-Smart-Parser) was certain enough to provide a [**`possible_fqns`**](#2.2.3.1-possible_fqns) list with **exactly one** candidate, AND 2) the [**Deterministic Linking Engine**](#1.3.2-Pattern-2-The-Deterministic-Linking-Engine) finds **exactly one** existing [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node) in the graph that matches that single candidate. This two-factor agreement is the only path to automatic linking, eliminating guesswork and race conditions.
 
 ### <a id="1.2.2-Performance-&-Efficiency-Guarantees"></a>1.2.2 Performance & Efficiency Guarantees
 
@@ -58,7 +58,7 @@ This pattern moves complexity to the edge of the system, where the most context 
     -   Each language-specific parser is a sophisticated component, not a simple tokenizer. Its primary responsibility is to analyze a file's AST and build a rich, file-local symbol table ([**`FileContext`**](#3.1.2-The-FileContext-A-Parser's-Local-Brain)). Using this context, it intelligently deduces a list of high-probability, fully-qualified candidates for every symbol reference it finds.
 
 -   **<a id="1.3.1.2-Key-Output"></a>1.3.1.2 The key output, `possible_fqns` List**
-    -   The culmination of the parser's intelligence is the [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) field within the [**`RawSymbolReference`**](#2.2.3-The-Universal-Report) object it yields. This list of candidate FQNs is the high-quality, context-aware evidence that the rest of the system will use to make deterministic linking decisions.
+    -   The culmination of the parser's intelligence is the [**`possible_fqns`**](#2.2.3.1-possible_fqns) field within the [**`RawSymbolReference`**](#2.2.3-The-Universal-Report) object it yields. This list of candidate FQNs is the high-quality, context-aware evidence that the rest of the system will use to make deterministic linking decisions.
 
 ### <a id="1.3.2-Pillar-2-The-Deterministic-Linking-Engine"></a>1.3.2 Pillar 2: The Deterministic Linking Engine (The Verifier)
 
@@ -68,7 +68,7 @@ This pattern ensures that our system adheres strictly to the "Provable Truth" pr
     -   The [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) is a simple deterministic verifier. It does not perform broad, expensive searches; it performs targeted verifications based on the high-quality evidence provided by the parsers. We have **completely eliminated** fuzzy, heuristic-based matching from our core linking engine, this crucial decision is documented in the [**"Smart Engine" vs. "Smart Parser" Debate**](#5.1-The-Smart-Engine-vs-Smart-Parser-Debate).
 
 -   **<a id="1.3.2.2-The-Unanimity-Rule"></a>1.3.2.2 The "Unanimity Rule", how links are proven**
-    -   The engine operates on a strict "Unanimity Rule." A [**`Relationship`**](#2.4.1-The-Relationship-Model) is created automatically if, and only if, **both** of these conditions are met: 1) The parser was certain and provided a [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) list with **exactly one** candidate, AND 2) The engine's query against the graph for that one candidate returns **exactly one** match. This two-factor agreement is the only path to automatic linking, eliminating guesswork and the entire class of race conditions associated with it.
+    -   The engine operates on a strict "Unanimity Rule." A [**`Relationship`**](#2.4.1-The-Relationship-Model) is created automatically if, and only if, **both** of these conditions are met: 1) The parser was certain and provided a [**`possible_fqns`**](#2.2.3.1-possible_fqns) list with **exactly one** candidate, AND 2) The engine's query against the graph for that one candidate returns **exactly one** match. This two-factor agreement is the only path to automatic linking, eliminating guesswork and the entire class of race conditions associated with it.
 
 ### <a id="1.3.3-Pillar-3-On-Demand-Enrichment"></a>1.3.3 Pillar 3: On-Demand Enrichment (The Conductor)
 
@@ -92,19 +92,17 @@ This pattern recognizes that our choice of database is not just an implementatio
 
 ---
 
-# <a id="2.0-The-Data-Contracts"></a>2.0 The Data Contracts: The System's Universal Language
+# <a id="2.0-The-Data-Contracts"></a>2.0 Data Contracts: System's Universal Language
 
-*The universal language of our system. This section defines the structure and purpose of the key data models, both transient (for control flow) and persistent (for the final graph).*
+*Structure and purpose of the key data models, both transient (for control flow) and persistent (for the final graph).*
 
----
+## <a id="2.1-Core-Philosophy"></a>2.1 Separating Evidence from Verdict
 
-## <a id="2.1-Core-Philosophy"></a>2.1 Core Philosophy: Separating Evidence from Verdict
+The fundamental principle behind data models is the strict **separation of factual reporting from interpretive resolution**:
 
-The fundamental principle behind our data models is the strict **separation of factual reporting from interpretive resolution**. This aligns perfectly with our [**Four Pillars of the Architecture**](#1.3-The-Four-Pillars):
+-   **Parsers are "Intelligent Witnesses"**: Experts on syntax and the immediate context of a single file. Reporting their findings as evidence in the form of a [**`RawSymbolReference`**](#2.2.3-The-Universal-Report). This evidence includes a list of high-probability candidate FQNs, a suspects report, not a definitive match.
 
--   **Parsers are "Intelligent Witnesses"**: They are experts on syntax and the immediate context of a single file. They report their findings as evidence in the form of a [**`RawSymbolReference`**](#2.2.3-The-Universal-Report). This evidence includes a list of high-probability candidate FQNs, but it is still just a report, not a conclusion.
-
--   **The `GraphEnhancementEngine` is the "Verifier"**: It acts as the judge and jury. It takes the evidence from the parser, compares it against the known facts in the graph, and delivers a final verdict by creating a [**`Relationship`**](#2.4.1-The-Relationship-Model) only when the evidence is unambiguous.
+-   **The `GraphEnhancementEngine` is the "Verifier"**: The judge and jury. It takes the evidence ([**`RawSymbolReference`**](#2.2.3-The-Universal-Report)) from the parser, compares it against the population of existing [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node) nodes in the graph, and delivers a final verdict by creating a [**`Relationship`**](#2.4.1-The-Relationship-Model) only when the evidence is unambiguous.
 
 This separation is what allows our core linking logic to be simple, deterministic, and language-agnostic.
 
@@ -112,45 +110,45 @@ This separation is what allows our core linking logic to be simple, deterministi
 
 ## <a id="2.2-The-Ingestion-&-Control-Flow-Models"></a>2.2 The Ingestion & Control Flow Models
 
-These are the transient data models used to manage the flow of work through the system. They represent data "in-flight" before it is permanently stored in the graph.
+Transient data models used to manage the flow of work through the system. They represent data "in-flight" before it is permanently stored in the graph.
 
-### <a id="2.2.1-The-Work-Order"></a>2.2.1 The Work Order: `FileProcessingRequest`
+### <a id="2.2.1-Entrypoint"></a>2.2.1 Entrypoint: `FileProcessingRequest`
 
 This Pydantic model is the **sole input** to the entire ingestion pipeline, passed to the [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator). It is a self-contained work order for a single file. Crucially, this Pydantic object itself serves as the unique key for our [**Concurrent Request Gatekeeping**](#1.2.1-Reliability-Guarantees) mechanism, preventing wasted work on duplicate, simultaneous ingestion calls.
 
--   **Key Fields (Finalized):**
+-   **Data Model:**
     -   `absolute_path: str`: The full path to the file on disk.
     -   `repo_path: str`: The path to the repository root.
-    -   `repo_id: str`: The repository identifier (e.g., `automalar/web`).
+    -   `repo_id: str`: The repository identifier (e.g., `automalar/automalarweb`).
     -   `branch: str`: The branch name (e.g., `main`).
     -   **`commit_index: int = 1`**: The commit sequence number. **Defaults to `1`** for easier use.
     -   **`is_delete: bool = False`**: Flag for `DELETE` operations. **Defaults to `False`** (UPSERT).
     -   `import_id: Optional[str]`: The canonical name if the repo is a library (e.g., `pandas`), used for inter-repository linking.
     -   `root_namespace: Optional[str]`: The root namespace for languages like Java (e.g., `com.mycompany.project`).
 
-### <a id="2.2.2-The-Parser's-Output-Contract"></a>2.2.2 The Parser's Output Contract: `ParserOutput`
+### <a id="2.2.2-Parser-Output-Model"></a>2.2.2 Output: `ParserOutput`
 
-This `Union` type defines the strict contract that every [**"Smart Parser"**](#3.1-Component-A-The-Parsers) must adhere to. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) consumes this asynchronous stream and will only accept these three types of objects:
+This `Union` type defines the strict contract that every [**"Smart Parser"**](#3.1-Component-A-The-Parsers) must adhere to. The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) consumes the parser's asynchronous stream and will only accept these three types of objects:
 
-1.  `List[int]`: A single list of **1-based** line numbers representing the recommended [**`slice_lines`**](#3.1.1-The-Smart-Parser-Implementation-Strategy) for the intelligent chunker.
+1.  `List[int]`: A single list of **1-based** line numbers representing the recommended cut points ([**`slice_lines`**](#3.1.1-The-Smart-Parser-Implementation-Strategy)) for the intelligent chunker.
 2.  [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node): A factual report of a single code definition found in the file.
-3.  `RawSymbolReference`: A rich, evidential report of a single symbol reference found in the file.
+3.  [**`RawSymbolReference`**](#2.2.3-The-Universal-Report): A rich, evidential report of a single symbol reference found in the file.
 
-### <a id="2.2.3-The-Universal-Report"></a>2.2.3 The Universal Report: `RawSymbolReference`
+### <a id="2.2.3-The-Universal-Report"></a>2.2.3 Report: `RawSymbolReference`
 
-This model is the primary output of a "Smart Parser" and the most critical piece of evidence used by the linking engine. It is a detailed "forensic report" about a single reference.
+The primary output of a "Smart Parser" and the most critical piece of evidence used by the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine). It is a detailed "forensic report" about a single symbol reference found within a file.
 
--   **`source_entity_id: str`**: The temporary ID (`FQN@line`) of the entity making the reference.
+-   **`source_entity_id: str`**: The temporary ID (e.g., `MyClass::my_method@5`) of the source [**`CodeEntity`**](#2.3.5-The-CodeEntity-Node) making the reference.
 -   **`target_expression: str`**: The literal text of the reference as written in the code (e.g., `MyClass::do_work`).
--   **`reference_type: str`**: The semantic type of the reference (e.g., `CALLS`, `EXTENDS`, `IMPORTS`).
--   **`possible_fqns: List[str]`**: See [**The Linchpin Field**](#2.2.3.1-The-Linchpin-Field-possible_fqns).
--   **`metadata: Optional[Dict[str, Any]]`**: See [**Capturing Conditional Context**](#2.2.3.2-The-metadata-Field).
+-   **`reference_type: str`**: The semantic type of the reference (e.g., `CALLS`, `EXTENDS`), which will become the type of the final [**`Relationship`**](#2.4.2-The-Relationship-Catalog).
+-   **`possible_fqns: List[str]`**: See [**The Linchpin Field**](#2.2.3.1-possible_fqns).
+-   **`metadata: Optional[Dict[str, Any]]`**: See [**Capturing Conditional Context**](#2.2.3.2-metadata-field).
 
-#### <a id="2.2.3.1-The-Linchpin-Field-possible_fqns"></a>2.2.3.1 The Linchpin Field: `possible_fqns`
-This field is the cornerstone of the entire **"Smart Parser"** architecture. It is a list of high-confidence, fully-qualified names that the parser deduces a reference could resolve to, based on its analysis of the file-local context (e.g., `using` statements, aliases, local variables). This list transforms the parser from a simple reporter into an intelligent analyst, enabling the linking engine to be a simple, safe verifier.
+#### <a id="2.2.3.1-possible_fqns"></a>2.2.3.1 Linchpin: `possible_fqns`
+Cornerstone of the entire **"Smart Parser"** architecture. It is a list of high-confidence, fully-qualified names that the parser deduces a reference could resolve to, based on its analysis of the file-local context (e.g., `using` statements, aliases, local variables). This list transforms the parser from a simple reporter into an intelligent analyst, enabling the [**`GraphEnhancementEngine`**](#3.5-Component-E-The-Graph-Enhancement-Engine) to be a simple, safe verifier.
 
-#### <a id="2.2.3.2-The-metadata-Field"></a>2.2.3.2 The `metadata` Field: Capturing Conditional Context
-This optional dictionary is our extensible mechanism for adding crucial context that isn't part of a symbol's core identity. Its primary use is to track conditional compilation. For example, a reference found inside an `#ifdef DEBUG` block would have its `metadata` populated with `{'is_conditional': True, 'condition': '#ifdef DEBUG'}`. This allows the final `Relationship` in the graph to carry this context.
+#### <a id="2.2.3.2-metadata-field"></a>2.2.3.2 `metadata`: Capturing Conditional Context
+Extensible mechanism for adding crucial context that isn't part of a symbol's core identity. Its primary use is to track conditional compilation. For example, a reference found inside an `#ifdef DEBUG` block would have its `metadata` populated with `{'is_conditional': True, 'condition': '#ifdef DEBUG'}`. This allows the final [**`Relationship`**](#2.4.1-The-Relationship-Model) in the graph to carry this context.
 
 ### <a id="2.2.4-The-Asynchronous-State-Machine"></a>2.2.4 The Asynchronous State Machine: `PendingLink` & `LinkStatus`
 
@@ -232,7 +230,7 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
     -   `canonical_fqn: str`: The parser's best-effort, language-specific canonical Fully Qualified Name. This is a **critical, indexed field** used as the primary key for all symbol linking.
     -   `type: str`: The specific type of the entity (e.g., `"FunctionDefinition"`, `"ClassDefinition"`).
     -   `snippet_content: str`: The raw text of the entity's definition.
-    -   `metadata: Optional[Dict[str, Any]]`: An optional dictionary for storing extra context, such as [**conditional compilation flags**](#2.2.3.2-The-metadata-Field).
+    -   `metadata: Optional[Dict[str, Any]]`: An optional dictionary for storing extra context, such as [**conditional compilation flags**](#2.2.3.2-metadata-field).
 
 ---
 
@@ -282,7 +280,7 @@ Our ID strategy is a core design principle that prioritizes debuggability and cl
 
 The parser is the foundation of our entire [**"Provable Truth"**](#1.1-The-Guiding-Principle) architecture. It is a stateless expert on a single language's syntax, and its only job is to be an **expert witness**. It makes **zero assumptions** about any other file or the state of the graph.
 
-Its most critical responsibility, as defined in [**Pattern 1**](#1.3.1-Pattern-1-The-Smart-Parser), is to use its deep syntactic understanding to deduce a list of high-probability, fully-qualified candidates ([**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns)) for every reference it finds. This moves the "intelligence" to the edge, where the most context is available, and eliminates the need for fragile, heuristic-based guessing in the linking engine.
+Its most critical responsibility, as defined in [**Pattern 1**](#1.3.1-Pattern-1-The-Smart-Parser), is to use its deep syntactic understanding to deduce a list of high-probability, fully-qualified candidates ([**`possible_fqns`**](#2.2.3.1-possible_fqns)) for every reference it finds. This moves the "intelligence" to the edge, where the most context is available, and eliminates the need for fragile, heuristic-based guessing in the linking engine.
 
 #### <a id="3.1.2-The-FileContext-Class"></a>3.1.2 The `FileContext` Class: A Parser's Local Brain
 
@@ -360,7 +358,7 @@ The [**`Orchestrator`**](#3.3-Component-C-The-Orchestrator) is the central hub o
 
 The `process_single_file` function is the main entry point, wrapped in a [**`tenacity`-based retry mechanism**](#1.2.1-Reliability-Guarantees) to handle transient database errors. The entire operation is a single, atomic transaction.
 
-1.  **Input Validation & Setup:** It validates the incoming [**`FileProcessingRequest`**](#2.2.1-The-Work-Order) and ensures all critical parsers have loaded.
+1.  **Input Validation & Setup:** It validates the incoming [**`FileProcessingRequest`**](#2.2.1-Entrypoint) and ensures all critical parsers have loaded.
 2.  **Handle Trivial Cases:** It correctly handles `DELETE` requests or empty/whitespace-only files, ensuring the graph state is accurate without invoking the full pipeline.
 3.  **Idempotency & Versioning:**
     - It uses a `content_hash` check for **idempotency**.
@@ -412,7 +410,7 @@ This task is the workhorse of our asynchronous linking process. It embodies the 
 
 1.  **Trigger:** It is called by the [**`Dispatcher`**](#3.4-Component-D-The-Intelligent-Dispatcher) for a quiescent repository.
 2.  **Action:** It queries the graph for all [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine) nodes in that repository with a status of `PENDING_RESOLUTION`.
-3.  **Verification:** For each [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine), it takes the list of [**`possible_fqns`**](#2.2.3.1-The-Linchpin-Field-possible_fqns) provided by the [**"Smart Parser"**](#1.3.1-Pattern-1-The-Smart-Parser). It then executes a single, precise query against the graph:
+3.  **Verification:** For each [**`PendingLink`**](#2.2.4-The-Asynchronous-State-Machine), it takes the list of [**`possible_fqns`**](#2.2.3.1-possible_fqns) provided by the [**"Smart Parser"**](#1.3.1-Pattern-1-The-Smart-Parser). It then executes a single, precise query against the graph:
     > `MATCH (n:CodeEntity) WHERE n.canonical_fqn IN $possible_fqns`
 4.  **The Unanimity Rule:** This is the only rule for automatic link creation. A link is made if, and only if, **both** of the following conditions are true:
     -   The `possible_fqns` list provided by the parser contained **exactly one** candidate.
